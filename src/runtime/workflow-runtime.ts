@@ -1,36 +1,31 @@
 /**
- * Workflow Runtime —— 宿主无关的编排核心（P0 子集）
+ * Workflow Runtime —— 宿主无关的编排核心（P1 完整版）
  *
- * 迁移自参考仓库 src/runtime/workflow-runtime.ts（SHA 3373d1a），按 V1 执行文档裁剪：
- *  P0 支持：args / phase / log / agent / parallel / sequence / setConcurrency
- *  P1 增加：fallback / race / workflow / check / verify / retry 及确定性 helpers
- *  P2 增加：journal / resume / checkpoint
+ * 迁移自参考仓库 src/runtime/workflow-runtime.ts（SHA 3373d1a），按 V1 执行文档裁剪。
  *
- * 执行流程：
- *  runWorkflow(script, options)
- *   -> createSharedRunContext
- *   -> executeWorkflow(script, args, shared)
- *        -> parseWorkflowScript 校验 meta 信封 + 剥离
- *        -> runScriptInVm（DETERMINISM_PRELUDE + body）
- *             -> agent() 依次经过：abort 检查 -> maxAgents 配额 -> scheduler 排队
- *                  -> withTimeout 包装 -> 可恢复错误重试 -> AgentSessionRunner.run（注入缝）
- *             -> parallel()：recoverable 失败塌缩为 null，non-recoverable 上抛
- *             -> sequence()：Composite 组合节点——经 executeNode 三态判定，
- *                  success 继续 / 可恢复失败停止（返回 null）/ 中止上抛
- *   -> 汇总 AgentRecord / logs / phases / token 用量 返回
+ * P0：args / phase / log / agent / parallel / sequence / setConcurrency / 阶段失败闸门
+ * P1：fallback / race / workflow（子流程）/ check / verify / retry + fileExists / commandSuccess
+ * P2：journal / resume / checkpoint（计划）
  *
- * 阶段失败闸门（语义与参考仓库 Bug1 修复一致）：
- *  agent 重试耗尽返回 null 后，run 不静默成功——下一 phase() 边界或 run 终检
- *  抛 WORKFLOW_FAILED；continueOnAgentFailure=true 可恢复静默继续的旧行为。
+ * 关键语义（与参考仓库一致）：
+ *  - agent 可恢复失败重试耗尽 → 返回 null + 登记阶段失败闸门（不静默成功）
+ *  - parallel：recoverable 塌缩 null；non-recoverable 上抛
+ *  - sequence：抛出型可恢复失败立即停止；agent 耗尽 null 继续传递（闸门兜底）
+ *  - fallback：串行竞争，首个 success 采纳；「null + 新增耗尽登记」视为候选失败换下一个
+ *  - race：首个 success 胜出并 abort 兄弟候选（局部中止面经 ALS 传播）
+ *  - workflow()：childSeq 同步领号（并行下 journal 身份稳定）、自环/深度检查、structuredClone 边界
  */
 
+import fs from "node:fs";
+import path from "node:path";
+import { exec } from "node:child_process";
 import { createLimiter } from "./semaphore.js";
 import { parseWorkflowScript, runScriptInVm } from "./vm.js";
 import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
 import { createNodeExecutor, compositeScopeStorage, type WorkflowNode } from "./node-contract.js";
 import type { AgentSessionRunner, AgentRunOptions } from "../agent/session-runner.js";
 import type { AgentRecord, AgentUsage, WorkflowRunResult } from "./types.js";
-import { truncateUtf8ByBytes, redactValue } from "./agent-result.js";
+import { buildOutputPreview } from "./agent-result.js";
 
 /** 运行时最大并发 */
 export const MAX_CONCURRENCY = 16;
@@ -38,8 +33,10 @@ export const MAX_CONCURRENCY = 16;
 export const MAX_AGENTS_PER_RUN = 1000;
 /** 可恢复失败的最大自动重试次数 */
 export const MAX_AGENT_RETRIES = 3;
+/** 子 workflow 嵌套深度上限 */
+export const MAX_WORKFLOW_DEPTH = 3;
 
-/** 脚本内 agent() 的可选项（比 AgentRunOptions 少 signal/onUsage 等宿主注入项） */
+/** 脚本内 agent() 的可选项 */
 export interface ScriptAgentOptions {
   label?: string;
   phase?: string;
@@ -54,6 +51,9 @@ export interface ScriptAgentOptions {
   /** 本 agent 的重试次数（可恢复失败后） */
   retries?: number;
 }
+
+/** workflow() 的 ref：字符串路径或对象形式（label 为实例显示名） */
+export type WorkflowRef = string | { scriptPath: string; label?: string };
 
 export interface WorkflowRunOptions {
   /** 暴露给脚本的 args 全局 */
@@ -73,6 +73,16 @@ export interface WorkflowRunOptions {
   cwd?: string;
   /** 阶段失败闸门逃生口：true 恢复旧行为——agent 重试耗尽返回 null 静默继续；缺省 false */
   continueOnAgentFailure?: boolean;
+  /** 子 workflow 嵌套深度上限（缺省 MAX_WORKFLOW_DEPTH=3） */
+  maxWorkflowDepth?: number;
+  /** 根脚本路径（相对子脚本引用的解析基准之一 + 自环检测；缺省仅用 cwd） */
+  scriptPath?: string;
+}
+
+/** checkpoint() 的可选项（P2 实现运行时；类型先占位保持向前兼容） */
+export interface CheckpointOptions {
+  default?: unknown;
+  headless?: "default" | "abort";
 }
 
 /** 并发闸门封装：limiter 与 concurrency 两份状态不可能失同步；仅 agent dispatch 进入 */
@@ -101,7 +111,7 @@ function createSharedScheduler(initial: number, onChange: (from: number, to: num
   };
 }
 
-/** 整棵 run 共享的资源层 */
+/** 整棵 run（root + 全部 child scope）共享的资源层 */
 interface SharedRunContext {
   runId: string;
   scheduler: SharedScheduler;
@@ -117,12 +127,9 @@ interface SharedRunContext {
   agentTimeoutMs: number | null;
   agentRetries?: number;
   cwd: string;
-  /** 阶段失败闸门明细：非空 = 有 agent 重试耗尽待裁决；下一 phase() 或 run 终检触发终止 */
   phaseFailed: Array<{ label: string; phase?: string; error: string }>;
   continueOnAgentFailure: boolean;
-  compositeSeq: number;
-  /** run 级调用序号（P0 单 scope；P1 child workflow 时迁移到 scope 私有） */
-  callSeq: number;
+  maxWorkflowDepth: number;
 }
 
 function createSharedRunContext(options: WorkflowRunOptions, runId: string): SharedRunContext {
@@ -142,8 +149,7 @@ function createSharedRunContext(options: WorkflowRunOptions, runId: string): Sha
     cwd: options.cwd ?? process.cwd(),
     phaseFailed: [],
     continueOnAgentFailure: options.continueOnAgentFailure ?? false,
-    compositeSeq: 0,
-    callSeq: 0,
+    maxWorkflowDepth: options.maxWorkflowDepth ?? MAX_WORKFLOW_DEPTH,
   };
   const initial = normalizeConcurrency(
     options.concurrency ?? Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 8) - 2),
@@ -154,6 +160,41 @@ function createSharedRunContext(options: WorkflowRunOptions, runId: string): Sha
   return shared;
 }
 
+/** 单个 workflow invocation 的私有身份与游标 */
+interface WorkflowScope {
+  /** 定义身份：脚本 meta.name */
+  name: string;
+  /** 实例身份 / UI 名：调用方 label 或 meta.name */
+  label: string;
+  scriptPath?: string;
+  /** 规范化绝对路径（自环检查用） */
+  canonicalPath?: string;
+  depth: number;
+  /** phase 显示前缀：child 为 "▸ <label> / "，root 为空 */
+  phasePrefix: string;
+  currentPhase?: string;
+  /** scope 私有调用序号 */
+  callSeq: number;
+  /** scope 私有 child 创建计数（与 callSeq 严格分离：journal 稳定性关键） */
+  childSeq: number;
+  /** scope 私有组合节点计数（展示寻址 cmpN） */
+  compositeSeq: number;
+  /** journal key 段：root 为 undefined，child 为 wfN */
+  keySegment?: string;
+  parent?: WorkflowScope;
+  /** 展示身份链（label 数组） */
+  pathLabels?: string[];
+  /** 稳定身份链（keySegment 数组；root 为 ["root"]） */
+  pathKeys?: string[];
+}
+
+/** journal key：root 为 runId:N；child 为全链段 runId:wfK:wfM:N（P2 journal 使用） */
+function scopedKey(shared: SharedRunContext, scope: WorkflowScope, callIndex: number): string {
+  return scope.keySegment
+    ? `${shared.runId}:${scope.pathKeys!.slice(1).join(":")}:${callIndex}`
+    : `${shared.runId}:${callIndex}`;
+}
+
 export async function runWorkflow<T = unknown>(
   script: string,
   options: WorkflowRunOptions,
@@ -161,15 +202,26 @@ export async function runWorkflow<T = unknown>(
   const started = Date.now();
   const runId = options.runId ?? `run-${started.toString(36)}`;
   const shared = createSharedRunContext(options, runId);
+  const rootScope: WorkflowScope = {
+    name: "root",
+    label: "root",
+    ...(options.scriptPath ? { scriptPath: options.scriptPath } : {}),
+    ...(options.scriptPath ? { canonicalPath: path.resolve(options.scriptPath) } : {}),
+    depth: 0,
+    phasePrefix: "",
+    callSeq: 0,
+    childSeq: 0,
+    compositeSeq: 0,
+  };
 
-  const { meta, result } = await executeWorkflow(script, options.args, shared);
+  const { meta, result } = await executeWorkflow(script, options.args, shared, rootScope);
 
   // 阶段失败闸门终检：失败发生在最后一个 phase 且脚本正常 return 时，不允许静默成功
   if (shared.phaseFailed.length > 0) throw buildFailedGateError(shared.phaseFailed);
-  // 纯编排非法：run 级至少一次实际 agent dispatch
+  // 纯编排非法：run 级至少一次实际 agent dispatch（含 child 内）
   if (shared.agentCount === 0) {
     throw new WorkflowError(
-      "workflow 脚本必须至少调用一次 agent()（纯计算请直接完成，不要用 workflow）",
+      "workflow 脚本必须至少调用一次 agent()（或经 workflow() 子流程间接调用）；纯计算请直接完成，不要用 workflow",
       WorkflowErrorCode.SCRIPT_VALIDATION_ERROR,
       { recoverable: false },
     );
@@ -187,19 +239,27 @@ export async function runWorkflow<T = unknown>(
   };
 }
 
-/** 单个 workflow 的执行体（P0 无 child workflow：单 scope） */
+/** 单个 workflow invocation 的执行体：独立 globals/args，共享资源层 */
 async function executeWorkflow(
   script: string,
   args: unknown,
   shared: SharedRunContext,
+  scope: WorkflowScope,
 ): Promise<{ meta: ReturnType<typeof parseWorkflowScript>["meta"]; result: unknown }> {
   const { meta, body } = parseWorkflowScript(script);
 
+  // 路径身份链：root 补 [meta.name]/["root"]；child 在创建时已继承父链
+  if (!scope.parent) {
+    scope.pathLabels = [meta.name];
+    scope.pathKeys = ["root"];
+  }
+
   // 初始 phase（声明 meta.phases 时，首个 phase 之前的 agent 归入第一个声明的 phase）
   const initialPhase = meta.phases?.[0]?.title;
-  if (initialPhase) {
+  if (initialPhase && !scope.parent) {
     shared.phases.push(initialPhase);
   }
+  scope.currentPhase = initialPhase;
 
   const log = (message: string) => {
     shared.logs.push(String(message));
@@ -212,12 +272,12 @@ async function executeWorkflow(
     }
   };
 
-  let currentPhase = initialPhase;
   const phase = (title: string) => {
     // 阶段失败闸门：上一阶段有 agent 重试耗尽 -> 此处即阶段边界，终止并报告
     if (shared.phaseFailed.length > 0) throw buildFailedGateError(shared.phaseFailed);
-    currentPhase = title;
-    if (!shared.phases.includes(title)) shared.phases.push(title);
+    scope.currentPhase = title;
+    const display = scope.phasePrefix + title;
+    if (!shared.phases.includes(display)) shared.phases.push(display);
   };
 
   const ensureAgentCapacity = () => {
@@ -253,17 +313,23 @@ async function executeWorkflow(
     throwIfAborted();
     ensureAgentCapacity();
 
-    const assignedPhase = scriptOptions.phase ?? currentPhase;
+    // 显示 phase（child 内带 "▸ label / " 前缀）
+    const assignedPhase = scriptOptions.phase ?? scope.currentPhase;
+    const displayPhase = scope.phasePrefix ? scope.phasePrefix + (assignedPhase ?? "") : assignedPhase;
     const modelSpec = scriptOptions.model;
-    const callIndex = shared.callSeq++;
+    const callIndex = scope.callSeq++;
     shared.agentCount++;
     const label = scriptOptions.label?.trim() || defaultAgentLabel(assignedPhase, shared.agentCount);
 
+    // 组合链标记：在组合节点内执行时携带 cmpN 链（纯展示）
+    const compositePath = compositeScopeStorage.getStore()?.compositePath;
     const record: AgentRecord = {
-      id: `${shared.runId}:${callIndex}`,
+      id: scopedKey(shared, scope, callIndex),
       label,
-      ...(assignedPhase ? { phase: assignedPhase } : {}),
+      ...(displayPhase ? { phase: displayPhase } : {}),
       status: "running",
+      ...(scope.parent ? { workflowPath: scope.pathLabels, workflowScopePath: scope.pathKeys } : {}),
+      ...(compositePath?.length ? { compositePath: [...compositePath] } : {}),
     };
     shared.agents.push(record);
 
@@ -273,7 +339,6 @@ async function executeWorkflow(
       const agentStarted = record.startedAt;
       const timeout = scriptOptions.timeoutMs !== undefined ? scriptOptions.timeoutMs : shared.agentTimeoutMs;
       record.timeoutMs = timeout;
-      // 缺省重试 1 次（可恢复失败一次即静默返回 null 会放大「不重试直接过」体感）
       const retries = normalizeAgentRetries(scriptOptions.retries ?? shared.agentRetries ?? 1);
       const maxAttempts = retries + 1;
 
@@ -287,13 +352,14 @@ async function executeWorkflow(
           const attemptController = new AbortController();
           const onRunAbort = () => attemptController.abort();
           shared.signal?.addEventListener("abort", onRunAbort);
+          // Composite 局部中止面：race 胜出后 abort 只取消兄弟候选
           compositeScopeStorage.getStore()?.signal?.addEventListener("abort", onRunAbort);
           const attemptStarted = Date.now();
           const executionId = `${record.id}:${attempt}`;
           try {
             const runOptions: AgentRunOptions = {
               label,
-              phase: assignedPhase,
+              phase: displayPhase,
               agentType: scriptOptions.agentType,
               model: modelSpec,
               schema: scriptOptions.schema,
@@ -338,9 +404,10 @@ async function executeWorkflow(
               record.error = workflowError.message;
               record.durationMs = Date.now() - agentStarted;
               log(`agent "${label}" ${maxAttempts} 次尝试后失败: ${workflowError.code} ${workflowError.message}`);
-              // 阶段失败闸门：登记待裁决——下一 phase() 边界或 run 终检触发终止报告
+              // 阶段失败闸门：登记待裁决——下一 phase() 边界或 run 终检触发终止报告；
+              // fallback/race 成功吸收时清除
               if (!shared.continueOnAgentFailure) {
-                shared.phaseFailed.push({ label, phase: assignedPhase, error: workflowError.message });
+                shared.phaseFailed.push({ label, phase: displayPhase, error: workflowError.message });
               }
               return null;
             }
@@ -352,9 +419,134 @@ async function executeWorkflow(
         }
         return null;
       } finally {
-        // P0：无 worktree；资源释放由 adapter 的 dispose 保证
+        // 资源释放由 adapter 的 dispose 保证；P1 无 worktree
       }
     });
+  };
+
+  // ── workflow() 原语：子流程（P1） ──
+
+  /** 规范化 workflow 脚本路径：父脚本目录优先，其次 shared.cwd；realpath + Windows 大小写归一（自环检查用） */
+  const canonicalWorkflowPath = (p: string): string => {
+    const candidates: string[] = [];
+    if (scope.scriptPath) {
+      candidates.push(path.resolve(path.dirname(path.resolve(scope.scriptPath)), p));
+    }
+    candidates.push(path.resolve(shared.cwd, p));
+    // 取第一个真实存在的候选；都不存在则用最后一个（后续读盘报精确错误）
+    let resolved = candidates[candidates.length - 1] as string;
+    for (const candidate of candidates) {
+      try {
+        if (fs.existsSync(candidate)) {
+          resolved = candidate;
+          break;
+        }
+      } catch {
+        // 检查失败试下一个候选
+      }
+    }
+    try {
+      resolved = fs.realpathSync.native(resolved);
+    } catch {
+      // realpath 失败（文件不存在等）保留 resolve 结果
+    }
+    if (process.platform === "win32") resolved = resolved.toLowerCase();
+    return resolved;
+  };
+
+  const workflow = async (ref: WorkflowRef, childArgs?: unknown): Promise<unknown> => {
+    throwIfAborted();
+    // [关键] 同步阶段首行领号：childSeq++ 必须发生在任何 await 之前——
+    // parallel 下 resolve/parse 异步化会让 wfN 按完成顺序分配，身份不稳定
+    const childIndex = scope.childSeq++;
+    const keySegment = `wf${childIndex}`;
+
+    let scriptPath: string;
+    let label: string | undefined;
+    if (typeof ref === "string") {
+      scriptPath = ref;
+    } else if (ref && typeof ref === "object" && typeof ref.scriptPath === "string") {
+      scriptPath = ref.scriptPath;
+      label = ref.label;
+    } else {
+      throw new WorkflowError(
+        "workflow() 需要 scriptPath 字符串或 { scriptPath, label? } 对象",
+        WorkflowErrorCode.SCRIPT_VALIDATION_ERROR,
+        { recoverable: false },
+      );
+    }
+
+    const canonical = canonicalWorkflowPath(scriptPath);
+    // 自环检查（先于深度检查："child 调祖先"报更具体的自环错）
+    for (let s: WorkflowScope | undefined = scope; s; s = s.parent) {
+      if (s.canonicalPath && s.canonicalPath === canonical) {
+        throw new WorkflowError(
+          `workflow 不能调用自身或祖先：${canonical}`,
+          WorkflowErrorCode.SCRIPT_VALIDATION_ERROR,
+          { recoverable: false },
+        );
+      }
+    }
+
+    // 深度限制
+    if (scope.depth >= shared.maxWorkflowDepth) {
+      throw new WorkflowError(
+        `workflow() 嵌套深度超限（当前最多 ${shared.maxWorkflowDepth} 层子 workflow；可用 maxWorkflowDepth 参数调整）`,
+        WorkflowErrorCode.SCRIPT_VALIDATION_ERROR,
+        { recoverable: false },
+      );
+    }
+
+    let childScript: string;
+    try {
+      childScript = fs.readFileSync(canonical, "utf-8");
+    } catch {
+      throw new WorkflowError(
+        `workflow() 子脚本不存在或不可读：${scriptPath}（解析为 ${canonical}）`,
+        WorkflowErrorCode.SCRIPT_VALIDATION_ERROR,
+        { recoverable: false },
+      );
+    }
+
+    // structuredClone 调用边界：child args 与 parent 传入对象无引用共享
+    let clonedArgs: unknown;
+    try {
+      clonedArgs = structuredClone(childArgs ?? {});
+    } catch {
+      throw new WorkflowError(
+        "workflow() 的 args 必须是 structured-clone-compatible 数据（object/array/string/number/boolean/null）",
+        WorkflowErrorCode.SCRIPT_VALIDATION_ERROR,
+        { recoverable: false },
+      );
+    }
+
+    const childMeta = parseWorkflowScript(childScript).meta;
+    const childLabel = label?.trim() || childMeta.name;
+    const childScope: WorkflowScope = {
+      name: childMeta.name,
+      label: childLabel,
+      scriptPath,
+      canonicalPath: canonical,
+      depth: scope.depth + 1,
+      phasePrefix: `▸ ${childLabel} / `,
+      callSeq: 0,
+      childSeq: 0,
+      compositeSeq: 0,
+      keySegment,
+      parent: scope,
+      pathLabels: [...(scope.pathLabels ?? []), childLabel],
+      pathKeys: [...(scope.pathKeys ?? []), keySegment],
+    };
+    log(`workflow("${childLabel}") 启动（key=${keySegment}，script=${canonical}）`);
+    try {
+      const child = await executeWorkflow(childScript, clonedArgs, shared, childScope);
+      log(`workflow("${childLabel}") 完成`);
+      // 返回值同样克隆：child 结果不与 VM 内引用共享
+      return structuredClone(child.result);
+    } catch (error) {
+      log(`workflow("${childLabel}") 失败：${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
   };
 
   const parallel = async (thunks: Array<() => Promise<unknown>>) => {
@@ -386,7 +578,7 @@ async function executeWorkflow(
     error: (m: unknown) => log(`[error] ${String(m)}`),
   };
 
-  // ── Composite 组合节点（P0 仅 sequence）：纯控制层，不碰 callSeq/agentCount ──
+  // ── Composite 组合节点（sequence/fallback/race） ──
 
   const assertCompositeNodes = (nodes: unknown, api: string): Array<WorkflowNode> => {
     if (!Array.isArray(nodes) || nodes.length === 0 || nodes.some((n) => typeof n !== "function")) {
@@ -401,14 +593,29 @@ async function executeWorkflow(
     throw new WorkflowError("workflow aborted", WorkflowErrorCode.WORKFLOW_ABORTED, { recoverable: true });
   };
 
-  /** sequence：串行传递执行，前一个节点的返回值作为下一个节点的入参 */
-  const sequence = (nodes: Array<WorkflowNode>): Promise<unknown> => {
+  /** 组合节点公共骨架：同步领号 cmpN、ALS 注入组合链与（race 的）局部 signal */
+  const runComposite = async (
+    kind: "sequence" | "fallback" | "race",
+    nodes: Array<WorkflowNode>,
+    exec: (list: Array<WorkflowNode>) => Promise<{ value: unknown; failed: boolean }>,
+    signal?: AbortSignal,
+  ): Promise<unknown> => {
     throwIfAborted();
-    const list = assertCompositeNodes(nodes, "sequence");
-    const id = `cmp${shared.compositeSeq++}`;
+    const list = assertCompositeNodes(nodes, kind);
+    const id = `cmp${scope.compositeSeq++}`;
     const parentPath = compositeScopeStorage.getStore()?.compositePath;
     const compositePath = [...(parentPath ?? []), id];
-    return compositeScopeStorage.run({ compositePath }, async () => {
+    try {
+      const outcome = await compositeScopeStorage.run({ signal, compositePath }, () => exec(list));
+      return outcome.value;
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  /** sequence：串行传递执行，前一个节点的返回值作为下一个节点的入参 */
+  const sequence = (nodes: Array<WorkflowNode>): Promise<unknown> =>
+    runComposite("sequence", nodes, async (list) => {
       let value: unknown;
       for (const [index, node] of list.entries()) {
         const r = await executeNode(node, value);
@@ -420,10 +627,209 @@ async function executeWorkflow(
         // 可恢复失败：序列立即停止，返回 null（脚本可 if (!r) 判断）
         const message = r.error instanceof Error ? r.error.message : String(r.error);
         log(`sequence[${index}] 失败，序列停止: ${message}`);
-        return null;
+        return { value: null, failed: true };
       }
-      return value;
+      return { value, failed: false };
     });
+
+  /** fallback：串行竞争，首个 success 结果返回；「null + 候选窗口内新增耗尽登记」视为候选失败 */
+  const fallback = (nodes: Array<WorkflowNode>): Promise<unknown> =>
+    runComposite("fallback", nodes, async (list) => {
+      for (const [index, node] of list.entries()) {
+        const before = shared.phaseFailed.length;
+        const r = await executeNode(node, undefined);
+        if (r.status === "success") {
+          // 闸门归因：agent 耗尽失败以 null 值形态返回——「null + 候选窗口内新增登记」
+          // 判定为本候选失败：回滚这批登记（已被换候选显式吸收），继续尝试下一候选
+          const added = shared.phaseFailed.slice(before);
+          if (r.value === null && added.length > 0) {
+            shared.phaseFailed.length = before;
+            log(`fallback[${index}] 候选返回 null 且有耗尽失败登记，视为候选失败换下一个`);
+            continue;
+          }
+          // 阶段失败闸门：降级成功 = 失败已被显式吸收，清除登记
+          if (shared.phaseFailed.length > 0) shared.phaseFailed = [];
+          return { value: r.value, failed: false };
+        }
+        if (r.status === "cancelled") throwCancelled();
+        // 可恢复失败：尝试下一候选；结构性错误已由 executeNode 上抛
+        const message = r.error instanceof Error ? r.error.message : String(r.error);
+        log(`fallback[${index}] 失败，尝试下一候选: ${message}`);
+      }
+      log("fallback 全部候选失败，返回 null");
+      return { value: null, failed: true };
+    });
+
+  /** race：并行竞争，首个 success 胜出并取消其余候选 */
+  const race = (nodes: Array<WorkflowNode>): Promise<unknown> => {
+    const controller = new AbortController();
+    return runComposite(
+      "race",
+      nodes,
+      (list) =>
+        new Promise<{ value: unknown; failed: boolean }>((resolve, reject) => {
+          let settled = false;
+          let failureCount = 0;
+          /** 首个结论生效：后续到达（含被取消兄弟的迟到失败/取消）全部忽略 */
+          const settle = (finish: () => void) => {
+            if (settled) return;
+            settled = true;
+            finish();
+          };
+          list.forEach((node, index) => {
+            const startLen = shared.phaseFailed.length;
+            executeNode(node, undefined).then((result) => {
+              // 闸门归因：「null + 本候选产生耗尽登记」不是真成功，
+              // 回滚这批登记（被竞争吸收）并按可恢复失败参与竞争统计
+              if (result.status === "success" && result.value === null && shared.phaseFailed.length > startLen) {
+                shared.phaseFailed.length = startLen;
+                return { status: "failure" as const, error: new Error("候选返回 null 且有耗尽失败登记") };
+              }
+              return result;
+            }).then(
+              (r) => {
+                if (r.status === "success") {
+                  settle(() => {
+                    controller.abort();
+                    log(`race[${index}] 胜出，取消其余 ${list.length - 1} 个候选`);
+                    // 阶段失败闸门：败者的耗尽失败已被胜者吸收，清除登记
+                    if (shared.phaseFailed.length > 0) shared.phaseFailed = [];
+                    resolve({ value: r.value, failed: false });
+                  });
+                } else if (r.status === "cancelled") {
+                  settle(() =>
+                    reject(
+                      new WorkflowError("workflow aborted", WorkflowErrorCode.WORKFLOW_ABORTED, {
+                        recoverable: true,
+                      }),
+                    ),
+                  );
+                } else {
+                  failureCount++;
+                  log(`race[${index}] 可恢复失败（${failureCount}/${list.length}）`);
+                  if (failureCount === list.length) {
+                    settle(() => {
+                      log("race 全部候选失败，返回 null");
+                      resolve({ value: null, failed: true });
+                    });
+                  }
+                }
+              },
+              (structural) =>
+                settle(() => {
+                  controller.abort();
+                  reject(structural);
+                }),
+            );
+          });
+        }),
+      controller.signal,
+    );
+  };
+
+  // ── check / 确定性 helpers（P1） ──
+
+  /** check：确定性事实验证。true=SUCCESS；false=FAILURE（可恢复失败，与其他节点同构）；
+   *  condition 自身 throw=结构性错误（检查代码的 bug 不许伪装成「验证未通过」）。
+   *  职责分离：check 客观事实 / verify AI 质量判断 / checkpoint（P2）人工决定 */
+  const check = async (
+    condition: () => boolean | Promise<boolean>,
+    message?: string,
+  ): Promise<boolean> => {
+    if (typeof condition !== "function") {
+      throw new WorkflowError("check(condition, message?) 需要函数条件", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+      });
+    }
+    let passed: boolean;
+    try {
+      passed = await condition();
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new WorkflowError(
+        `check 条件执行出错（不是验证未通过，是检查代码出错）：${reason}`,
+        WorkflowErrorCode.SCRIPT_VALIDATION_ERROR,
+        { recoverable: false },
+      );
+    }
+    if (passed === true) return true;
+    throw new WorkflowError(message ?? "check 验证未通过", WorkflowErrorCode.CHECK_FAILED, { recoverable: true });
+  };
+
+  /** 文件/目录存在性（相对 shared.cwd） */
+  const fileExists = (target: string): boolean => {
+    if (typeof target !== "string" || !target.trim()) return false;
+    return fs.existsSync(path.resolve(shared.cwd, target));
+  };
+
+  /** 命令退出码为 0（超时视为失败） */
+  const commandSuccess = (command: string, timeoutMs = 30_000): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (typeof command !== "string" || !command.trim()) {
+        resolve(false);
+        return;
+      }
+      exec(command, { cwd: shared.cwd, timeout: timeoutMs, windowsHide: true }, (error) => resolve(!error));
+    });
+  };
+
+  // ── verify / retry（P1） ──
+
+  const VERIFY_SCHEMA: Record<string, unknown> = {
+    type: "object",
+    properties: { real: { type: "boolean" }, reason: { type: "string" } },
+    required: ["real"],
+  };
+
+  /** 对抗式评审：多个 reviewer 尝试反驳 item，投票达阈值判真 */
+  const verify = async (
+    item: unknown,
+    opts: { reviewers?: number; threshold?: number; lens?: string | string[] } = {},
+  ): Promise<unknown> => {
+    throwIfAborted();
+    const reviewerSlots = normalizeQualityFanout(opts.reviewers, 2, "verify() reviewers");
+    const threshold = opts.threshold ?? 0.5;
+    const lenses = opts.lens ? (Array.isArray(opts.lens) ? opts.lens : [opts.lens]) : [];
+    const claim = typeof item === "string" ? item : JSON.stringify(item);
+    const votes = (
+      await parallel(
+        Array.from({ length: reviewerSlots }, (_v, i) => () =>
+          agent(
+            `Adversarially review whether the following is REAL/correct. Try to refute it; default to real=false if unsure.${lenses.length ? ` Focus lens: ${lenses[i % lenses.length]}.` : ""}\n\n${claim}`,
+            { label: `verify ${i + 1}`, schema: VERIFY_SCHEMA },
+          )),
+      )
+    ).filter(Boolean) as Array<{ real?: boolean; reason?: string }>;
+    const realCount = votes.filter((v) => v?.real).length;
+    return {
+      real: votes.length > 0 && realCount / votes.length >= threshold,
+      realCount,
+      total: votes.length,
+      votes,
+    };
+  };
+
+  /** 有界重试糖：直到 until 通过或耗尽，返回最后一次结果（不抛错） */
+  const retry = async (
+    thunk: (attempt: number) => Promise<unknown> | unknown,
+    opts: { attempts?: number; until?: (r: unknown) => boolean } = {},
+  ): Promise<unknown> => {
+    const attempts = Math.max(1, opts.attempts ?? 3);
+    let last: unknown;
+    for (let i = 0; i < attempts; i++) {
+      last = await thunk(i);
+      const accepted = !opts.until || opts.until(last);
+      if (accepted) return last;
+    }
+    return last;
+  };
+
+  const normalizeQualityFanout = (value: unknown, fallback: number, optionName: string): number => {
+    const count = value === undefined ? fallback : value;
+    if (typeof count !== "number" || !Number.isFinite(count) || !Number.isInteger(count) || count < 1) {
+      throw new TypeError(`${optionName} 必须是大于等于 1 的整数`);
+    }
+    return count;
   };
 
   // 脚本内动态调节并发上限：非法值报错；超上限钳制并记日志
@@ -438,24 +844,32 @@ async function executeWorkflow(
     shared.scheduler.setConcurrency(value);
   };
 
-  // globals：args 闭包绑定
+  // globals：每次 invocation 独立构造（args 闭包绑定当前 scope）
   const globals: Record<string, unknown> = {
     agent,
+    workflow,
     parallel,
     sequence,
+    fallback,
+    race,
+    check,
+    fileExists,
+    commandSuccess,
     phase,
     log,
     args,
     setConcurrency,
+    verify,
+    retry,
     console: consoleShim,
   };
 
   try {
-    const result = await runScriptInVm(body, meta.name, globals);
+    const result = await runScriptInVm(body, scope.label, globals);
     return { meta, result };
   } catch (error) {
-    // root 脚本异常置位整 run 中止面（拦住未 await 的 parallel 兄弟分支继续 dispatch）
-    shared.aborted = true;
+    // 仅 root 脚本异常置位整 run 中止面（child 失败不污染——父脚本可 fallback/捕获）
+    if (!scope.parent) shared.aborted = true;
     throw error;
   }
 }
@@ -511,29 +925,7 @@ function normalizeConcurrency(value: unknown): number {
   return Math.min(MAX_CONCURRENCY, Math.floor(value));
 }
 
-/** 无 schema 且结果为空/纯空白字符串 → 视为空文本 */
-function isEmptyTextResult(result: unknown, schema: Record<string, unknown> | undefined): boolean {
-  return schema === undefined && typeof result === "string" && result.trim().length === 0;
-}
-void isEmptyTextResult;
-
 function normalizeAgentRetries(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
   return Math.min(MAX_AGENT_RETRIES, Math.floor(value));
-}
-
-/** 展示用预览（脱敏 + 2KB 截断；语义同参考仓库 agent-result.ts） */
-function buildOutputPreview(value: unknown, maxBytes = 2048): string {
-  let text: string;
-  try {
-    if (typeof value === "string") {
-      text = value;
-    } else {
-      const serialized = JSON.stringify(redactValue(value), null, 2);
-      text = serialized === undefined ? String(value) : serialized;
-    }
-  } catch {
-    text = String(value);
-  }
-  return truncateUtf8ByBytes(text, maxBytes);
 }

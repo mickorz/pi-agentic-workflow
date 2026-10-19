@@ -52,6 +52,12 @@ export interface AgentRecord {
   outputPreview?: string;
   inputTokens?: number;
   outputTokens?: number;
+  /** 展示身份（scope 链 label 数组）；root 的 agent 无此字段 */
+  workflowPath?: string[];
+  /** 稳定身份（scope 链 keySegment 数组） */
+  workflowScopePath?: string[];
+  /** 组合链（cmpN id 数组；纯展示用） */
+  compositePath?: string[];
 }
 
 /** workflow 脚本 meta 信封 */

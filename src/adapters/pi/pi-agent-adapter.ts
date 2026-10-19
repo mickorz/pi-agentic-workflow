@@ -21,6 +21,7 @@ import type { AgentSessionRunner, AgentRunOptions, AgentExecutionResult } from "
 import type { AgentUsage } from "../../runtime/types.js";
 import { ModelResolver } from "./model-resolver.js";
 import { resolveToolProfile } from "./tool-profiles.js";
+import { validateJsonSchema } from "./schema-validator.js";
 
 export interface PiAdapterOptions {
   /** 会话默认工作目录 */
@@ -99,6 +100,8 @@ export class PiAgentAdapter implements AgentSessionRunner {
 
       if (options.schema) {
         const value = parseStructuredOutput(text, options.label);
+        // 完整 JSON Schema 校验（P1-06）：失败抛错（可恢复，由 runtime 重试）；不假成功
+        validateJsonSchema(value, options.schema);
         return { type: "structured", value, sessionId };
       }
       return { type: "text", value: text, sessionId };

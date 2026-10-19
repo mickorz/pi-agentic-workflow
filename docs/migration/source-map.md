@@ -14,7 +14,7 @@
 | `src/runtime/vm.ts` | 复制+改造 | `src/runtime/vm.ts` | 无变化（确定性 PRELUDE / meta 字面量校验语义一致） |
 | `src/runtime/node-contract.ts` | 复制+裁剪 | `src/runtime/node-contract.ts` | 无变化（compositeScope ALS 保留供 P1 race） |
 | `src/runtime/agent-result.ts` | 复制+裁剪 | `src/runtime/agent-result.ts` | 仅保留展示预览（truncate/redact），journal prompt 截断 P2 再加 |
-| `src/runtime/workflow-runtime.ts` | 改造（P0 子集） | `src/runtime/workflow-runtime.ts` | 见下"P0 裁剪清单" |
+| `src/runtime/workflow-runtime.ts` | 改造（P0 子集 + P1 控制流） | `src/runtime/workflow-runtime.ts` | P1 补齐 fallback/race/workflow/check/verify/retry + helpers；workflow() 路径解析改为父脚本目录优先 |
 | `src/agent/session-runner.ts` | 复制+改造 | `src/agent/session-runner.ts` | agentType 注释改为 explore/general 语义 |
 | `src/adapters/opencode-session-adapter.ts` | **不迁移**（OpenCode 专属） | — | 由 `src/adapters/pi/pi-agent-adapter.ts` 等价实现（Pi SDK） |
 | `src/persistence/journal.ts` | 不迁移（P2 重新实现） | — | P2 按目标仓库数据契约实现 |
@@ -31,22 +31,23 @@
 | `src/adapters/pi/model-resolver.ts` | "provider/modelId" / 裸 id → Model；找不到抛错 | Pi SDK `ModelRuntime.getModel/getAvailable`（02-custom-model 示例） |
 | `src/adapters/pi/pi-agent-adapter.ts` | Session 隔离（inMemory）、abort 接线、用量统计、结构化输出解析 | Pi SDK `SessionManager.inMemory` / `session.abort/dispose` / `message_end.usage` / `getLastAssistantText` |
 
-## P0 裁剪清单（workflow-runtime 相对参考实现）
+## P1 裁剪清单（相对参考实现）
 
-| 参考 capability | P0 状态 | 计划 |
+| 参考 capability | 状态 | 计划 |
 |---|---|---|
-| `agent()`（配额/超时/重试/中止/用量） | ✅ 已迁移 | — |
-| `parallel()`（塌缩 null / 拒绝 Promise 数组） | ✅ 已迁移 | — |
-| `sequence()`（composite + executeNode 三态） | ✅ 已迁移 | — |
-| `phase()/log()/args/setConcurrency/console shim` | ✅ 已迁移 | — |
-| 阶段失败闸门（Bug1 语义） | ✅ 已迁移 | — |
+| `agent()`（配额/超时/重试/中止/用量） | ✅ 已迁移（P0） | — |
+| `parallel()/sequence()`（composite 三态/塌缩 null） | ✅ 已迁移（P0） | — |
+| `phase()/log()/args/setConcurrency/console shim` | ✅ 已迁移（P0） | — |
+| 阶段失败闸门（Bug1 语义） | ✅ 已迁移（P0） | — |
+| `fallback()/race()`（局部中止面 + 闸门归因） | ✅ 已迁移（P1） | — |
+| `workflow()` 子流程（自环/深度/structuredClone/共享配额） | ✅ 已迁移（P1，路径解析父脚本目录优先） | — |
+| `check()/verify()/retry()` + `fileExists/commandSuccess` | ✅ 已迁移（P1） | — |
+| schema 完整校验 | ✅ `src/adapters/pi/schema-validator.ts`（全新，JSON Schema 子集） | — |
 | journal / resume / hashAgentCall | ❌ 未迁移 | P2 |
-| `workflow()` 子流程（registry/自环/深度） | ❌ 未迁移 | P1 |
-| `fallback()/race()`（局部中止面） | ❌ 未迁移 | P1（ALS 已就位） |
-| `check()/verify()/judgePanel()/retry()` | ❌ 未迁移 | P1 |
 | `checkpoint()`（人工审批） | ❌ 未迁移 | P2 |
+| 名字引用 registry | ❌ 不迁移 | backlog |
+| `judgePanel()` / `pipeline()` | ❌ 不迁移 | backlog |
 | worktree 隔离 | ❌ 不迁移 | 非 V1 目标 |
-| `pipeline()`（旧 DSL 兼容） | ❌ 不迁移 | 可选 backlog |
 
 ## 兼容性差异记录（docs/migration/compatibility.md 候选条目）
 

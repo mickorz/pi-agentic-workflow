@@ -134,6 +134,7 @@ export async function run(argv: string[]): Promise<number> {
   try {
     const result = await runWorkflow(script, {
       ...(flags.cwd ? { cwd: flags.cwd } : {}),
+      scriptPath: file,
       ...(flags.args !== undefined ? { args: flags.args } : {}),
       agent: adapter,
       ...(flags.concurrency ? { concurrency: flags.concurrency } : {}),
