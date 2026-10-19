@@ -1,1 +1,16 @@
+# 依赖与构建产物
+node_modules/
+dist/
+
+# 第三方依赖/外部代码
 thirdparties/
+
+# 开发过程目录（不进 git）
+dev-docs/
+dev-examples/
+
+# macOS
+.DS_Store
+
+# Claude Code 本地配置（不进 git）
+.claude/settings.local.json
