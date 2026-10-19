@@ -14,6 +14,10 @@ export enum WorkflowErrorCode {
   CHECK_FAILED = "CHECK_FAILED",
   /** 阶段失败闸门：agent 重试耗尽后 workflow 在下一 phase 边界终止 */
   WORKFLOW_FAILED = "WORKFLOW_FAILED",
+  /** checkpoint 无人工通道且无显式默认值：进入等待态（持久化非终态，绝不自动通过） */
+  CHECKPOINT_WAITING = "CHECKPOINT_WAITING",
+  /** 脚本或参数哈希变化，拒绝复用旧 journal */
+  RESUME_MISMATCH = "RESUME_MISMATCH",
 }
 
 export class WorkflowError extends Error {

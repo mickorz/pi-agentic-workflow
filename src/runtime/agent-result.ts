@@ -59,3 +59,10 @@ export function buildOutputPreview(value: unknown, maxBytes = OUTPUT_PREVIEW_LIM
   }
   return truncateUtf8ByBytes(text, maxBytes);
 }
+
+/** journal 载荷用的 prompt 截断（4KB） */
+export const PROMPT_JOURNAL_LIMIT_BYTES = 4096;
+
+export function truncatePromptForJournal(prompt: string): string {
+  return truncateUtf8ByBytes(prompt, PROMPT_JOURNAL_LIMIT_BYTES);
+}

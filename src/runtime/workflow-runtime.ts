@@ -24,8 +24,9 @@ import { parseWorkflowScript, runScriptInVm } from "./vm.js";
 import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
 import { createNodeExecutor, compositeScopeStorage, type WorkflowNode } from "./node-contract.js";
 import type { AgentSessionRunner, AgentRunOptions } from "../agent/session-runner.js";
-import type { AgentRecord, AgentUsage, WorkflowRunResult } from "./types.js";
-import { buildOutputPreview } from "./agent-result.js";
+import type { AgentRecord, AgentUsage, JournalEntry, WorkflowRunResult } from "./types.js";
+import { buildOutputPreview, truncatePromptForJournal } from "./agent-result.js";
+import { createHash } from "node:crypto";
 
 /** 运行时最大并发 */
 export const MAX_CONCURRENCY = 16;
@@ -77,6 +78,12 @@ export interface WorkflowRunOptions {
   maxWorkflowDepth?: number;
   /** 根脚本路径（相对子脚本引用的解析基准之一 + 自环检测；缺省仅用 cwd） */
   scriptPath?: string;
+  /** resume：上一轮的 journal（root key 为 runId:callIndex，child 为 runId:wfK:callIndex） */
+  resumeJournal?: Map<string, JournalEntry>;
+  /** 每个成功 live agent/checkpoint 完成后回调，调用方负责持久化 */
+  onAgentJournal?: (entry: JournalEntry & { key: string }) => void;
+  /** checkpoint() 的人工确认通道（CLI 接 readline；缺省走等待态策略） */
+  confirm?: (promptText: string) => Promise<unknown>;
 }
 
 /** checkpoint() 的可选项（P2 实现运行时；类型先占位保持向前兼容） */
@@ -130,6 +137,9 @@ interface SharedRunContext {
   phaseFailed: Array<{ label: string; phase?: string; error: string }>;
   continueOnAgentFailure: boolean;
   maxWorkflowDepth: number;
+  resumeJournal?: Map<string, JournalEntry>;
+  onAgentJournal?: (entry: JournalEntry & { key: string }) => void;
+  confirm?: (promptText: string) => Promise<unknown>;
 }
 
 function createSharedRunContext(options: WorkflowRunOptions, runId: string): SharedRunContext {
@@ -150,6 +160,9 @@ function createSharedRunContext(options: WorkflowRunOptions, runId: string): Sha
     phaseFailed: [],
     continueOnAgentFailure: options.continueOnAgentFailure ?? false,
     maxWorkflowDepth: options.maxWorkflowDepth ?? MAX_WORKFLOW_DEPTH,
+    resumeJournal: options.resumeJournal,
+    onAgentJournal: options.onAgentJournal,
+    confirm: options.confirm,
   };
   const initial = normalizeConcurrency(
     options.concurrency ?? Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 8) - 2),
@@ -181,6 +194,8 @@ interface WorkflowScope {
   compositeSeq: number;
   /** journal key 段：root 为 undefined，child 为 wfN */
   keySegment?: string;
+  /** scope 私有回放边界：首个未命中 journal 的 callIndex（P2） */
+  firstMiss: number;
   parent?: WorkflowScope;
   /** 展示身份链（label 数组） */
   pathLabels?: string[];
@@ -212,6 +227,7 @@ export async function runWorkflow<T = unknown>(
     callSeq: 0,
     childSeq: 0,
     compositeSeq: 0,
+    firstMiss: Number.POSITIVE_INFINITY,
   };
 
   const { meta, result } = await executeWorkflow(script, options.args, shared, rootScope);
@@ -333,6 +349,29 @@ async function executeWorkflow(
     };
     shared.agents.push(record);
 
+    // ---- journal / resume（P2）：确定性哈希 + 最长未变前缀回放 ----
+    // 哈希身份：prompt/model/phase/agentType/schema；key 为 scope 稳定身份（并行乱序完成不影响 key）
+    const deltaKey = record.id;
+    const callHash = hashAgentCall(prompt, scriptOptions, displayPhase);
+    const cached = shared.resumeJournal?.get(deltaKey);
+    const hashMatches = cached != null && cached.hash === callHash;
+    // 空文本结果不回放：历史 journal 里的空串一律重跑
+    const cachedEmpty = hashMatches && isEmptyTextResult(cached.result, scriptOptions.schema);
+    if (hashMatches && !cachedEmpty && callIndex < scope.firstMiss) {
+      record.status = "ok";
+      record.replayed = true;
+      record.model = cached.model;
+      record.executionId = cached.executionId;
+      record.attempt = cached.attempt;
+      if (cached.outputType === "text" || cached.outputType === "structured") {
+        record.outputType = cached.outputType;
+      }
+      return cached.result;
+    }
+    if (!hashMatches || cachedEmpty) {
+      scope.firstMiss = Math.min(scope.firstMiss, callIndex);
+    }
+
     return shared.scheduler.run(async () => {
       // 时间戳在拿到并发槽位后才打——排队等待期不计时、不计入 durationMs
       record.startedAt = Date.now();
@@ -385,6 +424,26 @@ async function executeWorkflow(
             record.sessionId = execution.sessionId;
             record.outputType = execution.type;
             record.outputPreview = buildOutputPreview(execution.value);
+            // 成功且非空结果写入 journal 回放缓存；失败/null/空文本不进
+            if (!isEmptyTextResult(value, scriptOptions.schema)) {
+              shared.onAgentJournal?.({
+                key: deltaKey,
+                hash: callHash,
+                result: value,
+                model: modelSpec,
+                label,
+                workflowLabel: scope.parent ? scope.label : undefined,
+                phase: displayPhase,
+                agentType: scriptOptions.agentType,
+                sessionId: execution.sessionId,
+                prompt: truncatePromptForJournal(prompt),
+                outputType: execution.type,
+                executionId,
+                attempt,
+                startedAt: attemptStarted,
+                durationMs: Date.now() - attemptStarted,
+              });
+            }
             return value;
           } catch (error) {
             if (isAborted()) {
@@ -534,6 +593,7 @@ async function executeWorkflow(
       compositeSeq: 0,
       keySegment,
       parent: scope,
+      firstMiss: Number.POSITIVE_INFINITY,
       pathLabels: [...(scope.pathLabels ?? []), childLabel],
       pathKeys: [...(scope.pathKeys ?? []), keySegment],
     };
@@ -832,6 +892,92 @@ async function executeWorkflow(
     return count;
   };
 
+  // ── checkpoint()：人工审批（P2，确认型子集）──
+  // 语义：等待态持久化；拒绝是硬停止（不可被 fallback/塔缩吞掉）；V1 无通道且无显式默认 → 等待态，绝不自动通过
+  const checkpoint = async (promptText: string, checkpointOptions: CheckpointOptions = {}): Promise<unknown> => {
+    throwIfAborted();
+    if (typeof promptText !== "string") throw new TypeError("checkpoint(promptText, options?) 需要 prompt 字符串");
+    const callIndex = scope.callSeq++;
+    const journalKey = scopedKey(shared, scope, callIndex);
+    const callHash = createHash("sha256")
+      .update(JSON.stringify({ promptText, default: checkpointOptions.default ?? null, headless: checkpointOptions.headless ?? null }))
+      .digest("hex");
+    const displayPhase = scope.phasePrefix ? scope.phasePrefix + (scope.currentPhase ?? "") : scope.currentPhase;
+    const cpRecord: AgentRecord = {
+      id: journalKey,
+      label: promptText.length > 24 ? `${promptText.slice(0, 24)}…` : promptText,
+      ...(displayPhase ? { phase: displayPhase } : {}),
+      status: "running",
+      kind: "checkpoint",
+      ...(scope.parent ? { workflowPath: scope.pathLabels, workflowScopePath: scope.pathKeys } : {}),
+    };
+    shared.agents.push(cpRecord);
+    const finishCp = (status: AgentRecord["status"], error?: string, replayed?: boolean) => {
+      cpRecord.status = status;
+      cpRecord.durationMs = Date.now() - (cpRecord.startedAt ?? Date.now());
+      if (error) cpRecord.error = error;
+      if (replayed) cpRecord.replayed = true;
+    };
+    // 回放：确定性重现拒绝（改 prompt 文本才会重新询问）
+    const cached = shared.resumeJournal?.get(journalKey);
+    if (cached != null && cached.hash === callHash && callIndex < scope.firstMiss) {
+      shared.agentCount++;
+      if (cached.result === false) {
+        finishCp("failed", "人工拒绝（回放）", true);
+        throw new WorkflowError(
+          `checkpoint 被人工拒绝（回放）："${promptText}"`,
+          WorkflowErrorCode.CHECKPOINT_REJECTED,
+          { recoverable: false },
+        );
+      }
+      finishCp("ok", undefined, true);
+      return cached.result;
+    }
+    if (cached == null || cached.hash !== callHash) {
+      scope.firstMiss = Math.min(scope.firstMiss, callIndex);
+    }
+    shared.agentCount++;
+
+    cpRecord.startedAt = Date.now();
+    let reply: unknown;
+    if (shared.confirm) {
+      try {
+        reply = await shared.confirm(promptText);
+      } catch (error) {
+        if (isAborted()) {
+          finishCp("aborted");
+          throw wrapError(error);
+        }
+        throw error;
+      }
+    } else if (checkpointOptions.default !== undefined) {
+      // 显式脚本级默认值是深思熟虑的选择，允许无通道时使用
+      reply = checkpointOptions.default;
+    } else {
+      // V1 红线：无人工通道且无显式默认 → 等待态，绝不自动通过
+      finishCp("failed", "等待人工确认（无交互通道）");
+      throw new WorkflowError(
+        `checkpoint 需要人工确认但当前无交互通道："${promptText}"（run 进入等待态，resume 后重新询问）`,
+        WorkflowErrorCode.CHECKPOINT_WAITING,
+        { recoverable: false },
+      );
+    }
+    throwIfAborted();
+    log(`checkpoint："${promptText}" -> ${JSON.stringify(reply)}`);
+    shared.onAgentJournal?.({ key: journalKey, hash: callHash, result: reply });
+    // Human Reject 强停止：拒绝不是普通 failure——不可被 fallback 换候选、不可被 parallel 塔缩 null
+    if (reply === false) {
+      finishCp("failed", "人工拒绝");
+      throw new WorkflowError(
+        `checkpoint 被人工拒绝："${promptText}"（Human Reject：流程停止，不触发自动降级）`,
+        WorkflowErrorCode.CHECKPOINT_REJECTED,
+        { recoverable: false },
+      );
+    }
+    finishCp("ok");
+    return reply;
+  };
+
   // 脚本内动态调节并发上限：非法值报错；超上限钳制并记日志
   const setConcurrency = (value: unknown) => {
     if (typeof value !== "number" || !Number.isFinite(value) || value < 1 || Math.floor(value) !== value) {
@@ -861,6 +1007,7 @@ async function executeWorkflow(
     setConcurrency,
     verify,
     retry,
+    checkpoint,
     console: consoleShim,
   };
 
@@ -928,4 +1075,21 @@ function normalizeConcurrency(value: unknown): number {
 function normalizeAgentRetries(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
   return Math.min(MAX_AGENT_RETRIES, Math.floor(value));
+}
+
+/** agent 调用的稳定身份哈希：prompt/model/phase/agentType/schema（scope 前缀已含在 phase） */
+function hashAgentCall(prompt: string, options: ScriptAgentOptions, phase: string | undefined): string {
+  const identity = JSON.stringify({
+    prompt,
+    model: options.model ?? null,
+    phase: phase ?? null,
+    agentType: options.agentType ?? null,
+    schema: options.schema ?? null,
+  });
+  return createHash("sha256").update(identity).digest("hex");
+}
+
+/** 无 schema 且结果为空/纯空白字符串 → 视为空文本（不 journal、不回放） */
+function isEmptyTextResult(result: unknown, schema: Record<string, unknown> | undefined): boolean {
+  return schema === undefined && typeof result === "string" && result.trim().length === 0;
 }

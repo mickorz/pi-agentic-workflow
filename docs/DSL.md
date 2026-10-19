@@ -1,6 +1,6 @@
-# Workflow DSL（P1）
+# Workflow DSL（P2）
 
-> P1 新增：fallback / race / workflow / check / verify / retry / fileExists / commandSuccess。P2 将扩充 checkpoint 与 resume。
+> P2 新增：checkpoint（人工审批）与 journal/resume 恢复语义。P1 已含 fallback/race/workflow/check/verify/retry。
 > 脚本必须是 `.js` 文件，首条语句必须是纯字面量的 `export const meta = {...}`。
 
 ## 脚本信封
@@ -19,6 +19,24 @@ return resultValue
 - `meta` 只能是纯字面量（对象/数组/字符串/数字/布尔/null）；不允许插值、spread、计算属性、方法。
 - 禁用 `Date.now()` / `Math.random()` / `new Date()`（破坏确定性重放）；时间戳/随机数经 `args` 传入。
 - 脚本必须至少调用一次 `agent()`；纯计算会被拒绝。
+
+## 原语（P2 新增）
+
+### `checkpoint(promptText, options?)` → Promise<unknown>
+
+人工审批点（确认型）：
+- 交互终端（CLI 缺省）：`y/N` 询问；`y` → 返回 `true` 继续。
+- `--non-interactive` 且无显式 `default`：run 进入 **waiting_checkpoint** 等待态（退出码 3），`pi-workflow resume <runId>` 后重新询问——**绝不自动通过**。
+- `options.default`：脚本级显式默认值（无通道时使用；深思熟虑的选择才写）。
+- 拒绝（reply === false）：**硬停止**（CHECKPOINT_REJECTED，不可被 fallback/parallel 塔缩吞掉）。
+- journal 回放确定性：已批准决策免问重放；拒绝回放同样硬停（改 prompt 文本才会重问）。
+- 计入 agent 配额；不花 token。
+
+### journal / resume（CLI 层能力）
+
+- 每个成功 agent/checkpoint 落盘 `.pi-workflows/runs/<runId>/journal.jsonl`（append-only）。
+- `pi-workflow resume <runId>`：脚本/args 哈希一致时，已提交节点免模型回放（`replayed` 标记），从中断点续跑。
+- 副作用窗口：中断后恢复可能重复已发生但未记 journal 的副作用——resume 需交互确认或 `--yes`；不承诺 exactly-once。
 
 ## 原语（P1 新增）
 

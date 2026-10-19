@@ -23,8 +23,8 @@
 | `tier` 模型分层 | ❌ | 未迁移；由 provider/modelId 直接指定替代（P1 决策） |
 | `pipeline()` | ❌ | 旧 DSL 兼容原语，backlog（V1 非必须） |
 | `judgePanel()` | ❌ | 参考仓库扩展原语，backlog |
-| `checkpoint()` | ⏳ | P2 实现人工审批 |
-| journal / resume | ⏳ | P2 |
+| `checkpoint()` | ✅ | 确认型子集；无通道且无显式默认 → 等待态（参考实现缺省自动通过，V1 红线覆盖） |
+| journal / resume | ✅ | P2：确定性哈希回放 + 哈希不匹配拒绝 + 副作用窗口人工确认 |
 | 名字引用 registry（.opencode-workflows/workflows/） | ❌ | 未迁移；V1 仅显式路径（含父脚本目录解析） |
 | worktree 隔离 `isolation: "worktree"` | ❌ | V1 非目标（执行文档 §1.2） |
 | `onAgentUpdate`/`onCompositeUpdate`/TUI 观测回调 | ❌ | 由 P3 事件系统替代 |

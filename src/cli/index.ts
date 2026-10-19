@@ -8,12 +8,20 @@
 
 import { run as runCommand } from "./commands/run.js";
 import { validate as validateCommand } from "./commands/validate.js";
+import { list as listCommand } from "./commands/list.js";
+import { status as statusCommand } from "./commands/status.js";
+import { resume as resumeCommand } from "./commands/resume.js";
+import { stop as stopCommand } from "./commands/stop.js";
 
 const HELP = `pi-workflow — Pi 动态工作流 CLI Runtime
 
 用法：
   pi-workflow run <script.js> [选项]        执行 workflow 脚本
   pi-workflow validate <script.js>          校验脚本（meta 信封 + 确定性检查）
+  pi-workflow list                          列出全部 run（含中断补偿态）
+  pi-workflow status <runId>                查看运行详情与 journal 摘要
+  pi-workflow resume <runId> [--yes]        从 journal 恢复执行
+  pi-workflow stop <runId>                  终止本机活跃运行（SIGINT→SIGTERM）
   pi-workflow help                          显示本帮助
 
 run 选项：
@@ -25,12 +33,22 @@ run 选项：
   --retries <n>           run 级 agent 默认重试次数（0-3）
   --max-agents <n>        单 run agent 总数上限
   --json                  机器可读 JSON 输出（stdout）
+  --non-interactive       无交互模式：checkpoint 进入等待态（绝不自动通过）
   --continue-on-failure   恢复静默继续旧行为（agent 重试耗尽返回 null 不终止）
+
+resume 选项：
+  --yes                   跳过副作用窗口人工确认（中断恢复可能重复未记 journal 的副作用）
+  --non-interactive       无交互模式：副作用确认未决则拒绝；checkpoint 进入等待态
+  --model <spec>          覆盖运行级默认模型
+
+持久化：
+  .pi-workflows/runs/<runId>/{manifest.json,journal.jsonl,result.json}
 
 退出码：
   0  completed
   1  failed（agent 失败/超时耗尽/闸门终止）
-  2  invalid（脚本校验失败/CLI 参数错误）
+  2  invalid（脚本校验失败/CLI 参数错误/resume 哈希不匹配）
+  3  waiting_checkpoint（人工审批等待态，resume 恢复）
   130 interrupted（SIGINT 取消）
 `;
 
@@ -42,6 +60,14 @@ async function main(argv: string[]): Promise<number> {
       return runCommand(rest);
     case "validate":
       return validateCommand(rest);
+    case "list":
+      return listCommand(rest);
+    case "status":
+      return statusCommand(rest);
+    case "resume":
+      return resumeCommand(rest);
+    case "stop":
+      return stopCommand(rest);
     case "help":
     case "--help":
     case "-h":

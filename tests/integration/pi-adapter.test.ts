@@ -31,12 +31,9 @@ async function findModelSpec(): Promise<string | undefined> {
 
 test("前置：检查可用模型凭证", { skip: !explicit ? "set PI_WORKFLOW_INTEGRATION=1 to run" : false }, async (t) => {
   const spec = await findModelSpec();
-  t.skip(!spec, "无可用模型凭证（getAvailable 为空），跳过真实 SDK 测试");
-  if (!spec) return;
   const resolver = new ModelResolver();
   const has = await resolver.hasCredentials();
-  t.skip(!has, "无可用模型凭证，跳过");
-  if (!has) return;
+  if (!spec || !has) return t.skip("无可用模型凭证（getAvailable 为空），跳过真实 SDK 测试");
 
   await t.test("P0-02：真实 smoke —— 单 agent 完成且结果非空", async () => {
     const adapter = new PiAgentAdapter({ defaultModel: spec });

@@ -58,6 +58,32 @@ export interface AgentRecord {
   workflowScopePath?: string[];
   /** 组合链（cmpN id 数组；纯展示用） */
   compositePath?: string[];
+  /** 节点类型标记：缺省为普通 agent；checkpoint 节点用于区分「等待人工」与执行中 */
+  kind?: "checkpoint";
+  /** resume 时从 journal 免费回放（未真实调 LLM） */
+  replayed?: boolean;
+}
+
+/** journal 条目：key 为 runId:callIndex（child 为 runId:wfK:callIndex）
+ *  hash/result 仅在成功时写入；失败 attempt 只进 executions。 */
+export interface JournalEntry {
+  hash: string;
+  result: unknown;
+  model?: string;
+  label?: string;
+  /** 所属子 workflow 的实例显示名 */
+  workflowLabel?: string;
+  phase?: string;
+  agentType?: string;
+  /** 原始 prompt（4KB 截断，仅展示用；不参与 hash 身份） */
+  prompt?: string;
+  sessionId?: string;
+  outputType?: "text" | "structured" | "unknown";
+  executionId?: string;
+  attempt?: number;
+  startedAt?: number;
+  durationMs?: number;
+  usage?: AgentUsageSplit;
 }
 
 /** workflow 脚本 meta 信封 */
