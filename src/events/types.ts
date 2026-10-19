@@ -15,6 +15,7 @@ export type WorkflowEventType =
   | "run.completed"
   | "run.failed"
   | "run.cancelled"
+  | "phase.started"
   | "node.started"
   | "node.completed"
   | "node.failed"

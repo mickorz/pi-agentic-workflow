@@ -53,3 +53,16 @@ export type {
 
 // checkpoint 通道
 export { createTerminalCheckpointProvider } from "./checkpoint/terminal-provider.js";
+
+// V2 应用服务层（Web 与 CLI 共用入口）
+export { RunApplicationService, ServiceError, createRunApplicationService } from "./application/run-service.js";
+export type { StartRunOptions, ResumeOptions, ServiceConfig, ServiceErrorCode, RunDetail } from "./application/run-service.js";
+export { CheckpointService } from "./application/checkpoint-service.js";
+export type {
+  RunStatusV2,
+  RunDecision,
+  CheckpointRecordV2,
+  StartRunInputV2,
+  WorkflowEventV1,
+} from "./contracts/web.js";
+export { toV2Event } from "./contracts/web.js";

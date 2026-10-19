@@ -319,6 +319,9 @@ async function executeWorkflow(
     scope.currentPhase = title;
     const display = scope.phasePrefix + title;
     if (!shared.phases.includes(display)) shared.phases.push(display);
+    shared.events.emit("phase.started", {
+      payload: { title: display, workflowScopePath: scope.pathKeys ?? ["root"] },
+    });
   };
 
   const ensureAgentCapacity = () => {
@@ -401,7 +404,15 @@ async function executeWorkflow(
     return shared.scheduler.run(async () => {
       // 时间戳在拿到并发槽位后才打——排队等待期不计时、不计入 durationMs
       record.startedAt = Date.now();
-      shared.events.emit("node.started", { nodeId: record.id, payload: { label, phase: displayPhase } });
+      shared.events.emit("node.started", {
+        nodeId: record.id,
+        payload: {
+          label,
+          phase: displayPhase,
+          workflowScopePath: scope.pathKeys ?? ["root"],
+          ...(compositePath?.length ? { compositePath } : {}),
+        },
+      });
       const agentStarted = record.startedAt;
       const timeout = scriptOptions.timeoutMs !== undefined ? scriptOptions.timeoutMs : shared.agentTimeoutMs;
       record.timeoutMs = timeout;
