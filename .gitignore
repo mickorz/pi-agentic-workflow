@@ -14,3 +14,6 @@ dev-examples/
 
 # Claude Code 本地配置（不进 git）
 .claude/settings.local.json
+
+# pi-workflow 运行产物（不进 git）
+.pi-workflows/

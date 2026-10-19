@@ -1,0 +1,44 @@
+{
+  "name": "pi-agentic-workflow",
+  "version": "0.1.0",
+  "description": "Dynamic agentic workflow CLI runtime for the Pi coding agent: orchestrate isolated subagent sessions from a JS workflow script",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "pi-workflow": "dist/cli/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "examples",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/unit/*.ts",
+    "test:integration": "tsx --test tests/integration/*.ts",
+    "test:e2e": "tsx --test tests/e2e/*.ts",
+    "cli": "tsx src/cli/index.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^1.2.0",
+    "acorn": "^8.14.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
