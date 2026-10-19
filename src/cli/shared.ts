@@ -8,6 +8,7 @@ import { parseWorkflowScript } from "../runtime/vm.js";
 import { WorkflowError, WorkflowErrorCode } from "../runtime/errors.js";
 import { PiAgentAdapter } from "../adapters/pi/pi-agent-adapter.js";
 import { appendJournalEntry, loadJournal, type Journal, type JournalEntry } from "../persistence/journal.js";
+import { appendEvent, lastEventSequence } from "../events/jsonl-sink.js";
 import {
   createManifest,
   hashArgs,
@@ -18,6 +19,7 @@ import {
   type RunManifest,
 } from "../persistence/run-store.js";
 import type { ConfirmChannel } from "../checkpoint/terminal-provider.js";
+import type { WorkflowEvent } from "../events/types.js";
 
 export interface ExecuteOptions {
   baseDir: string;
@@ -93,6 +95,8 @@ export async function executeWorkflowRun(options: ExecuteOptions): Promise<numbe
   }
 
   const dir = runDir(options.baseDir, manifest.runId);
+  // 事件序号续接（同 runId 的 append-only 事件流连续）
+  const eventSequenceStart = lastEventSequence(dir);
   const controller = new AbortController();
   let signalHandled = false;
   const handleSignal = (signal: NodeJS.Signals) => {
@@ -122,8 +126,10 @@ export async function executeWorkflowRun(options: ExecuteOptions): Promise<numbe
       ...(options.retries !== undefined && !Number.isNaN(options.retries) ? { agentRetries: options.retries } : {}),
       signal: controller.signal,
       continueOnAgentFailure: options.continueOnFailure,
+      eventSequenceStart,
       ...(options.resumeJournal ? { resumeJournal: options.resumeJournal } : {}),
       onAgentJournal: (entry: JournalEntry & { key: string }) => appendJournalEntry(dir, entry),
+      onEvent: (event: WorkflowEvent) => appendEvent(dir, event),
       ...(options.confirm ? { confirm: options.confirm } : {}),
     });
 

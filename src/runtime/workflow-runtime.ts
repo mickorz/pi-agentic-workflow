@@ -24,8 +24,10 @@ import { parseWorkflowScript, runScriptInVm } from "./vm.js";
 import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
 import { createNodeExecutor, compositeScopeStorage, type WorkflowNode } from "./node-contract.js";
 import type { AgentSessionRunner, AgentRunOptions } from "../agent/session-runner.js";
-import type { AgentRecord, AgentUsage, JournalEntry, WorkflowRunResult } from "./types.js";
+import type { AgentRecord, AgentUsage, JournalEntry, WorkflowMeta, WorkflowRunResult } from "./types.js";
 import { buildOutputPreview, truncatePromptForJournal } from "./agent-result.js";
+import { createEventEmitter, type EventEmitter } from "../events/emitter.js";
+import type { WorkflowEventSink } from "../events/types.js";
 import { createHash } from "node:crypto";
 
 /** 运行时最大并发 */
@@ -84,6 +86,10 @@ export interface WorkflowRunOptions {
   onAgentJournal?: (entry: JournalEntry & { key: string }) => void;
   /** checkpoint() 的人工确认通道（CLI 接 readline；缺省走等待态策略） */
   confirm?: (promptText: string) => Promise<unknown>;
+  /** 事件消费方（CLI 展示 / JSONL 持久化 / V2 SSE 同源） */
+  onEvent?: WorkflowEventSink;
+  /** resume 续接序号（同 runId 的事件序列连续；缺省 0） */
+  eventSequenceStart?: number;
 }
 
 /** checkpoint() 的可选项（P2 实现运行时；类型先占位保持向前兼容） */
@@ -140,6 +146,8 @@ interface SharedRunContext {
   resumeJournal?: Map<string, JournalEntry>;
   onAgentJournal?: (entry: JournalEntry & { key: string }) => void;
   confirm?: (promptText: string) => Promise<unknown>;
+  /** 事件发射器（per-run sequence 单调） */
+  events: EventEmitter;
 }
 
 function createSharedRunContext(options: WorkflowRunOptions, runId: string): SharedRunContext {
@@ -163,6 +171,7 @@ function createSharedRunContext(options: WorkflowRunOptions, runId: string): Sha
     resumeJournal: options.resumeJournal,
     onAgentJournal: options.onAgentJournal,
     confirm: options.confirm,
+    events: createEventEmitter(runId, options.onEvent, options.eventSequenceStart ?? 0),
   };
   const initial = normalizeConcurrency(
     options.concurrency ?? Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 8) - 2),
@@ -230,17 +239,32 @@ export async function runWorkflow<T = unknown>(
     firstMiss: Number.POSITIVE_INFINITY,
   };
 
-  const { meta, result } = await executeWorkflow(script, options.args, shared, rootScope);
-
-  // 阶段失败闸门终检：失败发生在最后一个 phase 且脚本正常 return 时，不允许静默成功
-  if (shared.phaseFailed.length > 0) throw buildFailedGateError(shared.phaseFailed);
-  // 纯编排非法：run 级至少一次实际 agent dispatch（含 child 内）
-  if (shared.agentCount === 0) {
-    throw new WorkflowError(
-      "workflow 脚本必须至少调用一次 agent()（或经 workflow() 子流程间接调用）；纯计算请直接完成，不要用 workflow",
-      WorkflowErrorCode.SCRIPT_VALIDATION_ERROR,
-      { recoverable: false },
-    );
+  let meta: WorkflowMeta;
+  let result: unknown;
+  try {
+    shared.events.emit("run.started", { payload: { name: "root" } });
+    const outcome = await executeWorkflow(script, options.args, shared, rootScope);
+    meta = outcome.meta;
+    result = outcome.result;
+    // 阶段失败闸门终检（在 run.completed 之前：闸门失败不得发 completed）
+    if (shared.phaseFailed.length > 0) throw buildFailedGateError(shared.phaseFailed);
+    if (shared.agentCount === 0) {
+      throw new WorkflowError(
+        "workflow 脚本必须至少调用一次 agent()（或经 workflow() 子流程间接调用）；纯计算请直接完成，不要用 workflow",
+        WorkflowErrorCode.SCRIPT_VALIDATION_ERROR,
+        { recoverable: false },
+      );
+    }
+    shared.events.emit("run.completed", { payload: { agentCount: shared.agentCount } });
+  } catch (error) {
+    const aborted =
+      shared.aborted ||
+      Boolean(shared.signal?.aborted) ||
+      (error instanceof WorkflowError && error.code === WorkflowErrorCode.WORKFLOW_ABORTED);
+    shared.events.emit(aborted ? "run.cancelled" : "run.failed", {
+      payload: { error: error instanceof Error ? error.message : String(error) },
+    });
+    throw error;
   }
 
   return {
@@ -279,6 +303,7 @@ async function executeWorkflow(
 
   const log = (message: string) => {
     shared.logs.push(String(message));
+    shared.events.emit("log.appended", { payload: { message: String(message) } });
   };
   const isAborted = () =>
     shared.aborted || Boolean(shared.signal?.aborted) || Boolean(compositeScopeStorage.getStore()?.signal?.aborted);
@@ -366,6 +391,7 @@ async function executeWorkflow(
       if (cached.outputType === "text" || cached.outputType === "structured") {
         record.outputType = cached.outputType;
       }
+      shared.events.emit("node.replayed", { nodeId: record.id, payload: { label } });
       return cached.result;
     }
     if (!hashMatches || cachedEmpty) {
@@ -375,6 +401,7 @@ async function executeWorkflow(
     return shared.scheduler.run(async () => {
       // 时间戳在拿到并发槽位后才打——排队等待期不计时、不计入 durationMs
       record.startedAt = Date.now();
+      shared.events.emit("node.started", { nodeId: record.id, payload: { label, phase: displayPhase } });
       const agentStarted = record.startedAt;
       const timeout = scriptOptions.timeoutMs !== undefined ? scriptOptions.timeoutMs : shared.agentTimeoutMs;
       record.timeoutMs = timeout;
@@ -411,6 +438,7 @@ async function executeWorkflow(
               },
               onSessionCreated: (sessionId) => {
                 record.sessionId = sessionId;
+                shared.events.emit("agent.session.created", { nodeId: record.id, payload: { sessionId } });
               },
             };
             const execution = await withTimeout(shared.agentRunner.run(prompt, runOptions), timeout, label, () =>
@@ -424,6 +452,7 @@ async function executeWorkflow(
             record.sessionId = execution.sessionId;
             record.outputType = execution.type;
             record.outputPreview = buildOutputPreview(execution.value);
+            shared.events.emit("node.completed", { nodeId: record.id, attempt, payload: { label } });
             // 成功且非空结果写入 journal 回放缓存；失败/null/空文本不进
             if (!isEmptyTextResult(value, scriptOptions.schema)) {
               shared.onAgentJournal?.({
@@ -449,6 +478,7 @@ async function executeWorkflow(
             if (isAborted()) {
               record.status = "aborted";
               record.durationMs = Date.now() - agentStarted;
+              shared.events.emit("node.failed", { nodeId: record.id, attempt, payload: { label, error: "aborted" } });
               throw wrapError(error);
             }
             const workflowError = wrapError(error);
@@ -456,12 +486,22 @@ async function executeWorkflow(
               record.status = "failed";
               record.error = workflowError.message;
               record.durationMs = Date.now() - agentStarted;
+              shared.events.emit("node.failed", {
+                nodeId: record.id,
+                attempt,
+                payload: { label, error: workflowError.message },
+              });
               throw workflowError;
             }
             if (attempt >= maxAttempts) {
               record.status = "failed";
               record.error = workflowError.message;
               record.durationMs = Date.now() - agentStarted;
+              shared.events.emit("node.failed", {
+                nodeId: record.id,
+                attempt,
+                payload: { label, error: workflowError.message },
+              });
               log(`agent "${label}" ${maxAttempts} 次尝试后失败: ${workflowError.code} ${workflowError.message}`);
               // 阶段失败闸门：登记待裁决——下一 phase() 边界或 run 终检触发终止报告；
               // fallback/race 成功吸收时清除
@@ -939,6 +979,7 @@ async function executeWorkflow(
     shared.agentCount++;
 
     cpRecord.startedAt = Date.now();
+    shared.events.emit("checkpoint.requested", { nodeId: journalKey, payload: { prompt: promptText } });
     let reply: unknown;
     if (shared.confirm) {
       try {
@@ -965,6 +1006,10 @@ async function executeWorkflow(
     throwIfAborted();
     log(`checkpoint："${promptText}" -> ${JSON.stringify(reply)}`);
     shared.onAgentJournal?.({ key: journalKey, hash: callHash, result: reply });
+    shared.events.emit("checkpoint.resolved", {
+      nodeId: journalKey,
+      payload: { prompt: promptText, approved: reply !== false },
+    });
     // Human Reject 强停止：拒绝不是普通 failure——不可被 fallback 换候选、不可被 parallel 塔缩 null
     if (reply === false) {
       finishCp("failed", "人工拒绝");

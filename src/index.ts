@@ -18,3 +18,38 @@ export type { AgentSessionRunner, AgentRunOptions, AgentExecutionResult } from "
 export { PiAgentAdapter } from "./adapters/pi/pi-agent-adapter.js";
 export type { PiAdapterOptions } from "./adapters/pi/pi-agent-adapter.js";
 export { resolveToolProfile, EXPLORE_TOOLS, GENERAL_TOOLS, KNOWN_AGENT_TYPES } from "./adapters/pi/tool-profiles.js";
+export { validateJsonSchema, SchemaValidationError } from "./adapters/pi/schema-validator.js";
+export type { SchemaIssue } from "./adapters/pi/schema-validator.js";
+
+// 持久化（P2）
+export { loadJournal, appendJournalEntry } from "./persistence/journal.js";
+export {
+  listRuns,
+  readManifest,
+  runDir,
+  runsRoot,
+  hashContent,
+  hashArgs,
+  isPidAlive,
+} from "./persistence/run-store.js";
+export type { RunManifest, RunStatus, RunListItem } from "./persistence/run-store.js";
+
+// 事件（P3）
+export { WORKFLOW_EVENT_SCHEMA_VERSION, isWorkflowEvent } from "./events/types.js";
+export type { WorkflowEvent, WorkflowEventType, WorkflowEventSink } from "./events/types.js";
+export { createEventEmitter } from "./events/emitter.js";
+export { appendEvent, readEvents, validateEventSequence, eventsPath } from "./events/jsonl-sink.js";
+
+// 引擎公共 API（P3）
+export { createWorkflowEngine } from "./engine.js";
+export type {
+  WorkflowEngine,
+  WorkflowInput,
+  WorkflowHandle,
+  RunSnapshot,
+  CheckpointDecision,
+  EngineConfig,
+} from "./engine.js";
+
+// checkpoint 通道
+export { createTerminalCheckpointProvider } from "./checkpoint/terminal-provider.js";
