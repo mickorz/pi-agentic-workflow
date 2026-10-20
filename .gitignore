@@ -13,3 +13,4 @@ thirdparties/
 
 # pi-workflow 运行产物（不进 git）
 .pi-workflows/
+.idea/

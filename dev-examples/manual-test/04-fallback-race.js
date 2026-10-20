@@ -24,4 +24,6 @@ const rc = await race([
   }),
 ])
 
+log(`fallback = ${JSON.stringify(fb)}`)
+log(`race = ${JSON.stringify(rc)}`)
 return { fallback: fb, race: rc }

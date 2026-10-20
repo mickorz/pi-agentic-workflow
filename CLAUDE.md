@@ -63,6 +63,26 @@
 2. 运行产物一律 gitignore 不提交；详细约定见 `dev-examples/README.md`。
 3. 毕业路径：`dev-examples/` 里验证通过 → 合入正式代码 → 必要时在 `docs/` 落地读者向文档 → 删除沙盒里对应目录。
 
+## 手动测试约定：全局命令与默认模型
+
+后续所有手动测试（文档与实际执行）统一遵循以下方式，方案详情见
+`dev-docs/design/2026-10-20-manual-test-global-cmd-model-config.md`：
+
+1. **命令一律用全局指令 `pi-workflow`**：仓库根执行一次
+   `npm ci && npm run build && npm link`（bin 符号链接指向仓库 `dist/`，rebuild 后自动生效，无需重复 link）。
+   禁止再写 `WF="node ../../dist/cli/index.js"` 这类相对路径变量。
+2. **模型一律走本地 JSON 配置，不传 `--model`**：默认模型读取
+   `~/.pi/agent/settings.json` 的 `defaultProvider` + `defaultModel`
+   （项目级 `.pi/settings.json` 可覆盖，需 project trust）。
+   换默认模型直接改该文件，不改测试命令；仅临时试验才显式 `--model provider/modelId`。
+3. **link 前必须先 build**：bin 指向 `dist/cli/index.js`，未构建直接 link 会报找不到模块。
+4. **时序类/难手动的用例程序化为 sh 脚本**：涉及信号、强杀时机、跨进程 stop、等待窗口等
+   不好手动控时序的用例，参照 `dev-examples/manual-test/run-resume-suite.sh` 与
+   `run-stop-signal-suite.sh` 写成可重复执行的 sh 脚本（逐断言输出 PASS/FAIL，结尾汇总 PASS/FAIL 计数），
+   由 agent 直接执行验证，不依赖人工盯梢。平台语义差异（如 Windows 下 SIGINT/stop 行为、
+   MSYS kill 限制）见 `dev-docs/experience/windows-signal-semantics-stop.md`。
+5. 新增手动测试文档/脚本沿用同样写法，参考 `dev-docs/guides/2026-10-19-v1-v2-manual-test.md`。
+
 <!-- 本项目为工作流研发项目（参考 opencode-dynamicworkflows），opencode run 联调约定适用；
      当前处于研究初期，暂以注释保留，待实际引入 opencode run 联调时启用。
 

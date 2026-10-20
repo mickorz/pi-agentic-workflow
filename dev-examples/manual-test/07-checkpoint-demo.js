@@ -20,4 +20,5 @@ await agent(`Create a file named manual-test-note.txt in the current directory w
   agentType: "general",
 })
 const exists = await check(() => fileExists("manual-test-note.txt"), "manual-test-note.txt 应已创建")
+log(`result = ${JSON.stringify({ content, approved, exists }, null, 2)}`)
 return { content, approved, exists }

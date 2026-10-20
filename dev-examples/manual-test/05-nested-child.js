@@ -7,4 +7,5 @@ const topic = args?.topic ?? "unknown"
 const summary = await agent(`In one short sentence, summarize what ${topic} is.`, {
   label: `summarize-${topic}`,
 })
+log(`summary = ${JSON.stringify(summary)}`)
 return { topic, summary }

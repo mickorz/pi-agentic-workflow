@@ -17,4 +17,5 @@ const pkgOk = await check(() => fileExists("../../package.json"), "仓库 packag
 // AI 质量判断：独立 reviewer 会话投票
 const verdict = await verify(fact, { reviewers: 2, threshold: 0.5 })
 
+log(`result = ${JSON.stringify({ fact, nodeOk, pkgOk, verdict }, null, 2)}`)
 return { fact, nodeOk, pkgOk, verdict }

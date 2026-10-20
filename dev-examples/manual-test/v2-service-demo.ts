@@ -6,7 +6,8 @@
  *
  * 运行（仓库根目录）：
  *   npm run build
- *   npx tsx dev-examples/manual-test/v2-service-demo.ts cc-switch-zhipu-glm/glm-5.3-flash
+ *   npx tsx dev-examples/manual-test/v2-service-demo.ts              # 不传模型，走 ~/.pi/agent/settings.json 默认模型
+ *   npx tsx dev-examples/manual-test/v2-service-demo.ts provider/modelId   # 可选：临时指定模型
  */
 
 import fs from "node:fs";
@@ -17,11 +18,8 @@ import { toV2Event } from "../../src/contracts/web.js";
 import { readEvents } from "../../src/events/jsonl-sink.js";
 import { runDir } from "../../src/persistence/run-store.js";
 
+// 可选参数：不传则 service.start 不带 model，由 Pi settings 默认模型接底
 const model = process.argv[2];
-if (!model) {
-  console.error("用法：npx tsx dev-examples/manual-test/v2-service-demo.ts <provider/modelId>");
-  process.exit(2);
-}
 
 const CP_SCRIPT = `export const meta = { name: "v2_demo" }
 const a = await agent("Reply with exactly: v2-prepare-ok", { label: "prep" })

@@ -9,4 +9,5 @@ const results = await parallel([
   () => workflow("./05-nested-child.js", { topic: args?.a ?? "redis" }),
   () => workflow({ scriptPath: "./05-nested-child.js", label: "child-b" }, { topic: args?.b ?? "sqlite" }),
 ])
+log(`results = ${JSON.stringify(results, null, 2)}`)
 return { results }

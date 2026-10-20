@@ -15,4 +15,5 @@ const summary = await sequence([
       label: "tagline",
     }),
 ])
+log(`summary = ${JSON.stringify(summary, null, 2)}`)
 return { summary }

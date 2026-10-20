@@ -12,4 +12,5 @@ const answers = await parallel(
     agent(`In one short sentence, what is ${topic}?`, { label: `explain-${topic}` }),
   ),
 )
+log(`answers = ${JSON.stringify(answers, null, 2)}`)
 return { topics, answers }
