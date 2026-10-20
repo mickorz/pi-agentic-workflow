@@ -139,9 +139,25 @@ Router POC 重定位后的精简阶段：
 
 一句话：**微信调度系统把功能做出来；Router POC 证明功能做得是否足够准确、稳定、快速，以及如何继续优化。** 未来微信、Web 或其他 IM 通道，都受益于同一套经过评测的路由能力。
 
+## 七、修订落地记录（2026-10-20，两份文档已按本分析修订）
+
+| # | 验收项 | 结果 | 证据 |
+|---|---|---|---|
+| 1 | 无第二套 Registry/IntentRouter/Dispatcher | 通过 | P1 §2 目录唯一 dispatch 层 + §2.1-3 禁令；PRD V2 §3.2 明确不做 |
+| 2 | CLI Dry-run 零执行副作用 | 通过 | PRD V2 §3.3/§4（默认只调 plan()）；P1 §2.1-1 plan 不产生 Run |
+| 3 | --execute 不绕过高风险审批 | 通过 | PRD V2 §3.3（启动请求≠危险权限）+ P2 阶段负向验收；P1 execute 仍走 RunApplicationService |
+| 4 | 两文档共用 Intent/Action/参数/错误契约 | 通过 | P1 §2.1-2 为权威定义（五 Intent + 五 Action）；PRD V2 §5/§7 引用不另定义 |
+| 5 | 样本库唯一 | 通过 | P1 §2.1-4 routing-samples.json 唯一；PRD V2 扩展仅打 channel:cli 标签 |
+| 6 | 微信 P1 ≥90% 门槛未降低 | 通过 | P1 测试矩阵原文未动；PRD V2 §5 明确复用而非替代 |
+| 7 | 不破坏 Journal/Resume/Runtime | 通过 | P1 Gate-out 新增检查项；PRD V2 §3.2/§7 零回归 |
+
+修订文件：
+- `dev-docs/planning/微信调度系统-P1-最小闭环.md`（V1.1：新增 §2.1 共享契约约束 + Gate-out 一致性检查）
+- `dev-docs/planning/PRD：智能 Workflow 路由评测与 CLI 测试工具（V2）.md`（原《智能 Workflow 路由 POC（V1）》更名重写）
+
 ## 引用
 
-- 《PRD：pi-agentic-workflow 智能 Workflow 路由 POC（V1）》dev-docs/planning/
+- 《PRD：智能 Workflow 路由评测与 CLI 测试工具（V2）》dev-docs/planning/（原 POC V1 更名重写）
 - 《微信智能 Workflow 调度系统 — 需求文档（V1.0）》§6/§7/§11.3
-- wechat-dispatch 执行文档族（总纲 + P0~P3 + PT）
+- wechat-dispatch 执行文档族（总纲 + P0~P3 + PT；P1 为 V1.1）
 - 外部审阅意见（2026-10-20，已融合为本 V2 修订版主体结论）
