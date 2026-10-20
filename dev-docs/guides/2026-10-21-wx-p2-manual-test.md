@@ -74,9 +74,36 @@ tail -5 .pi-wechat/outbox.jsonl
 grep -E "sk-[A-Za-z0-9]{8,}|Bearer [A-Za-z0-9]" .pi-wechat/audit.jsonl && echo "❌ 泄露" || echo "✅ 干净"
 ```
 
-## 通过标准
+## Part D：Router 工具链 CLI 冒烟（无需真机，2 分钟）
+
+RP-P0~P3 已完成开发与真实数据验收，以下为快速冒烟（完整证据见 RP 执行报告）：
+
+```bash
+# D1 Dry-run（零副作用）：正确路由 + 参数抽取
+pi-workflow route --text "把 Hello world 翻译成中文" --registry dev-examples/wx-p1/registry.json
+# 预期：workflowId=translate，args 含 text/targetLang，exit=0
+# 验证零副作用：
+ls .pi-workflows/runs | wc -l   # 数量不变
+
+# D2 高风险不可绕：
+pi-workflow route --text "部署服务上线" --registry dev-examples/wx-p1/registry.json \
+  --scripts dev-examples/wx-p1 --execute
+# 预期：⛔ NOT_AUTHORIZED，exit=1
+
+# D3 真实执行（read-only）：
+pi-workflow route --text "总结这个网页 https://example.com/a" \
+  --registry dev-examples/wx-p1/registry.json --scripts dev-examples/wx-p1 --execute
+# 预期：🚀 已启动；pi-workflow list 里读 run 最终 completed
+
+# D4 评测器回归（确定性管线）：
+npx tsx dev-examples/router-eval/evaluate.ts --mode fake --label smoke-fake
+# 预期：准确率≥90%，gate=PASS
+```
+
+## 通过标准（更新）
 
 - Part A：11/11 PASS
 - Part B：B01~B13 全部符合预期（B09/B10/B13 允许时序重试一次）
 - Part C：审计链完整、脱敏抽查干净
-- 全部通过 → WX-PT Gate-out 达成，wechat-dispatch V1 交付；任何 FAIL → 记录到 `dev-docs/troubleshooting/` 并回修后重跑
+- Part D：D1~D4 全部符合预期
+- 全部通过 → WX-PT + RP 线验收闭环；任何 FAIL → 记录到 `dev-docs/troubleshooting/` 并回修后重跑
