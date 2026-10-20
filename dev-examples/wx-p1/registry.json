@@ -1,0 +1,42 @@
+[
+  {
+    "workflowId": "github-review",
+    "scriptPath": "github-review.js",
+    "name": "GitHub 仓库分析",
+    "description": "分析 GitHub 仓库并输出评审报告",
+    "argsSchema": { "type": "object", "properties": { "repoUrl": { "type": "string" } }, "required": ["repoUrl"] },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": ["分析", "评审", "review", "github", "仓库"]
+  },
+  {
+    "workflowId": "translate",
+    "scriptPath": "translate.js",
+    "name": "文本翻译",
+    "description": "把一段文本翻译到目标语言",
+    "argsSchema": { "type": "object", "properties": { "text": { "type": "string" }, "targetLang": { "type": "string" } }, "required": ["text", "targetLang"] },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": ["翻译", "translate"]
+  },
+  {
+    "workflowId": "summarize",
+    "scriptPath": "summarize.js",
+    "name": "链接摘要",
+    "description": "总结一个网页链接的内容",
+    "argsSchema": { "type": "object", "properties": { "url": { "type": "string" } }, "required": ["url"] },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": ["总结", "摘要", "summarize", "文章", "网页"]
+  },
+  {
+    "workflowId": "deploy-service",
+    "scriptPath": "deploy-service.js",
+    "name": "部署服务",
+    "description": "部署服务到生产环境（高风险，需执行前授权）",
+    "argsSchema": { "type": "object", "properties": {}, "required": [] },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": ["部署", "deploy", "发布上线"]
+  }
+]

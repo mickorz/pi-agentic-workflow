@@ -66,3 +66,35 @@ export type {
   WorkflowEventV1,
 } from "./contracts/web.js";
 export { toV2Event } from "./contracts/web.js";
+
+// wechat-dispatch（WX-P1）
+export { WorkflowRegistry } from "./dispatch/registry.js";
+export { IntentRouter, CONFIDENCE_GATE } from "./dispatch/intent-router.js";
+export type { RoutingLLM } from "./dispatch/intent-router.js";
+export { ConversationStore } from "./dispatch/conversation.js";
+export { TaskStore } from "./dispatch/task-store.js";
+export { Dispatcher } from "./dispatch/dispatcher.js";
+export type { ExecutionService } from "./dispatch/dispatcher.js";
+export { ModelRouter } from "./model-routing/model-router.js";
+export type { ModelPoolConfig, ModelAvailability } from "./model-routing/model-router.js";
+export { MessageInbox } from "./gateway/message-inbox.js";
+export { WechatBotAdapter, CHAT_FALLBACK_REPLY } from "./gateway/wechat/bot-adapter.js";
+export type { BotAdapter } from "./gateway/wechat/bot-adapter.js";
+export { Notifier } from "./notify/notifier.js";
+export type {
+  Intent,
+  Action,
+  RiskLevel,
+  BotInboundMessage,
+  BotMessageReceipt,
+  WorkflowRegistration,
+  RoutePlan,
+  ConversationState,
+  TaskBinding,
+  ModelRoutingDecision,
+  ModelTier,
+  PlanInput,
+  ExecutionAuthorization,
+  ExecuteResult,
+} from "./contracts/wx.js";
+export { DispatchError } from "./contracts/wx.js";

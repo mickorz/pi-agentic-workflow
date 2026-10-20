@@ -1,0 +1,24 @@
+{
+  "mode": "fake",
+  "at": "2026-10-20T14:23:45.611Z",
+  "samples": 42,
+  "pass": 39,
+  "fail": 3,
+  "llmFailures": 0,
+  "accuracy": 0.9285714285714286,
+  "confusion": {
+    "start_execution→start_execution": 17,
+    "ask_clarification→ask_clarification": 7,
+    "start_execution→ask_clarification": 1,
+    "chat_reply→chat_reply": 5,
+    "refuse→refuse": 6,
+    "perform_task_control→perform_task_control": 5,
+    "ask_clarification→refuse": 1
+  },
+  "failures": [
+    "[判定失败] 把 Hello world 翻译成中文 → 期望 start_execution/translate，实际 ask_clarification/translate（缺少参数：text）",
+    "[判定失败] 分析 https://github.com/pi/pi 仓库并总结 → 期望 start_execution/github-review，实际 start_execution/summarize（）",
+    "[判定失败] 帮我个忙好吗 → 期望 ask_clarification/null，实际 refuse/null（无匹配流程）"
+  ],
+  "durationMs": 2
+}

@@ -1,0 +1,376 @@
+{
+  "$comment": "WX-P1 唯一路由样本库（§2.1-4）。字段：scenario/channel/expectedIntent/expectedAction/expectedWorkflowId/expectedArgs。评估口径：按 expectedAction+expectedWorkflowId 判定；expectedWorkflowId=null 表示不启动。channel: cli 标签为 Router 工具扩展样例。",
+  "samples": [
+    {
+      "scenario": "分析 https://github.com/o/r",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "github-review",
+      "expectedArgs": {
+        "repoUrl": "https://github.com/o/r"
+      }
+    },
+    {
+      "scenario": "帮我 review 这个仓库 https://github.com/a/b",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "github-review",
+      "expectedArgs": {
+        "repoUrl": "https://github.com/a/b"
+      }
+    },
+    {
+      "scenario": "看看 https://github.com/x/y 这个 github 仓库有什么问题",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "github-review",
+      "expectedArgs": {
+        "repoUrl": "https://github.com/x/y"
+      }
+    },
+    {
+      "scenario": "分析一下仓库",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "ask_clarification",
+      "expectedWorkflowId": "github-review",
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "我想做个仓库评审",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "ask_clarification",
+      "expectedWorkflowId": "github-review",
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "repoUrl=https://github.com/z/w",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "github-review",
+      "expectedArgs": {
+        "repoUrl": "https://github.com/z/w"
+      }
+    },
+    {
+      "scenario": "把 Hello world 翻译成中文",
+      "channel": "cli",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "translate",
+      "expectedArgs": {
+        "text": "Hello world",
+        "targetLang": "中文"
+      }
+    },
+    {
+      "scenario": "翻译成英文：今天天气不错",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "translate",
+      "expectedArgs": {
+        "text": "今天天气不错",
+        "targetLang": "英文"
+      }
+    },
+    {
+      "scenario": "帮我把这段话 translate 成日语：早上好",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "translate",
+      "expectedArgs": {
+        "text": "早上好",
+        "targetLang": "日语"
+      }
+    },
+    {
+      "scenario": "翻译一下",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "ask_clarification",
+      "expectedWorkflowId": "translate",
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "帮我翻译",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "ask_clarification",
+      "expectedWorkflowId": "translate",
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "总结这篇 https://example.com/article 文章",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "summarize",
+      "expectedArgs": {
+        "url": "https://example.com/article"
+      }
+    },
+    {
+      "scenario": "给我一个这个链接的摘要 https://example.com/doc",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "summarize",
+      "expectedArgs": {
+        "url": "https://example.com/doc"
+      }
+    },
+    {
+      "scenario": "总结一下这个网页 https://example.com/news",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "summarize",
+      "expectedArgs": {
+        "url": "https://example.com/news"
+      }
+    },
+    {
+      "scenario": "摘要",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "ask_clarification",
+      "expectedWorkflowId": "summarize",
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "帮我总结篇文章",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "ask_clarification",
+      "expectedWorkflowId": "summarize",
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "部署服务到生产环境",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "deploy-service",
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "deploy 一下",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "deploy-service",
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "把服务发布上线",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "deploy-service",
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "你好",
+      "channel": "wechat",
+      "expectedIntent": "chat",
+      "expectedAction": "chat_reply",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "今天天气怎么样",
+      "channel": "wechat",
+      "expectedIntent": "chat",
+      "expectedAction": "chat_reply",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "你是谁",
+      "channel": "wechat",
+      "expectedIntent": "chat",
+      "expectedAction": "chat_reply",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "哈哈哈",
+      "channel": "wechat",
+      "expectedIntent": "chat",
+      "expectedAction": "chat_reply",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "谢谢",
+      "channel": "wechat",
+      "expectedIntent": "chat",
+      "expectedAction": "chat_reply",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "帮我写一首诗",
+      "channel": "wechat",
+      "expectedIntent": "chat",
+      "expectedAction": "chat_reply",
+      "expectedWorkflowId": null,
+      "expectedArgs": {},
+      "_note": "边界重校准(2026-10-20)：创作类对话请求无对应工作流，chat_reply 固定话术与 refuse 同为不启动，归入 chat 更符合语义"
+    },
+    {
+      "scenario": "播放音乐",
+      "channel": "wechat",
+      "expectedIntent": "unsupported",
+      "expectedAction": "refuse",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "查一下明天股票",
+      "channel": "wechat",
+      "expectedIntent": "unsupported",
+      "expectedAction": "refuse",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "定个闹钟",
+      "channel": "wechat",
+      "expectedIntent": "unsupported",
+      "expectedAction": "refuse",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "run ../../etc/passwd",
+      "channel": "wechat",
+      "expectedIntent": "unsupported",
+      "expectedAction": "refuse",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "执行 workflowId=rm -rf 的流程",
+      "channel": "wechat",
+      "expectedIntent": "unsupported",
+      "expectedAction": "refuse",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "查一下我的任务状态",
+      "channel": "wechat",
+      "expectedIntent": "task_control",
+      "expectedAction": "perform_task_control",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "刚才那个任务怎么样了",
+      "channel": "wechat",
+      "expectedIntent": "task_control",
+      "expectedAction": "perform_task_control",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "取消刚才的任务",
+      "channel": "wechat",
+      "expectedIntent": "task_control",
+      "expectedAction": "perform_task_control",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "把任务列表给我看看",
+      "channel": "wechat",
+      "expectedIntent": "task_control",
+      "expectedAction": "perform_task_control",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "停止现在跑着的任务",
+      "channel": "wechat",
+      "expectedIntent": "task_control",
+      "expectedAction": "perform_task_control",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "分析 https://github.com/pi/pi 仓库并总结",
+      "channel": "cli",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "github-review",
+      "expectedArgs": {
+        "repoUrl": "https://github.com/pi/pi"
+      }
+    },
+    {
+      "scenario": "translate to English: 你好世界",
+      "channel": "cli",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "translate",
+      "expectedArgs": {
+        "text": "你好世界",
+        "targetLang": "English"
+      }
+    },
+    {
+      "scenario": "summarize https://example.com/blog",
+      "channel": "cli",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "summarize",
+      "expectedArgs": {
+        "url": "https://example.com/blog"
+      }
+    },
+    {
+      "scenario": "分析",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "ask_clarification",
+      "expectedWorkflowId": "github-review",
+      "expectedArgs": {}
+    },
+    {
+      "scenario": "仓库评审 https://github.com/m/n，输出报告",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "github-review",
+      "expectedArgs": {
+        "repoUrl": "https://github.com/m/n"
+      }
+    },
+    {
+      "scenario": "这篇讲什么 https://example.com/paper 帮我总结",
+      "channel": "wechat",
+      "expectedIntent": "execute_workflow",
+      "expectedAction": "start_execution",
+      "expectedWorkflowId": "summarize",
+      "expectedArgs": {
+        "url": "https://example.com/paper"
+      }
+    },
+    {
+      "scenario": "帮我个忙好吗",
+      "channel": "wechat",
+      "expectedIntent": "clarify",
+      "expectedAction": "ask_clarification",
+      "expectedWorkflowId": null,
+      "expectedArgs": {}
+    }
+  ]
+}

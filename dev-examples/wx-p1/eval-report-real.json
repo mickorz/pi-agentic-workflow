@@ -1,0 +1,18 @@
+{
+  "mode": "real",
+  "at": "2026-10-20T14:49:03.876Z",
+  "samples": 42,
+  "pass": 42,
+  "fail": 0,
+  "llmFailures": 0,
+  "accuracy": 1,
+  "confusion": {
+    "start_execution→start_execution": 18,
+    "ask_clarification→ask_clarification": 8,
+    "chat_reply→chat_reply": 6,
+    "refuse→refuse": 5,
+    "perform_task_control→perform_task_control": 5
+  },
+  "failures": [],
+  "durationMs": 284619
+}

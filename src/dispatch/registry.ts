@@ -1,0 +1,80 @@
+/**
+ * Workflow Registry（WR-001~004）：注册/校验/检索/启用白名单
+ * 注册文件：JSON（.pi-wechat/workflows.json，字段=WorkflowRegistration[]）
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+import type { WorkflowRegistration } from "../contracts/wx.js";
+
+export class WorkflowRegistry {
+  private readonly byId = new Map<string, WorkflowRegistration>();
+
+  constructor(registrations: WorkflowRegistration[]) {
+    for (const reg of registrations) this.register(reg);
+  }
+
+  /** WR-003：错误元数据不入表（负例拒绝并计数） */
+  register(reg: WorkflowRegistration): { ok: true } | { ok: false; error: string } {
+    if (!reg.workflowId || typeof reg.workflowId !== "string") return { ok: false, error: "workflowId 必填" };
+    if (!/^[a-z][a-z0-9-]*$/.test(reg.workflowId)) return { ok: false, error: `workflowId 非法：${reg.workflowId}` };
+    if (this.byId.has(reg.workflowId)) return { ok: false, error: `重复注册：${reg.workflowId}` };
+    if (!reg.scriptPath || typeof reg.scriptPath !== "string") return { ok: false, error: "scriptPath 必填" };
+    if (path.isAbsolute(reg.scriptPath) || reg.scriptPath.includes("..")) {
+      return { ok: false, error: `scriptPath 必须是白名单根内相对路径：${reg.scriptPath}` };
+    }
+    if (!reg.argsSchema || typeof reg.argsSchema !== "object") return { ok: false, error: "argsSchema 必填" };
+    if (!["read-only", "write", "external-side-effect"].includes(reg.riskLevel)) {
+      return { ok: false, error: `riskLevel 非法：${String(reg.riskLevel)}` };
+    }
+    this.byId.set(reg.workflowId, { ...reg, keywords: reg.keywords ?? [] });
+    return { ok: true };
+  }
+
+  /** 运维下线/启用（execute 重校验场景：plan 与 execute 间隔内可变更） */
+  setEnabled(workflowId: string, enabled: boolean): boolean {
+    const reg = this.byId.get(workflowId);
+    if (!reg) return false;
+    reg.enabled = enabled;
+    return true;
+  }
+
+  /** WR-002：仅启用项可见（白名单） */
+  get(workflowId: string): WorkflowRegistration | undefined {
+    const reg = this.byId.get(workflowId);
+    return reg?.enabled ? reg : undefined;
+  }
+
+  all(enabledOnly = true): WorkflowRegistration[] {
+    return [...this.byId.values()].filter((r) => (enabledOnly ? r.enabled : true));
+  }
+
+  /** IR 候选检索：关键词/名称/描述包含匹配（IR-010 初期关键词通道） */
+  search(text: string, limit = 8): WorkflowRegistration[] {
+    const lower = text.toLowerCase();
+    const scored: Array<{ reg: WorkflowRegistration; score: number }> = [];
+    for (const reg of this.all()) {
+      let score = 0;
+      for (const kw of reg.keywords) if (lower.includes(kw.toLowerCase())) score += 2;
+      if (lower.includes(reg.name.toLowerCase())) score += 2;
+      if (reg.description && lower.includes(reg.description.toLowerCase().slice(0, 12))) score += 1;
+      if (score > 0) scored.push({ reg, score });
+    }
+    return scored
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((s) => s.reg);
+  }
+
+  /** 从 JSON 文件加载（错误条目跳过并返回问题清单） */
+  static loadFromFile(file: string): { registry: WorkflowRegistry; issues: string[] } {
+    const issues: string[] = [];
+    const raw = fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, "utf-8")) as WorkflowRegistration[]) : [];
+    const registry = new WorkflowRegistry([]);
+    for (const reg of raw) {
+      const result = registry.register(reg);
+      if (!result.ok) issues.push(`${(reg as { workflowId?: string }).workflowId ?? "?"}: ${result.error}`);
+    }
+    return { registry, issues };
+  }
+}

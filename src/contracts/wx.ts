@@ -1,0 +1,161 @@
+/**
+ * wechat-dispatch 核心契约（P1 §2，需求 §7 数据契约）
+ *
+ * 五个持久化实体：BotMessageReceipt / ConversationState / WorkflowRegistration / TaskBinding / ModelRoutingDecision
+ * Intent/Action 分离（P1 §2.1-2）；plan()/execute() 两段式签名（P1 §2.1-1）。
+ * 本文件零 gateway / 零微信协议依赖（§2.1-3 跨入口复用禁合）。
+ */
+
+// ── Intent / Action（独立枚举，不得混用） ──
+
+/** 意图：用户请求类别（IR-001 五类） */
+export type Intent = "chat" | "execute_workflow" | "clarify" | "task_control" | "unsupported";
+/** 动作：系统接下来的事 */
+export type Action =
+  | "start_execution"
+  | "ask_clarification"
+  | "refuse"
+  | "perform_task_control"
+  | "chat_reply";
+
+/** 风险等级（LK-03：仅 read-only 允许自动执行） */
+export type RiskLevel = "read-only" | "write" | "external-side-effect";
+
+// ── 统一消息格式（WG-001） ──
+
+export interface BotInboundMessage {
+  channel: "wechat" | "cli";
+  /** 绑定用户标识（WG-002 过滤依据） */
+  userId: string;
+  /** 幂等键：channel+messageId（WG-003） */
+  messageId: string;
+  text: string;
+  receivedAt: string;
+}
+
+export interface BotMessageReceipt {
+  messageId: string;
+  channel: string;
+  userId: string;
+  /** received | duplicate | rejected | processed */
+  status: "received" | "duplicate" | "rejected" | "processed";
+  receivedAt: string;
+  /** 关联任务（若产生 Run） */
+  taskBindingId?: string;
+}
+
+// ── Workflow Registry（WR，§7.1） ──
+
+export interface WorkflowRegistration {
+  workflowId: string;
+  /** 相对 scripts 根的路径（白名单内） */
+  scriptPath: string;
+  name: string;
+  description: string;
+  /** 参数 JSON Schema（缺字段追问依据，IR-005） */
+  argsSchema: Record<string, unknown>;
+  riskLevel: RiskLevel;
+  enabled: boolean;
+  /** 检索关键词（IR-002 候选匹配用，不含源码） */
+  keywords: string[];
+}
+
+// ── 意图路由结果 ──
+
+export interface RoutePlan {
+  intent: Intent;
+  action: Action;
+  /** action=start_execution 时非空；经 Registry 白名单校验后的目标 */
+  workflowId?: string;
+  /** 服务端 Schema 校验后的参数 */
+  args?: Record<string, unknown>;
+  /** 缺失必填参数字段名（action=ask_clarification 时非空） */
+  missingFields?: string[];
+  /** 拒绝/澄清/聊天回复的理由或话术 */
+  reason?: string;
+  /** 路由置信度（0-1；门限 LK-05=0.75，且 confidence 不是授权） */
+  confidence: number;
+  /** 路由耗时毫秒与 token（可观测，RP 评测复用） */
+  latencyMs?: number;
+  tokens?: number;
+}
+
+// ── 会话状态（CV，§7） ──
+
+export interface ConversationState {
+  userId: string;
+  /** 待补参数（IR-005：缺槽位时挂起） */
+  pendingPlan?: RoutePlan & { workflowId: string };
+  /** 最近一次任务引用（UC-03 "刚才的"） */
+  lastTaskBindingId?: string;
+  updatedAt: string;
+  /** TTL 过期时间（LK-05：15 分钟） */
+  expiresAt?: string;
+}
+
+// ── 任务绑定（EX，§7） ──
+
+export interface TaskBinding {
+  taskBindingId: string;
+  runId: string;
+  channel: string;
+  userId: string;
+  workflowId: string;
+  status: "running" | "completed" | "failed" | "cancelled" | "waiting_checkpoint" | "interrupted";
+  createdAt: string;
+  updatedAt: string;
+  messageId: string;
+}
+
+// ── 模型路由（MR，§7） ──
+
+export type ModelTier = "quick" | "general" | "frontier";
+
+export interface ModelRoutingDecision {
+  nodeId: string;
+  runId: string;
+  requestedTier?: ModelTier;
+  /** 节点显式物理模型（优先级最高，MR-003 不被覆盖） */
+  requestedModel?: string;
+  actualModel: string;
+  routeSource: "explicit-model" | "node-tier" | "workflow-default" | "fallback" | "run-default";
+  decidedAt: string;
+}
+
+// ── Dispatcher 两段式（§2.1-1） ──
+
+export interface PlanInput {
+  text: string;
+  context?: { userId: string; channel: string; conversation?: ConversationState };
+}
+
+/** execute() 的执行前授权（§2.1-5：高风险确认必须在 start() 之前） */
+export interface ExecutionAuthorization {
+  actor: string;
+  /** 高风险（write/external-side-effect）必须显式 authorized=true 才放行 */
+  authorized: boolean;
+  entrypoint: "wechat" | "cli";
+}
+
+export interface ExecuteResult {
+  taskBindingId: string;
+  runId: string;
+  status: TaskBinding["status"];
+}
+
+export type ServiceErrorCodeWX =
+  | "NOT_AUTHORIZED"
+  | "WORKFLOW_NOT_FOUND"
+  | "INVALID_ARGS"
+  | "PLAN_EXPIRED"
+  | "RUN_LIMIT";
+
+export class DispatchError extends Error {
+  constructor(
+    readonly code: ServiceErrorCodeWX,
+    message: string,
+  ) {
+    super(message);
+    this.name = "DispatchError";
+  }
+}

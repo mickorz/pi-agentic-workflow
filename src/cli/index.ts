@@ -12,6 +12,7 @@ import { list as listCommand } from "./commands/list.js";
 import { status as statusCommand } from "./commands/status.js";
 import { resume as resumeCommand } from "./commands/resume.js";
 import { stop as stopCommand } from "./commands/stop.js";
+import { wechat as wechatCommand } from "./commands/wechat.js";
 
 const HELP = `pi-workflow — Pi 动态工作流 CLI Runtime
 
@@ -68,6 +69,8 @@ async function main(argv: string[]): Promise<number> {
       return resumeCommand(rest);
     case "stop":
       return stopCommand(rest);
+    case "wechat":
+      return wechatCommand(rest);
     case "help":
     case "--help":
     case "-h":
