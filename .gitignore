@@ -11,3 +11,6 @@ dist/
 # pi-workflow 运行产物（不进 git）
 .pi-workflows/
 .idea/
+
+# 本地遗留克隆（非 submodule，历史参考）
+thirdparties/pi-dynamic-workflows/
