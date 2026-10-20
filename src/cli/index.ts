@@ -6,12 +6,13 @@
  * 退出码：0 = completed；1 = failed/cancelled；2 = invalid（脚本/参数错误）；130 = interrupted
  */
 
-import { run as runCommand } from "./commands/run.js";
-import { validate as validateCommand } from "./commands/validate.js";
 import { list as listCommand } from "./commands/list.js";
-import { status as statusCommand } from "./commands/status.js";
 import { resume as resumeCommand } from "./commands/resume.js";
+import { route as routeCommand } from "./commands/route.js";
+import { run as runCommand } from "./commands/run.js";
+import { status as statusCommand } from "./commands/status.js";
 import { stop as stopCommand } from "./commands/stop.js";
+import { validate as validateCommand } from "./commands/validate.js";
 import { wechat as wechatCommand } from "./commands/wechat.js";
 
 const HELP = `pi-workflow — Pi 动态工作流 CLI Runtime
@@ -23,6 +24,7 @@ const HELP = `pi-workflow — Pi 动态工作流 CLI Runtime
   pi-workflow status <runId>                查看运行详情与 journal 摘要
   pi-workflow resume <runId> [--yes]        从 journal 恢复执行
   pi-workflow stop <runId>                  终止本机活跃运行（SIGINT→SIGTERM）
+  pi-workflow route --text "..." [选项]    共享路由 Dry-run（零执行副作用）
   pi-workflow help                          显示本帮助
 
 run 选项：
@@ -41,6 +43,15 @@ resume 选项：
   --yes                   跳过副作用窗口人工确认（中断恢复可能重复未记 journal 的副作用）
   --non-interactive       无交互模式：副作用确认未决则拒绝；checkpoint 进入等待态
   --model <spec>          覆盖运行级默认模型
+
+route 选项（RP 共享路由 CLI，默认 Dry-run 零副作用）：
+  --text <s>              待路由文本（必填）
+  --registry <file>       注册表 JSON（缺省 .pi-wechat/workflows.json）
+  --scripts <dir>         脚本白名单根（--execute 时必填）
+  --model <spec>          覆盖默认模型（缺省走 ~/.pi/agent/settings.json）
+  --channel cli|wechat    入口标签（缺省 cli）
+  --execute               显式执行（高风险一律拒绝，无绕过手段）
+  --json                  机器可读 JSON 输出
 
 持久化：
   .pi-workflows/runs/<runId>/{manifest.json,journal.jsonl,result.json}
@@ -71,6 +82,8 @@ async function main(argv: string[]): Promise<number> {
       return stopCommand(rest);
     case "wechat":
       return wechatCommand(rest);
+    case "route":
+      return routeCommand(rest);
     case "help":
     case "--help":
     case "-h":

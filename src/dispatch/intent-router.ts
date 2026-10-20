@@ -18,6 +18,8 @@ export interface IntentRouterDeps {
   registry: { search(text: string, limit?: number): WorkflowRegistration[]; get(id: string): WorkflowRegistration | undefined };
   /** confidence 门限（默认 0.75） */
   confidenceGate?: number;
+  /** RP：提示词变体注入（A/B 评测；缺省用内置提示词） */
+  promptBuilder?: (text: string, candidates: WorkflowRegistration[]) => string;
 }
 
 export class IntentRouter {
@@ -61,6 +63,7 @@ export class IntentRouter {
   private async noop(): Promise<void> {}
 
   private buildPrompt(text: string, candidates: WorkflowRegistration[]): string {
+    if (this.deps.promptBuilder) return this.deps.promptBuilder(text, candidates);
     const meta = candidates.map((c) => ({
       workflowId: c.workflowId,
       name: c.name,
