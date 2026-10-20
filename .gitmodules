@@ -4,3 +4,6 @@
 [submodule "thirdparties/pi"]
 	path = thirdparties/pi
 	url = https://github.com/earendil-works/pi.git
+[submodule "thirdparties/pi-bifrost"]
+	path = thirdparties/pi-bifrost
+	url = https://github.com/iamaamir/pi-bifrost.git
