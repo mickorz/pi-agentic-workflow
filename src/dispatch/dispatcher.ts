@@ -31,6 +31,11 @@ export interface ExecutionService {
   start(input: { scriptPath: string; args?: unknown; cwd?: string; model?: string }): Promise<{ runId: string }>;
 }
 
+/** 任务控制模块接口（生产=TaskController；测试=fake） */
+export interface TaskControlPort {
+  handle(message: BotInboundMessage): Promise<{ reply: string }>;
+}
+
 export interface DispatcherDeps {
   registry: WorkflowRegistry;
   router: IntentRouter;
@@ -40,6 +45,10 @@ export interface DispatcherDeps {
   scriptsRoot: string;
   /** run 级默认模型（ModelRouter.runDefaultModel()） */
   defaultModel?: string;
+  /** P2（IR-008）：task_control 意图分发目标 */
+  taskControl?: TaskControlPort;
+  /** P2（MR-011/A18）：启动前守卫（预算等）；抛 DispatchError 即拒绝启动 */
+  preStart?: (plan: RoutePlan, origin: { userId: string }) => void;
 }
 
 export class Dispatcher {
@@ -78,14 +87,29 @@ export class Dispatcher {
     } catch (e) {
       throw new DispatchError("INVALID_ARGS", `参数校验未通过：${e instanceof Error ? e.message : String(e)}`);
     }
+    // 重校验 4：启动前守卫（预算/频率等限额）
+    this.deps.preStart?.(plan, origin);
 
     // 唯一启动入口
     const scriptPath = path.resolve(this.deps.scriptsRoot, reg.scriptPath);
-    const { runId } = await this.deps.service.start({
-      scriptPath,
-      args,
-      ...(this.deps.defaultModel ? { model: this.deps.defaultModel } : {}),
-    });
+    let runId: string;
+    try {
+      const started = await this.deps.service.start({
+        scriptPath,
+        args,
+        ...(this.deps.defaultModel ? { model: this.deps.defaultModel } : {}),
+      });
+      runId = started.runId;
+    } catch (error) {
+      // EX-010/A18：并发上限 → 明确反馈话术（不无限创建 Run）
+      if (error && typeof error === "object" && (error as { code?: unknown }).code === "RUN_LIMIT_REACHED") {
+        throw new DispatchError(
+          "RUN_LIMIT",
+          "已达并发上限，新任务暂不能启动。可发「任务列表」查看进行中的任务，或稍后再试。",
+        );
+      }
+      throw error;
+    }
 
     const now = new Date().toISOString();
     const binding: TaskBinding = {
@@ -132,6 +156,14 @@ export class Dispatcher {
 
     const plan = await this.plan({ text: message.text });
     switch (plan.action) {
+      case "perform_task_control": {
+        // IR-008：查询/取消/批准/拒绝/恢复走 Task Control，不进 Workflow 路由
+        if (this.deps.taskControl) {
+          const out = await this.deps.taskControl.handle(message);
+          return { reply: out.reply, plan };
+        }
+        return { reply: "任务控制暂不可用。", plan };
+      }
       case "start_execution": {
         const reg = this.deps.registry.get(plan.workflowId!);
         // read-only 自动执行；高风险需 options.authorized（Gateway 会先发确认卡）

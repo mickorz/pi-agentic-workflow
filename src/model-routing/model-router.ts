@@ -5,6 +5,8 @@
  * 不改 DSL 语义：以 PiAgentAdapter 之前的解析层接入（P1 T5）。
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import type { ModelRoutingDecision, ModelTier } from "../contracts/wx.js";
 
 export interface ModelPoolConfig {
@@ -26,6 +28,8 @@ export class ModelRouter {
   constructor(
     private readonly config: ModelPoolConfig,
     private readonly availability: ModelAvailability,
+    /** P2（MR-010/NFR-008）：决策回调（审计/持久化路由日志；默认内存记录不变） */
+    private readonly hooks?: { onDecision?: (decision: ModelRoutingDecision) => void },
   ) {}
 
   /**
@@ -103,6 +107,40 @@ export class ModelRouter {
 
   private maybeRecord(decision: ModelRoutingDecision, options?: { record?: boolean }): ModelRoutingDecision {
     if (options?.record !== false) this.decisions.push(decision);
+    this.hooks?.onDecision?.(decision);
     return decision;
+  }
+}
+
+/**
+ * 决策持久化日志（MR-010：Resume 回放一致 / 决策可追溯，NFR-008 不虚构数据）
+ * 存 .pi-wechat/model-routes.jsonl；重启后可按 runId 检索历史决策。
+ */
+export class ModelRoutingLog {
+  private readonly file: string;
+
+  constructor(dataDir: string) {
+    fs.mkdirSync(dataDir, { recursive: true });
+    this.file = path.join(dataDir, "model-routes.jsonl");
+  }
+
+  append(decision: ModelRoutingDecision): void {
+    fs.appendFileSync(this.file, `${JSON.stringify(decision)}\n`, "utf-8");
+  }
+
+  list(runId?: string): ModelRoutingDecision[] {
+    if (!fs.existsSync(this.file)) return [];
+    const out: ModelRoutingDecision[] = [];
+    for (const raw of fs.readFileSync(this.file, "utf-8").split("\n")) {
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed) as ModelRoutingDecision;
+        if (parsed?.actualModel) out.push(parsed);
+      } catch {
+        // 断裂行跳过
+      }
+    }
+    return runId ? out.filter((d) => d.runId === runId) : out;
   }
 }

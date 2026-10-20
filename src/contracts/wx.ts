@@ -105,6 +105,10 @@ export interface TaskBinding {
   createdAt: string;
   updatedAt: string;
   messageId: string;
+  /** P2（EX-007）：已向用户通知过的审批请求版本（重启后防重复发卡） */
+  approvalNotifiedVersion?: number;
+  /** P2（NT-005/006）：终态摘要（通知失败后「任务列表」主动查询补偿） */
+  summary?: string;
 }
 
 // ── 模型路由（MR，§7） ──
@@ -149,6 +153,61 @@ export type ServiceErrorCodeWX =
   | "INVALID_ARGS"
   | "PLAN_EXPIRED"
   | "RUN_LIMIT";
+
+// ── P2：通知 Outbox（NT-004~006） ──
+
+export type OutboxKind = "receipt" | "completed" | "failed" | "cancelled" | "interrupted" | "approval" | "info";
+
+/** 通知 Outbox 条目：完成（Run 终态）与送达（send 成功）分别记录（§9.3） */
+export interface NotificationOutboxItem {
+  outboxId: string;
+  userId: string;
+  kind: OutboxKind;
+  text: string;
+  /** 关联任务（NT-005 按 runId 串审计） */
+  runId?: string;
+  taskBindingId?: string;
+  status: "pending" | "sent" | "failed";
+  attempts: number;
+  createdAt: string;
+  sentAt?: string;
+  lastError?: string;
+  /** 下次可重试时间（退避后） */
+  nextRetryAt?: string;
+}
+
+// ── P2：审计（SC-006，NFR-007/008） ──
+
+export type AuditAction =
+  | "intent.route"
+  | "run.start"
+  | "run.cancel"
+  | "run.resume"
+  | "checkpoint.requested"
+  | "checkpoint.approve"
+  | "checkpoint.reject"
+  | "model.route"
+  | "limit.reject"
+  | "outbox.giveup"
+  | "gateway.reconnect";
+
+export interface AuditRecord {
+  auditId: string;
+  at: string;
+  /** 操作者（userId 或 "system"） */
+  actor: string;
+  action: AuditAction;
+  target: {
+    runId?: string;
+    taskBindingId?: string;
+    workflowId?: string;
+    checkpointId?: string;
+    version?: number;
+  };
+  outcome: "ok" | "rejected" | "failed";
+  /** 已脱敏详情（SC-004：写入前必经 redact） */
+  detail?: string;
+}
 
 export class DispatchError extends Error {
   constructor(

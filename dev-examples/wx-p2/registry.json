@@ -1,0 +1,32 @@
+[
+  {
+    "workflowId": "approval-demo",
+    "scriptPath": "approval-demo.js",
+    "name": "审批演示",
+    "description": "两阶段任务，中间暂停等待微信端审批（批准/拒绝分流）",
+    "argsSchema": { "type": "object", "properties": {}, "required": [] },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": ["审批", "演示", "approval", "checkpoint"]
+  },
+  {
+    "workflowId": "long-demo",
+    "scriptPath": "long-demo.js",
+    "name": "长任务演示",
+    "description": "三步长任务，用于进度查询与取消用例",
+    "argsSchema": { "type": "object", "properties": {}, "required": [] },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": ["长任务", "演示", "long", "进度"]
+  },
+  {
+    "workflowId": "translate",
+    "scriptPath": "translate.js",
+    "name": "文本翻译",
+    "description": "把一段文本翻译到目标语言",
+    "argsSchema": { "type": "object", "properties": { "text": { "type": "string" }, "targetLang": { "type": "string" } }, "required": ["text", "targetLang"] },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": ["翻译", "translate"]
+  }
+]
