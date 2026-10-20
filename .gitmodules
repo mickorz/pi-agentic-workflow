@@ -7,3 +7,6 @@
 [submodule "thirdparties/pi-bifrost"]
 	path = thirdparties/pi-bifrost
 	url = https://github.com/iamaamir/pi-bifrost.git
+[submodule "thirdparties/pi-wechat-assistant"]
+	path = thirdparties/pi-wechat-assistant
+	url = https://github.com/shenjiecode/pi-wechat-assistant.git
