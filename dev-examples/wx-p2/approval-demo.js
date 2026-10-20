@@ -1,5 +1,5 @@
 export const meta = {
-  name: "approval-demo",
+  name: "approval_demo",
   description: "WX-P2 真机验收：审批卡 → 批准/拒绝分流",
   phases: [{ title: "prepare" }, { title: "approve" }, { title: "finish" }],
 }

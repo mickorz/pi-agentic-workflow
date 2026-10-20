@@ -1,5 +1,5 @@
 export const meta = {
-  name: "long-demo",
+  name: "long_demo",
   description: "WX-P2 真机验收：长任务（供取消/进度查询用例）",
 }
 

@@ -17,8 +17,11 @@
 
 import path from "node:path";
 import { PiAgentAdapter } from "../../adapters/pi/pi-agent-adapter.js";
-import type { RoutePlan } from "../../contracts/wx.js";
+import { createRunApplicationService } from "../../application/run-service.js";
+import { DispatchError, type RoutePlan } from "../../contracts/wx.js";
+import { Dispatcher } from "../../dispatch/dispatcher.js";
 import { IntentRouter, type RoutingLLM } from "../../dispatch/intent-router.js";
+import { TaskStore } from "../../dispatch/task-store.js";
 import { WorkflowRegistry } from "../../dispatch/registry.js";
 
 const MAX_TEXT = 2000; // 超长拒绝（防把上下文塞进路由提示词）
@@ -69,6 +72,37 @@ export async function planRoute(text: string, options: RouteCliOptions): Promise
   return router.route(text);
 }
 
+/**
+ * RP-P2 显式执行：plan → dispatcher.execute()（唯一启动入口 RunApplicationService）。
+ * 安全红线（§3.3）：CLI 永远 authorized=false —— 高风险（write/external-side-effect）
+ * 一律 NOT_AUTHORIZED，不提供任何绕过手段（执行前授权必须在微信端完成）。
+ */
+export async function executeRoute(
+  text: string,
+  options: RouteCliOptions & { scriptsRoot: string; dataDir: string; userId: string },
+): Promise<{ plan: RoutePlan; result: { taskBindingId: string; runId: string; status: string } }> {
+  const { registry, issues } = WorkflowRegistry.loadFromFile(options.registryFile);
+  if (issues.length > 0) console.warn(`registry 问题条目：${issues.join("; ")}`);
+  const router = new IntentRouter({ llm: buildRouteLlm(options.model), registry });
+  const plan = await router.route(text);
+  if (plan.action !== "start_execution" || !plan.workflowId) {
+    return { plan, result: { taskBindingId: "-", runId: "-", status: plan.action } };
+  }
+  const dispatcher = new Dispatcher({
+    registry,
+    router,
+    tasks: new TaskStore(options.dataDir),
+    service: createRunApplicationService({ baseDir: process.cwd() }),
+    scriptsRoot: options.scriptsRoot,
+  });
+  const result = await dispatcher.execute(
+    plan,
+    { actor: options.userId, authorized: false, entrypoint: options.channel ?? "cli" },
+    { channel: options.channel ?? "cli", userId: options.userId, messageId: `cli-${Date.now()}` },
+  );
+  return { plan, result };
+}
+
 export async function route(argv: string[]): Promise<number> {
   const flag = (name: string): string | undefined => {
     const i = argv.indexOf(name);
@@ -76,9 +110,37 @@ export async function route(argv: string[]): Promise<number> {
   };
   const text = flag("--text");
   const json = argv.includes("--json");
+  const execute = argv.includes("--execute");
   const registryFile = flag("--registry") ?? path.join(".pi-wechat", "workflows.json");
 
   try {
+    if (execute) {
+      // RP-P2：显式执行（高风险一律 NOT_AUTHORIZED，无绕过）
+      const scriptsRoot = flag("--scripts");
+      if (!scriptsRoot) {
+        throw Object.assign(new Error("--execute 需要 --scripts <脚本白名单根>"), { code: "INVALID_INPUT" });
+      }
+      const channel = flag("--channel") === "wechat" ? "wechat" : "cli";
+      const { plan, result } = await executeRoute(text ?? "", {
+        registryFile,
+        scriptsRoot,
+        dataDir: flag("--data") ?? path.join(".pi-wechat"),
+        userId: flag("--user") ?? "cli-user",
+        ...(flag("--model") ? { model: flag("--model") } : {}),
+        channel,
+      });
+      if (result.runId === "-") {
+        if (json) process.stdout.write(`${JSON.stringify({ plan, executed: false, reason: "plan 非可执行态" }, null, 2)}\n`);
+        else process.stdout.write(`plan 非可执行态（${plan.action}），未启动。\n${renderPlan(plan)}`);
+        return 0;
+      }
+      if (json) {
+        process.stdout.write(`${JSON.stringify({ plan, executed: true, ...result }, null, 2)}\n`);
+      } else {
+        process.stdout.write(`🚀 已启动：runId=${result.runId} taskBindingId=${result.taskBindingId} status=${result.status}\n${renderPlan(plan)}`);
+      }
+      return 0;
+    }
     const plan = await planRoute(text ?? "", {
       registryFile,
       ...(flag("--model") ? { model: flag("--model") } : {}),
@@ -94,6 +156,14 @@ export async function route(argv: string[]): Promise<number> {
   } catch (error) {
     const code = (error as { code?: string }).code;
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof DispatchError && error.code === "NOT_AUTHORIZED") {
+      // 高风险负向：明确告知需到微信端完成执行前授权，CLI 无绕过手段
+      const out = json
+        ? `${JSON.stringify({ error: { code, message } }, null, 2)}\n`
+        : `⛔ [${code}] ${message}\n（执行前授权需在微信端完成，CLI 不提供绕过手段）\n`;
+      process.stdout.write(out);
+      return 1;
+    }
     if (json) {
       process.stdout.write(`${JSON.stringify({ error: { code: code ?? "ROUTE_FAILED", message } }, null, 2)}\n`);
     } else {
