@@ -27,8 +27,7 @@ Intent/Action 分离、dispatch 层无 gateway 依赖、统一评测样本格式
 
 ## 1. 项目背景与定位
 
-wechat-dispatch 已实现：Registry、五意图 IntentRouter、参数补齐、plan()/execute() 两段式
-Dispatcher、ModelRouter、微信接入与可靠性闭环。但缺少：
+wechat-dispatch **规划实现**（当前 P1 标记为待执行，共享模块尚不存在，开发前必须完成微信 P0→P1 并通过 Gate-out）：Registry、五意图 IntentRouter、参数补齐、plan()/execute() 两段式 Dispatcher、ModelRouter、微信接入与可靠性闭环。但缺少：
 
 1. **CLI 调试入口**——不依赖微信即可调试同一套路由逻辑。
 2. **量化评测工具链**——混淆矩阵、逐字段参数准确率、Prompt A/B、多模型对比。
@@ -83,7 +82,9 @@ RunApplicationService → Workflow Runtime + ModelRouter
 
 - **Dry-run 默认**：CLI 默认只调 `plan()`，不启动 Workflow、不创建 Run。
 - **`--execute` 是启动请求，不是危险权限**：遇 `write` / `external-side-effect` 风险等级的
-  Workflow，仍必须走微信项目正式审批机制（checkpoint 链路），本工具不提供任何绕过手段。
+  Workflow，仍必须走微信项目正式审批机制，本工具不提供任何绕过手段。
+  其中：**执行前授权在 `RunApplicationService.start()` 之前完成**——高风险 Workflow 不允许先启动再确认；
+  Workflow 内 Checkpoint 属于运行中阶段审批，不能代替启动授权。
 - `plan()` 结果不得缓存为执行授权；`execute()` 每次重新校验 Registry/参数/身份/权限。
 
 ## 4. CLI 需求
