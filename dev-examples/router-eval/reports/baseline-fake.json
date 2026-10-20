@@ -1,0 +1,84 @@
+{
+  "label": "baseline-fake",
+  "mode": "fake",
+  "promptVariant": "A",
+  "model": "(default: ~/.pi/agent/settings.json)",
+  "at": "2026-10-20T15:45:35.289Z",
+  "samples": 42,
+  "judged": 42,
+  "pass": 38,
+  "fail": 4,
+  "llmFailures": 0,
+  "accuracy": 0.9047619047619048,
+  "gate": ">=90%",
+  "confusion": {
+    "action": {
+      "ask_clarification→ask_clarification": 7,
+      "ask_clarification→refuse": 1,
+      "chat_reply→chat_reply": 5,
+      "chat_reply→refuse": 1,
+      "perform_task_control→perform_task_control": 5,
+      "refuse→refuse": 5,
+      "start_execution→ask_clarification": 1,
+      "start_execution→start_execution": 17
+    },
+    "intent": {
+      "chat→chat": 5,
+      "chat→unsupported": 1,
+      "clarify→unsupported": 1,
+      "execute_workflow→execute_workflow": 25,
+      "task_control→task_control": 5,
+      "unsupported→unsupported": 5
+    }
+  },
+  "perFieldArgs": {
+    "repoUrl": {
+      "hit": 4,
+      "total": 5,
+      "accuracy": 0.8
+    },
+    "text": {
+      "hit": 3,
+      "total": 3,
+      "accuracy": 1
+    },
+    "targetLang": {
+      "hit": 3,
+      "total": 3,
+      "accuracy": 1
+    },
+    "url": {
+      "hit": 5,
+      "total": 5,
+      "accuracy": 1
+    }
+  },
+  "byChannel": {
+    "wechat": {
+      "pass": 36,
+      "total": 38,
+      "accuracy": 0.9473684210526315
+    },
+    "cli": {
+      "pass": 2,
+      "total": 4,
+      "accuracy": 0.5
+    }
+  },
+  "latency": {
+    "meanMs": 0,
+    "p50Ms": 0,
+    "p95Ms": 0
+  },
+  "tokens": {
+    "total": 0,
+    "mean": 0
+  },
+  "durationMs": 4,
+  "failures": [
+    "[判定失败] 把 Hello world 翻译成中文 → 期望 start_execution/translate，实际 ask_clarification/translate（缺少参数：text）",
+    "[判定失败] 帮我写一首诗 → 期望 chat_reply/-，实际 refuse/-（无匹配）",
+    "[判定失败] 分析 https://github.com/pi/pi 仓库并总结 → 期望 start_execution/github-review，实际 start_execution/summarize（）",
+    "[判定失败] 帮我个忙好吗 → 期望 ask_clarification/-，实际 refuse/-（无匹配）"
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "label": "glm53flash-real",
+  "mode": "real",
+  "promptVariant": "A",
+  "model": "cc-switch-zhipu-glm/glm-5.3-flash",
+  "at": "2026-10-20T16:02:37.389Z",
+  "samples": 42,
+  "judged": 42,
+  "pass": 41,
+  "fail": 1,
+  "llmFailures": 0,
+  "accuracy": 0.9761904761904762,
+  "gate": ">=90%",
+  "confusion": {
+    "action": {
+      "ask_clarification→ask_clarification": 7,
+      "ask_clarification→chat_reply": 1,
+      "chat_reply→chat_reply": 6,
+      "perform_task_control→perform_task_control": 5,
+      "refuse→refuse": 5,
+      "start_execution→start_execution": 18
+    },
+    "intent": {
+      "chat→chat": 6,
+      "clarify→chat": 1,
+      "execute_workflow→execute_workflow": 25,
+      "task_control→task_control": 5,
+      "unsupported→unsupported": 5
+    }
+  },
+  "perFieldArgs": {
+    "repoUrl": {
+      "hit": 6,
+      "total": 6,
+      "accuracy": 1
+    },
+    "text": {
+      "hit": 4,
+      "total": 4,
+      "accuracy": 1
+    },
+    "targetLang": {
+      "hit": 4,
+      "total": 4,
+      "accuracy": 1
+    },
+    "url": {
+      "hit": 5,
+      "total": 5,
+      "accuracy": 1
+    }
+  },
+  "byChannel": {
+    "wechat": {
+      "pass": 37,
+      "total": 38,
+      "accuracy": 0.9736842105263158
+    },
+    "cli": {
+      "pass": 4,
+      "total": 4,
+      "accuracy": 1
+    }
+  },
+  "latency": {
+    "meanMs": 7148,
+    "p50Ms": 6630,
+    "p95Ms": 11049
+  },
+  "tokens": {
+    "total": 174049,
+    "mean": 4144
+  },
+  "durationMs": 300213,
+  "failures": [
+    "[判定失败] 帮我个忙好吗 → 期望 ask_clarification/-，实际 chat_reply/-（用户只是泛泛请求帮忙，未提及任何具体任务，且无候选工作流可匹配）"
+  ]
+}
