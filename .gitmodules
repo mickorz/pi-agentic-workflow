@@ -1,0 +1,6 @@
+[submodule "thirdparties/opencode-dynamicworkflows"]
+	path = thirdparties/opencode-dynamicworkflows
+	url = https://github.com/mickorz/opencode-dynamicworkflows.git
+[submodule "thirdparties/pi"]
+	path = thirdparties/pi
+	url = https://github.com/earendil-works/pi.git
