@@ -208,7 +208,7 @@ async function main(): Promise<number> {
       for (const [field, expected] of Object.entries(sample.expectedArgs ?? {})) {
         const stat = fieldStats.get(field) ?? { hit: 0, total: 0 };
         stat.total += 1;
-        const actual = (plan.args ?? {})[field];
+        const actual = plan.args?.[field];
         if (actual !== undefined && String(actual) === String(expected)) stat.hit += 1;
         fieldStats.set(field, stat);
       }
