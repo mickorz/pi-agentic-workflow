@@ -1,16 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import type { RunDetailResponse } from "@server/contract";
-import { api, ApiRequestError } from "../api/client";
 import StatusChip from "../components/StatusChip";
 import { formatDateTime, shortRunId } from "../util/format";
-import {
-  applyEvents,
-  emptyRunModel,
-  usageFromSnapshot,
-  type NodeModel,
-  type RunModel,
-} from "../lib/runModel";
+import { usageFromSnapshot, type NodeModel, type RunModel } from "../lib/runModel";
+import { useRunEvents } from "../lib/useRunEvents";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled", "interrupted"]);
 
@@ -89,61 +82,40 @@ function Inspector({ node, model }: { node: NodeModel | null; model: RunModel })
 
 export default function RunDetail() {
   const { runId = "" } = useParams<{ runId: string }>();
-  const [detail, setDetail] = useState<RunDetailResponse | null>(null);
-  const [model, setModel] = useState<RunModel>(() => emptyRunModel());
+  const { model, snapshot, connected, done, error, refresh } = useRunEvents(runId);
   const [selected, setSelected] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const [d, ev] = await Promise.all([api.getRun(runId), api.events(runId, 0, 1000)]);
-      setDetail(d);
-      setModel(applyEvents(emptyRunModel(), ev.events));
-      setError(null);
-      return d;
-    } catch (e) {
-      setError(e instanceof ApiRequestError ? `${e.message}（${e.code}）` : e instanceof Error ? e.message : String(e));
-      return null;
-    }
-  }, [runId]);
+  interface SnapView {
+    meta?: { name?: string };
+    createdAt?: string;
+    updatedAt?: string;
+    error?: string;
+    effectiveStatus?: string;
+    status?: string;
+    [k: string]: unknown;
+  }
+  const snap = (snapshot ?? null) as SnapView | null;
+  const effectiveStatus = snap?.effectiveStatus ?? snap?.status ?? model.runStatus ?? "running";
+  const terminal = TERMINAL.has(effectiveStatus) && model.runStatus !== undefined;
+  const noData = !snap && model.timeline.length === 0;
 
-  const effectiveStatus = (detail?.snapshot as { effectiveStatus?: string } | undefined)?.effectiveStatus
-    ?? (detail?.snapshot.status ?? model.runStatus ?? "running");
-  const terminal = TERMINAL.has(effectiveStatus) && (model.runStatus !== undefined || TERMINAL.has(effectiveStatus));
-
-  useEffect(() => {
-    load();
-    // 轮询：非终态 1.5s；终态停止（P2-05 换 useRunEvents SSE）
-    const t = window.setInterval(() => {
-      if (!document.hidden) load();
-    }, 1500);
-    return () => window.clearInterval(t);
-  }, [load]);
-
-  // 终态时停轮询（再刷一次保证终态数据齐）
-  useEffect(() => {
-    if (terminal) {
-      const t = window.setTimeout(() => load(), 400);
-      return () => window.clearTimeout(t);
-    }
-  }, [terminal, load]);
-
-  const usage = useMemo(() => usageFromSnapshot(detail?.snapshot as { result?: unknown } | undefined), [detail]);
+  const usage = useMemo(
+    () => usageFromSnapshot(snap as { result?: unknown } | undefined),
+    [snap, model.lastSequence],
+  );
   const selectedNode = selected ? model.nodes[selected] ?? null : null;
 
-  if (error && !detail) {
+  if (noData && error) {
     return (
       <div className="panel">
         <h2>无法加载 Run</h2>
         <p className="error">{error}</p>
-        <button className="primary" onClick={() => load()}>
+        <button className="primary" onClick={() => refresh()}>
           重试
         </button>
       </div>
     );
   }
-
-  const snap = detail?.snapshot;
   return (
     <>
       <div className="panel">
@@ -152,9 +124,17 @@ export default function RunDetail() {
             <code>{shortRunId(runId)}</code> {snap?.meta?.name ?? ""}
           </h2>
           <StatusChip status={effectiveStatus as never} />
-          <span className="muted">每 1.5s 自动刷新{terminal ? "（已到终态，停止轮询）" : ""}</span>
+          <span className="muted">
+            {terminal
+              ? done
+                ? "已同步完成"
+                : "终态收敛中…"
+              : connected
+                ? "实时连接中（SSE）"
+                : "连接已断开，自动重连中…"}
+          </span>
           <span className="grow" />
-          <button onClick={() => load()}>立即刷新</button>
+          <button onClick={() => refresh()}>重新同步</button>
         </div>
         {snap && (
           <p className="muted" style={{ margin: "8px 0 0" }}>
@@ -162,7 +142,7 @@ export default function RunDetail() {
             {snap.error ? ` · 错误：${snap.error}` : ""}
           </p>
         )}
-        {error && <p className="error">{error}（自动重试中）</p>}
+        {error && <p className="error">{error}</p>}
       </div>
 
       <div className="detail-grid">

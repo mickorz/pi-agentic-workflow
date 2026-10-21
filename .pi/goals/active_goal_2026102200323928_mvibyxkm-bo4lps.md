@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 922921,
-    "activeSeconds": 3070
+    "tokensUsed": 1339225,
+    "activeSeconds": 5559
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T17:25:36.091Z",
+  "updatedAt": "2026-10-21T18:08:33.161Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 217,
+  "revision": 407,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -34,7 +34,7 @@
       {
         "id": "v2p1",
         "title": "V2-P1 本地 Web Server + Worker Supervisor（P1-01~07）",
-        "status": "pending",
+        "status": "complete",
         "verificationContract": "G-P1 总验收：pi-workflow web 启动；curl 启动真实 Run、SSE 顺序事件；cancel/resume 正确；Server 重启历史可读；幂等 start 单创建；穿越/跨站被拒；未授权不可读事件；209+ 回归不破；V2-P1-执行报告.md 落盘",
         "lightweightSubtasks": true,
         "subtasks": [
@@ -89,10 +89,14 @@
           {
             "id": "v2p1-07",
             "title": "P1-07 OpenAPI 或共享契约类型 + 错误码 + CLI 兼容测试 + V2-P1-执行报告",
-            "status": "pending",
-            "verificationContract": "G-P1 全绿；报告落盘 dev-docs/progress-result/"
+            "status": "complete",
+            "verificationContract": "G-P1 全绿；报告落盘 dev-docs/progress-result/",
+            "completedAt": "2026-10-21T17:25:52.945Z",
+            "evidence": "commit 61c6924：contract.ts 共享契约+/api/openapi.json（路径一致性测试）；cli-compat 3 用例真实子进程验证 V1 CLI 不破；gp1-gate.sh G-P1 门 21/21 PASS（幂等单创建/SSE 顺序+游标重连/cancel/checkpoint HTTP 全链/resume 409/Server 重启历史可读/E13+跨 Ori"
           }
-        ]
+        ],
+        "completedAt": "2026-10-21T17:25:58.184Z",
+        "evidence": "V2-P1 全部 7 子任务完成（P1-01 f5047f3 / P1-02 96ef5a8 / P1-03 e7d3e25 / P1-04 c30a85f / P1-05 40b0c36 / P1-06 649fbe8 / P1-07 61c6924）：G-P1 门 21/21 PASS（gp1-gate.sh 真实 dist Server+Worker：幂等单创建/SSE 顺序+游标重连/ca"
       },
       {
         "id": "v2p2",
@@ -104,26 +108,34 @@
           {
             "id": "v2p2-01",
             "title": "P2-01 Vite/React/TS 基础工程 + API client + 路由布局",
-            "status": "pending",
-            "verificationContract": "web/ 独立 package；dev/build 可跑；client 走共享契约类型"
+            "status": "complete",
+            "verificationContract": "web/ 独立 package；dev/build 可跑；client 走共享契约类型",
+            "completedAt": "2026-10-21T17:30:04.071Z",
+            "evidence": "commits e196cf3+c5eede5：web/ 独立 package（Vite5+React18+TS strict+react-router7）；@server 别名直引 src/server/contract.ts（client.ts 全端点+SSE fetch 流式，禁重抄字段）；npm run build 过（tsc -b+vite 45 modules）；dev 冒烟：vite"
           },
           {
             "id": "v2p2-02",
             "title": "P2-02 Dashboard：Run 列表/状态/筛选/自动刷新订阅",
-            "status": "pending",
-            "verificationContract": "执行中/待审批/历史三区；空态错误态可用"
+            "status": "complete",
+            "verificationContract": "执行中/待审批/历史三区；空态错误态可用",
+            "completedAt": "2026-10-21T17:31:52.630Z",
+            "evidence": "commit b5731ba：Dashboard 三区（待审批/执行中/历史+终态筛选）、3s 轮询自动刷新（隐藏暂停/回前台即刷）、空态错误态（token 失效/Server 不可达+重试）、行点击进详情；tsc strict+vite build 过；真实 Server 冒烟 waiting/terminal 分组数据源验证。"
           },
           {
             "id": "v2p2-03",
             "title": "P2-03 New Run 表单：项目/工作流/参数/模型/并发 + 校验启动",
-            "status": "pending",
-            "verificationContract": "仅白名单项目；前后端双校验；防连点+幂等键"
+            "status": "complete",
+            "verificationContract": "仅白名单项目；前后端双校验；防连点+幂等键",
+            "completedAt": "2026-10-21T17:37:42.541Z",
+            "evidence": "commit af82d58：NewRun 表单（项目/工作流级联+meta 预览、args JSON 校验、高级选项、幂等键失败重试沿用、防连点、RUN_LIMIT_REACHED 提示）；前后端双校验（前端 JSON/数字校验+后端 Schema/白名单）；服务端配套坏脚本启动 400 INVALID_INPUT（WorkflowScriptError 三层接线）+新单测；真实 Server "
           },
           {
             "id": "v2p2-04",
             "title": "P2-04 Run Detail：分层树 + Node Inspector + 事件时间线 + 用量",
-            "status": "pending",
-            "verificationContract": "层级/attempt/replayed 正确；null 业务结果不误判失败"
+            "status": "complete",
+            "verificationContract": "层级/attempt/replayed 正确；null 业务结果不误判失败",
+            "completedAt": "2026-10-21T17:41:42.986Z",
+            "evidence": "commit 20c636c：runModel.ts 纯函数 reducer（sequence 去重/层级/attempt 重试/replayed/null 结果不误判——8 vitest 用例锁契约）；RunDetail 页面（分层树+Inspector+时间线+用量面板）；真实 Server parallel.js 冒烟 phases/nodes/result.agents 数据链全通；web"
           },
           {
             "id": "v2p2-05",
@@ -206,7 +218,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p1-07"
+  "currentTaskId": "v2p2-05"
 }
 
 # Goal Prompt
@@ -220,13 +232,13 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 51m10s
-- Tokens used: 923K (922,921) tokens
+- Time spent: 1h32m39s
+- Tokens used: 1.3M (1,339,225) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->
 - [x] gate0: Gate-0 基线重验（V2-P0 已完成后的现状核对） — evidence: Gate-0 全过：环境记录（HEAD 10e694b / Node 25.6.1 / SDK 1.3.0）；npm ci+typecheck+build+test 209/209 绿；CLI 六命令冒烟（validate/run 真实模型 completed/list/status/resume 正确拒/stop 优雅）；差异盘点落盘 dev-docs/planning/2026-10-22-V
-- [ ] v2p1: V2-P1 本地 Web Server + Worker Supervisor（P1-01~07） — contract: G-P1 总验收：pi-workflow web 启动；curl 启动真实 Run、SSE 顺序事件；cancel/resume 正确；Server 重启历史可读；幂等 start 单创建；穿越/跨站被拒；未授权不可读事件；209+ 回归不破；V2-P1-执行报告.md 落盘
+- [x] v2p1: V2-P1 本地 Web Server + Worker Supervisor（P1-01~07） — evidence: V2-P1 全部 7 子任务完成（P1-01 f5047f3 / P1-02 96ef5a8 / P1-03 e7d3e25 / P1-04 c30a85f / P1-05 40b0c36 / P1-06 649fbe8 / P1-07 61c6924）：G-P1 门 21/21 PASS（gp1-gate.sh 真实 dist Server+Worker：幂等单创建/SSE 顺序+游标重连/ca
 - [ ] v2p2: V2-P2 React Web 工作台（P2-01~08，web/ 目录，Vite/React/TS） — contract: G-P2 总验收：真实浏览器 New Run→实时进度→checkpoint 审批→完成→刷新重建（用例含 agent+parallel+verify+checkpoint）；浏览器关闭不终止 Worker；209+ 回归不破；V2-P2-执行报告.md 落盘
 - [ ] v2p3: V2-P3 端到端质量、安全与交付（P3-01~07） — contract: G-P3 总验收：全门禁通过；E01~E18 矩阵逐条 PASS/BLOCKED 附证据；不破坏 CLI；性能数据真实采集；V2-P3-执行报告.md + 进度表 V2 三行 ✅
 

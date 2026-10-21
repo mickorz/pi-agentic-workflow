@@ -454,9 +454,10 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
           if (TERMINAL_EVENT_TYPES.has(events.at(-1)!.type)) sawTerminalEvent = true;
           return;
         }
-        // 无新增：查 manifest 终态（supervisor 失联回收等无 run.* 终态事件的场景）
+        // 无新增：查 manifest 终态（supervisor 失联回收等无 run.* 终态事件的场景）。
+        // 优先 effectiveStatus：Server 被杀后 manifest 停在 running，pid 死透时应收敛 interrupted 并 done（E16）
         const d = await service.get(id);
-        const status = d?.snapshot.status;
+        const status = d?.snapshot.effectiveStatus ?? d?.snapshot.status;
         if (sawTerminalEvent || (status !== undefined && TERMINAL_STATUSES.has(status))) {
           raw.write("event: done\ndata: {}\n\n");
           close();

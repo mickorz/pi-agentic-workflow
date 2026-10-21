@@ -187,7 +187,9 @@ export async function streamRun(runId: string, lastEventId: string | null, handl
         handlers.onDone?.();
         return;
       }
-      if (event !== "message") continue; // 心跳注释帧/未知事件忽略
+      // 服务端事件帧的 event 字段是 WorkflowEvent.type（run.completed 等），无 event 字段= message（SSE 规范缺省）；
+      // 仅忽略显式 heartbeat 与无 data 帧，其余均按事件数据处理。
+      if (event === "heartbeat") continue;
       const dataText = dataLines.join("\n");
       if (!dataText) continue;
       let data: unknown;

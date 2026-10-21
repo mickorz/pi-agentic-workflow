@@ -158,8 +158,9 @@ export interface CheckpointDecisionResponse {
 /** SSE 流帧（GET /api/runs/:id/stream） */
 export interface SseFrame {
   id: string;
-  event: "message" | "done" | "heartbeat";
-  /** WorkflowEvent JSON（event=message 时） */
+  /** 事件类型：WorkflowEvent.type（run.completed 等）或 "done"；心跳为 SSE 注释帧（无 event 字段） */
+  event: string;
+  /** WorkflowEvent JSON（非 done 帧时） */
   data: unknown;
 }
 

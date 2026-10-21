@@ -55,6 +55,19 @@ test("P1-01 config：token 可注入（生产沿用固定值场景）", () => {
   assert.equal(c.token, t);
 });
 
+test("P2-05 config：config 文件 web.token 生效（修复：此前被忽略），CLI token 优先", () => {
+  const dir = tmpDir();
+  fs.writeFileSync(
+    path.join(dir, "pi-workflow.config.json"),
+    JSON.stringify({ web: { token: "fixed-token-from-config-0123456789" } }),
+  );
+  const c = resolveWebConfig({ configDir: dir });
+  assert.equal(c.token, "fixed-token-from-config-0123456789", "config 文件 token 不再被随机值覆盖");
+
+  const overridden = resolveWebConfig({ configDir: dir, token: "cli-token-0123456789abcdef0123456789" });
+  assert.equal(overridden.token, "cli-token-0123456789abcdef0123456789", "CLI token 优先于 config 文件");
+});
+
 test("P1-01 health：app.inject 200，形状正确且无敏感信息", async () => {
   const config = resolveWebConfig({});
   const app = createWebApp({ config, version: "0.1.0-test" });

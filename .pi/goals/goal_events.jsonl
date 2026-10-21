@@ -15,3 +15,14 @@
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-06","at":"2026-10-21T17:11:23.284Z"}
 {"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-06","evidence":"commit 649fbe8：onRequest 安全钩子（token 仅双头+timingSafeEqual 不读 query/SSE 同规 401；Origin 白名单三形态外 403 全拒+CORS 零放行头；每 IP 滑动窗口限流 429；health 豁免）+四 POST 路由 JSON Schema（ajv removeAdditional:false 未知字段真 400）+错误统一带","at":"2026-10-21T17:18:28.534Z"}
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-07","at":"2026-10-21T17:18:52.427Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-07","evidence":"commit 61c6924：contract.ts 共享契约+/api/openapi.json（路径一致性测试）；cli-compat 3 用例真实子进程验证 V1 CLI 不破；gp1-gate.sh G-P1 门 21/21 PASS（幂等单创建/SSE 顺序+游标重连/cancel/checkpoint HTTP 全链/resume 409/Server 重启历史可读/E13+跨 Ori","at":"2026-10-21T17:25:52.946Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1","evidence":"V2-P1 全部 7 子任务完成（P1-01 f5047f3 / P1-02 96ef5a8 / P1-03 e7d3e25 / P1-04 c30a85f / P1-05 40b0c36 / P1-06 649fbe8 / P1-07 61c6924）：G-P1 门 21/21 PASS（gp1-gate.sh 真实 dist Server+Worker：幂等单创建/SSE 顺序+游标重连/ca","at":"2026-10-21T17:25:58.185Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-01","at":"2026-10-21T17:26:00.269Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-01","evidence":"commits e196cf3+c5eede5：web/ 独立 package（Vite5+React18+TS strict+react-router7）；@server 别名直引 src/server/contract.ts（client.ts 全端点+SSE fetch 流式，禁重抄字段）；npm run build 过（tsc -b+vite 45 modules）；dev 冒烟：vite","at":"2026-10-21T17:30:04.072Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-02","at":"2026-10-21T17:30:23.395Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-02","evidence":"commit b5731ba：Dashboard 三区（待审批/执行中/历史+终态筛选）、3s 轮询自动刷新（隐藏暂停/回前台即刷）、空态错误态（token 失效/Server 不可达+重试）、行点击进详情；tsc strict+vite build 过；真实 Server 冒烟 waiting/terminal 分组数据源验证。","at":"2026-10-21T17:31:52.630Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-03","at":"2026-10-21T17:32:00.815Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-03","evidence":"commit af82d58：NewRun 表单（项目/工作流级联+meta 预览、args JSON 校验、高级选项、幂等键失败重试沿用、防连点、RUN_LIMIT_REACHED 提示）；前后端双校验（前端 JSON/数字校验+后端 Schema/白名单）；服务端配套坏脚本启动 400 INVALID_INPUT（WorkflowScriptError 三层接线）+新单测；真实 Server ","at":"2026-10-21T17:37:42.542Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-04","at":"2026-10-21T17:37:48.555Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-04","evidence":"commit 20c636c：runModel.ts 纯函数 reducer（sequence 去重/层级/attempt 重试/replayed/null 结果不误判——8 vitest 用例锁契约）；RunDetail 页面（分层树+Inspector+时间线+用量面板）；真实 Server parallel.js 冒烟 phases/nodes/result.agents 数据链全通；web","at":"2026-10-21T17:41:42.986Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-05","at":"2026-10-21T17:42:25.364Z"}

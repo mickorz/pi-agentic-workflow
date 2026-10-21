@@ -37,6 +37,8 @@ interface ConfigFileShape {
   web?: {
     host?: string;
     port?: number;
+    /** 固定 token（不设则每次启动随机生成；P2-05 修复：此前被忽略） */
+    token?: string;
     projectRoots?: string[];
     maxConcurrentRuns?: number;
     eventRetentionDays?: number;
@@ -69,7 +71,7 @@ export function resolveWebConfig(overrides: WebConfigOverrides = {}): WebServerC
   return {
     host: overrides.host ?? w.host ?? DEFAULT_WEB_CONFIG.host,
     port,
-    token: overrides.token ?? generateWebToken(),
+    token: overrides.token ?? w.token ?? generateWebToken(),
     projectRoots: (overrides.projectRoots ?? w.projectRoots ?? DEFAULT_WEB_CONFIG.projectRoots).map((p) =>
       path.resolve(overrides.configDir ?? process.cwd(), p),
     ),
