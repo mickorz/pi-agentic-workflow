@@ -13,3 +13,6 @@
 [submodule "thirdparties/ohmygame"]
 	path = thirdparties/ohmygame
 	url = https://github.com/WhiteTowerAI/ohmygame.git
+[submodule "thirdparties/pi-orch-extension"]
+	path = thirdparties/pi-orch-extension
+	url = https://github.com/AryanBhargavprojects/pi_ORCH_Extension.git
