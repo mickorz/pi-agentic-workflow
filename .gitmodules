@@ -16,3 +16,6 @@
 [submodule "thirdparties/pi-orch-extension"]
 	path = thirdparties/pi-orch-extension
 	url = https://github.com/AryanBhargavprojects/pi_ORCH_Extension.git
+[submodule "thirdparties/pi-jev"]
+	path = thirdparties/pi-jev
+	url = https://github.com/TheoOliveira/pi-jev.git
