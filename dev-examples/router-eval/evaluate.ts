@@ -19,6 +19,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { RoutePlan, WorkflowRegistration } from "../../src/contracts/wx.ts";
 import { IntentRouter, type RoutingLLM } from "../../src/dispatch/intent-router.ts";
 import { WorkflowRegistry } from "../../src/dispatch/registry.ts";
@@ -43,7 +44,7 @@ const mode = argv.includes("--real") || flag("--mode") === "real" ? "real" : "fa
 const model = flag("--model");
 const promptVariant = (flag("--prompt") ?? "A").toUpperCase();
 const label = flag("--label") ?? `eval-${mode}-prompt${promptVariant}`;
-const here = path.dirname(new URL(import.meta.url).pathname);
+const here = path.dirname(fileURLToPath(import.meta.url));
 const SAMPLES_FILE = path.join(here, "..", "wx-p1", "routing-samples.json");
 const REGISTRY_FILE = path.join(here, "..", "wx-p1", "registry.json");
 const REPORT_DIR = path.join(here, "reports");

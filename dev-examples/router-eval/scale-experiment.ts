@@ -15,6 +15,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { RoutePlan, WorkflowRegistration } from "../../src/contracts/wx.ts";
 import { IntentRouter, type RoutingLLM } from "../../src/dispatch/intent-router.ts";
 import { WorkflowRegistry } from "../../src/dispatch/registry.ts";
@@ -25,7 +26,7 @@ const mode = argv.includes("--real") || (modeFlag >= 0 && argv[modeFlag + 1] ===
 const SCALES = [3, 10, 30, 100];
 const ALL_STRATEGY_MAX_SCALE = 10; // all 策略仅在 ≤10 跑（100 候选提示词过长即结论本身）
 const TOP_K = 8;
-const here = path.dirname(new URL(import.meta.url).pathname);
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 // ── 基座工作流（wx-p1 registry 同元数据） ──
 

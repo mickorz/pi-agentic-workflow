@@ -10,6 +10,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { WorkflowRegistry } from "../../src/dispatch/registry.ts";
 import { IntentRouter, type RoutingLLM } from "../../src/dispatch/intent-router.ts";
 import type { RoutePlan } from "../../src/contracts/wx.ts";
@@ -27,7 +28,7 @@ const args = process.argv.slice(2);
 const mode = args.includes("--fake") || args.includes("--mode", 0) === false ? (args.includes("--real") ? "real" : "fake") : "fake";
 const modelFlag = args.indexOf("--model");
 const model = modelFlag >= 0 ? args[modelFlag + 1] : undefined;
-const here = path.dirname(new URL(import.meta.url).pathname);
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 /** Fake LLM：独立关键词映射（不看 expected 字段，验证链路与计数） */
 function fakeLlm(registry: WorkflowRegistry): RoutingLLM {
