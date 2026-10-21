@@ -14,3 +14,7 @@ dist/
 
 # 本地遗留克隆（非 submodule，历史参考）
 thirdparties/pi-dynamic-workflows/
+
+# dev-examples 运行产物（评测报告/微信测试数据）
+dev-examples/router-eval/reports/
+dev-examples/*/.pi-wechat/
