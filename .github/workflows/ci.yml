@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build-test-smoke:
+    name: ${{ matrix.os }} · build+unit+web-smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      # 根包：类型检查 + 构建 + 单测（fake runner，无 LLM/网络依赖）
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+      # P3-05 跨平台最小 smoke：Web Server 启动 + 安全面 + run 生命周期 + SSE（纯 Node，无 bash 依赖）
+      - run: node dev-examples/v2-web/xplat-smoke.mjs
+        env:
+          XPLAT_PORT: "4691"
+
+      # web/：类型检查 + 构建 + vitest 单测（不含 Playwright 浏览器 E2E——
+      # 浏览器门（G-P2 mock/real）与故障注入（fault-suite.sh）为 POSIX/macOS 本地门，
+      # 信号/kill 语义测试平台特化，见 PRD P3-05 与 dev-docs/experience/windows-signal-semantics-stop.md）
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - run: npx vitest run
+        working-directory: web
