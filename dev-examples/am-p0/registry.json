@@ -38,5 +38,39 @@
     "riskLevel": "write",
     "enabled": true,
     "keywords": ["写入", "保存", "落盘", "write"]
+  },
+  {
+    "workflowId": "obsidian-outline",
+    "scriptPath": "wx-article/scripts/obsidian_outline.js",
+    "name": "Obsidian 目录大纲",
+    "description": "分析 Obsidian 目录并制作文章大纲：下载引用图片到 imgs、生成图片引用清单、结合目录内容产出大纲",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "vaultDir": { "type": "string", "description": "Obsidian 目录绝对路径（正斜杠或反斜杠均可）" }
+      },
+      "required": ["vaultDir"]
+    },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": ["obsidian", "目录", "大纲", "引用图片", "图片清单", "outline", "笔记"]
+  },
+  {
+    "workflowId": "wechat-md-to-draft",
+    "scriptPath": "wx-article/scripts/wechat_md_to_draft.js",
+    "name": "文章直发草稿箱",
+    "description": "把 Obsidian 文章目录的 md 写作稿转换为公众号草稿：转 HTML、上传图片、建草稿、打开草稿箱",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "article_dir": { "type": "string", "description": "文章目录（含 1 个 .md 写作稿与正文图）" },
+        "cover": { "type": "string", "description": "封面图绝对路径" },
+        "account": { "type": "string", "description": "账号槽位序号或名称（可选）" }
+      },
+      "required": ["article_dir", "cover"]
+    },
+    "riskLevel": "external-side-effect",
+    "enabled": true,
+    "keywords": ["发布", "草稿", "公众号", "文章发布", "draft", "publish"]
   }
 ]
