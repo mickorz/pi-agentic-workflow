@@ -10,13 +10,15 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { api, streamRun, ApiRequestError } from "../api/client";
-import type { EventsResponse, RunDetailResponse } from "@server/contract";
+import type { CheckpointDto, EventsResponse, RunDetailResponse } from "@server/contract";
 import { RunEventSync, type SnapshotLike } from "./run-event-sync";
 import { emptyRunModel, type RunEventLike, type RunModel } from "./runModel";
 
 export interface UseRunEventsResult {
   model: RunModel;
   snapshot: SnapshotLike | null;
+  /** manifest 层审批清单（快照携带 + checkpoint.* 事件后补拉） */
+  checkpoints: CheckpointDto[];
   connected: boolean;
   done: boolean;
   error: string | null;
@@ -34,6 +36,7 @@ export function useRunEvents(runId: string): UseRunEventsResult {
   const modelRef = useRef<RunModel>(emptyRunModel());
   const [version, setVersion] = useState(0);
   const [snapshot, setSnapshot] = useState<SnapshotLike | null>(null);
+  const [checkpoints, setCheckpoints] = useState<CheckpointDto[]>([]);
   const [connected, setConnected] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +48,7 @@ export function useRunEvents(runId: string): UseRunEventsResult {
     // runId 变化/手动刷新：全新模型与同步器
     modelRef.current = emptyRunModel();
     setSnapshot(null);
+    setCheckpoints([]);
     setConnected(false);
     setDone(false);
     setError(null);
@@ -61,6 +65,7 @@ export function useRunEvents(runId: string): UseRunEventsResult {
         fetchSnapshot: async () => {
           try {
             const res: RunDetailResponse = await api.getRun(runId);
+            if (Array.isArray(res.checkpoints)) setCheckpoints(res.checkpoints);
             return (res.snapshot ?? null) as unknown as SnapshotLike;
           } catch (e) {
             if (e instanceof ApiRequestError && e.status === 404) return null;
@@ -74,7 +79,16 @@ export function useRunEvents(runId: string): UseRunEventsResult {
             {
               onEvent: ({ data }) => {
                 const ev = parseFrameEvent(data);
-                if (ev) observer.onFrame(ev);
+                if (ev) {
+                  observer.onFrame(ev);
+                  // checkpoint 状态变化：manifest 层清单需补拉（事件流不含 CheckpointDto）
+                  if (ev.type === "checkpoint.requested" || ev.type === "checkpoint.resolved") {
+                    api
+                      .checkpoints(runId)
+                      .then((r) => setCheckpoints(r.checkpoints ?? []))
+                      .catch(() => {/* 下次事件/刷新再拉 */});
+                  }
+                }
               },
               onDone: () => observer.onDone(),
             },
@@ -103,6 +117,7 @@ export function useRunEvents(runId: string): UseRunEventsResult {
   return {
     model: modelRef.current,
     snapshot,
+    checkpoints,
     connected,
     done,
     error,

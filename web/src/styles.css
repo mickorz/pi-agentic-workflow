@@ -144,3 +144,28 @@ tr.clickable:hover { background: #f0f4ff; }
 .ev-node-replayed { color: #7c3aed; }
 
 @media (max-width: 860px) { .detail-grid { grid-template-columns: 1fr; } }
+
+/* ---- Checkpoint 审批面板（P2-06）---- */
+.checkpoint-panel {
+  border-left: 4px solid var(--warn, #d97706);
+}
+.checkpoint-card {
+  border: 1px solid var(--border, #ddd);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.checkpoint-q {
+  font-weight: 600;
+  font-size: 15px;
+}
+.checkpoint-panel .warn {
+  color: var(--warn, #b45309);
+}
+.checkpoint-history ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.checkpoint-history li {
+  margin: 2px 0;
+}

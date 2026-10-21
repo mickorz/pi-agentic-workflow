@@ -246,6 +246,54 @@ test("checkpoint 全链：pending 列表 → decision approve → completed", as
   assert.equal(badDecision.statusCode, 400);
 });
 
+test("checkpoint 拒绝路径：reject → Human Reject 流程停止（failed，不可降级）；已决策后重复决策 409/409（E15）", async () => {
+  const base = setup();
+  const { inject } = makeApp(base);
+  const created = await inject({
+    method: "POST",
+    url: "/api/runs",
+    payload: { projectId: "proj", path: "cp.js" },
+  });
+  const { runId } = created.json() as { runId: string };
+  await waitStatus(inject, runId, "waiting_checkpoint");
+
+  const pending = await inject({ method: "GET", url: `/api/runs/${runId}/checkpoints` });
+  const cps = (pending.json() as { checkpoints: Array<{ checkpointId: string; version: number }> }).checkpoints;
+  const cp = cps[0]!;
+
+  const reject = await inject({
+    method: "POST",
+    url: `/api/runs/${runId}/checkpoints/${cp.checkpointId}/decision`,
+    payload: { decision: "reject", expectedVersion: cp.version },
+  });
+  assert.equal(reject.statusCode, 200);
+  assert.equal((reject.json() as { checkpoint: { status: string } }).checkpoint.status, "rejected");
+  // DSL 红线：拒绝 ≠ 返回 false 走分支，而是 Human Reject 强停止（不触发自动降级/fallback）
+  await waitStatus(inject, runId, "failed");
+  const detail = await inject({ method: "GET", url: `/api/runs/${runId}` });
+  const snap = (detail.json() as { snapshot: { status: string; result: unknown; manifest: { error?: string } | null } }).snapshot;
+  assert.equal(snap.status, "failed");
+  assert.equal(snap.result, null);
+  assert.ok(snap.manifest?.error?.includes("人工拒绝"), `manifest.error 应含「人工拒绝」：${snap.manifest?.error}`);
+
+  // 已决策后：陈旧版本再决策 → CONFLICT；同版本再决策 → 冲突族（version 命中但已非 pending）
+  // 两者均为 409，UI 统一按「已在别处处理，刷新」处理
+  const stale = await inject({
+    method: "POST",
+    url: `/api/runs/${runId}/checkpoints/${cp.checkpointId}/decision`,
+    payload: { decision: "approve", expectedVersion: 99 },
+  });
+  assert.equal(stale.statusCode, 409);
+  assert.equal((stale.json() as { code: string }).code, "CONFLICT");
+  const sameVer = await inject({
+    method: "POST",
+    url: `/api/runs/${runId}/checkpoints/${cp.checkpointId}/decision`,
+    payload: { decision: "approve", expectedVersion: cp.version },
+  });
+  assert.equal(sameVer.statusCode, 409);
+  assert.ok(["CONFLICT", "CHECKPOINT_NOT_PENDING"].includes((sameVer.json() as { code: string }).code));
+});
+
 test("cancel/resume：幂等取消 + 完成后恢复 409", async () => {
   const base = setup();
   const { inject } = makeApp(base);

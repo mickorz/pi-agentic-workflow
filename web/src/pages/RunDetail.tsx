@@ -4,6 +4,7 @@ import StatusChip from "../components/StatusChip";
 import { formatDateTime, shortRunId } from "../util/format";
 import { usageFromSnapshot, type NodeModel, type RunModel } from "../lib/runModel";
 import { useRunEvents } from "../lib/useRunEvents";
+import CheckpointPanel from "../components/CheckpointPanel";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled", "interrupted"]);
 
@@ -82,7 +83,7 @@ function Inspector({ node, model }: { node: NodeModel | null; model: RunModel })
 
 export default function RunDetail() {
   const { runId = "" } = useParams<{ runId: string }>();
-  const { model, snapshot, connected, done, error, refresh } = useRunEvents(runId);
+  const { model, snapshot, checkpoints, connected, done, error, refresh } = useRunEvents(runId);
   const [selected, setSelected] = useState<string | null>(null);
 
   interface SnapView {
@@ -144,6 +145,13 @@ export default function RunDetail() {
         )}
         {error && <p className="error">{error}</p>}
       </div>
+
+      <CheckpointPanel
+        runId={runId}
+        checkpoints={checkpoints}
+        waiting={effectiveStatus === "waiting_checkpoint"}
+        onDecided={refresh}
+      />
 
       <div className="detail-grid">
         <div className="panel tree">
