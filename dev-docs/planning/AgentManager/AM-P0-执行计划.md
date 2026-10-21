@@ -1,12 +1,19 @@
-# AM-P0 执行计划 — Agent Host 最小闭环（V2）
+# AM-P0 执行计划 — Agent Host 最小闭环（V2.1）
 
-> 版本：V2（2026-10-21，按外部评审修订）· V1 见 git 历史
-> 依据：《可行性报告-OhMyGame架构接入》V2（865edfd）+ 外部评审（五项 P0 修正已全部融入）
+> 版本：V2.1（2026-10-21，按外部评审第三轮修订：锁定三个底层契约）· V2/V1 见 git 历史
+> 依据：《可行性报告》V2 + 外部评审三轮（已全部融入）
 > 前置：WX-PT Part B/C 完成 + 旧路由基线锁定
-> 范围一句话：持久 Pi Agent Session + 五个 Workflow 工具（结构化 Facade）+ 执行前授权状态机 +
-> Feature Flag 切换；**不含 Plan Mode**（AM-P1）
-> 执行策略：**T1 先行独立交付**（契约 + Fake + 安全状态机），模块实现按 T1 契约进行，
-> 防止各模块自定义执行语义；不一次性交给开发 Agent
+> 范围：持久 Pi Agent Session + 五个 Workflow 工具 + 执行前授权状态机 + Feature Flag；不含 Plan Mode（AM-P1）
+> 执行策略：T1 先行独立交付（契约 + Fake + 状态机），模块按契约实现，不一次性交给开发 Agent
+
+## 修订摘要（V2 → V2.1，三个契约锁定）
+
+| # | V2 问题 | V2.1 锁定决策 |
+|---|---|---|
+| 1 | “start 幂等键”实为不存在的能力（RunApplicationService 无 idempotencyKey，不能假装可复用） | **方案 B 起步**：启动不确定 → `unknown` 态禁止自动重试，人工核对；方案 A（改 RunApplicationService/WorkflowEngine/RunManifest 支持幂等键查回）列为后续升级，不提前重构 |
+| 2 | “启动前预写 TaskBinding”与现有契约冲突（runId 必填且为 TaskStore 索引） | 三阶段实体：启动前 `RunLaunchAttempt` → 成功后现有 `TaskBinding`（不变）→ 恢复/完成 `run-links`；TaskStore 不接收假 runId |
+| 3 | Inbox Journal 无原始消息，恢复不了（只是"知道丢了任务"） | 持久化完整入站消息快照（channel+messageId 标识）；启动时从 Journal 恢复不等旧 Inbox 去重；不确定副作用消息禁止重调 Agent |
+| 4 | 串行队列 vs followUp 语义未定 | **P0 只实现消息排队**（每用户单活动 Turn，前一完成再 prompt）；followUp 延后（T2 单独验证后可启用） |
 
 ## V1 → V2 修订摘要
 
@@ -43,15 +50,18 @@ dev-examples/wx-am-p0/     # 真机用例 + 测试注册表（含 AM-4 无害 wr
 ```
 
 数据：`.pi-agent-host/sessions/`（Pi Session）；`.pi-wechat/pending-actions.jsonl`；
-`.pi-wechat/inbox-journal.jsonl`（消息处理状态）；`.pi-wechat/run-links.jsonl`（启动关联）。
+`.pi-wechat/inbox-journal.jsonl`（含原始消息快照）；`.pi-wechat/run-attempts.jsonl`（启动关联三阶段）；
+`.pi-wechat/run-links.jsonl`（Run 结果关联）。
 
 ## 2. 核心契约（T1 交付，模块实现依据）
 
 ### 2.1 AgentHost
 
 - per-user Session 惰性创建/复用（SessionManager.open → create 兜底）。
-- **同用户消息串行化**：同一用户的消息按序处理（队列），不同用户可并行。
-- Turn 执行中收到新消息 → `session.followUp()` 排队；重启后 Session 恢复 + 未完成消息按 §4 恢复。
+- **同用户消息排队（P0 锁定语义）**：每用户单活动 Turn；新消息持久化排队，前一 Turn 完成后再
+  `session.prompt()`。**不使用 followUp()**（Pi 在运中注入能力留 T2 单独验证后启用，
+  P0 保证 agentTurnId/usage/Journal/业务结果对应关系最清晰）；不同用户可并行。
+- Turn 执行中收到新消息 → 持久化排队；重启后 Session 恢复 + 未完成消息按 §4 恢复。
 - TurnResult：`{conversationId, agentTurnId, replyText, usage}`。
 
 ### 2.2 五工具（接口精确对齐现有 API）
@@ -64,10 +74,15 @@ dev-examples/wx-am-p0/     # 真机用例 + 测试注册表（含 AM-4 无害 wr
 | `task_cancel` | `{ runId }` | Facade.cancel：归属校验 → 真实取消；有操作后果，**不因非 execute 就绕归属校验** |
 | `task_resume` | `{ runId }` | Facade.resume：归属校验 + **副作用确认语义**（返需确认标记，确认词走确定性通道） |
 
-### 2.3 三 ID 绑定（绑定先于返回持久化）
+### 2.3 启动关联三阶段实体（不与 TaskStore 契约冲突）
 
-`TaskBinding` 扩展 `agentTurnId?`；**绑定必须在 Workflow 启动调用前落盘**（预写 running 关联，
-成功后回填 runId），不能只在成功返回后补写——堵"启动后落盘前崩溃"窗口（配合 §3 启动幂等）。
+| 阶段 | 实体 | 内容 | 存储 |
+|---|---|---|---|
+| 启动前 | `RunLaunchAttempt`（新增） | attemptId、userId、workflowId、argsDigest、状态(launched/linked/unknown) | `.pi-wechat/run-attempts.jsonl` |
+| 启动成功 | 现有 `TaskBinding`（**契约不变**）+ 可选 `agentTurnId?` | runId（真实）、taskBindingId | `.pi-wechat/tasks.jsonl`（现有） |
+| 完成/恢复 | `run-links` 更新 | Run 终态、resultSummary、resultRef、attemptId 关联 | `.pi-wechat/run-links.jsonl` |
+
+**TaskStore 不接收未取得 runId 的预写**（runId 必填且为索引）；RunMonitor 照旧按 runId 工作。
 
 ### 2.4 Feature Flag
 
@@ -109,22 +124,30 @@ interface PendingAction {
   `RunApplicationService.start()`。
 - 确认时重校验：身份 / registryDigest 一致 / argsDigest 一致 / 未过期；任一不符作废并告知。
 
-### 3.3 启动不确定态（崩溃窗口）
+### 3.3 启动不确定态（方案 B：unknown 人工介入，P0 锁定）
 
-Run 已启动但结果未回写时：executing 停留超阈值 → 恢复流程比对 `.pi-workflows/runs/` 是否已存在
-该启动幂等键关联的 Run（run-links.jsonl 预写记录）——存在则补 executed 回填；不存在则安全重试
-（预写关联 + start 幂等键双保险）；仍不确定则标记 failed 人工处理。**JSONL 追加本身不保证
-exactly-once，此节为显式补偿**。
+> V2 原稿的"start 幂等键"实为不存在的能力（RunApplicationService/WorkflowEngine/RunManifest
+> 均无 idempotencyKey），不能假装可复用。P0 采用最小安全策略：
 
-## 4. 消息处理状态机（Inbox 语义修正）
+- `RunLaunchAttempt` 状态机：`launched → linked（成功回填 runId）| unknown`。
+- 启动后进程崩溃/超时且无法确认 → `unknown`：**禁止自动重试**，告警审计并等待人工核对
+  （人工比对 `.pi-workflows/runs/` 后手动标记 linked 或作废）。
+- 不保证自动恢复，但**避免盲目重复执行**——exactly-once 落在真实机制而非文档承诺。
+- **方案 A（后续升级路径）**：执行服务支持幂等键并可查回 Run（需同步修订 RunApplicationService/
+  WorkflowEngine/RunManifest 三处）；P0 验证 Agent 价值后再立项，不提前重构。
 
-现有 `MessageInbox.accept()` 收到即持久化去重键 = **received ≠ processed**：进程在处理中退出，
-微信重发同 messageId 会被当重复跳过 → 丢任务。
+## 4. 消息处理状态机与恢复协议（含原始消息快照）
 
-- `inbox-journal.jsonl`：`{messageId, state: received|processing|completed|failed, agentTurnId?, updatedAt}`。
-- 重启恢复：processing 态消息 → 依副作用判定重放或告警（workflow_execute 有 §3 启动幂等兜底；
-  无副作用的纯查询可安全重放）。
-- AM-6 幂等验收必须含**异常恢复路径**（kill -9 后重发），正常去重通过不算数。
+现有 `MessageInbox.accept()` 收到即持久化去重键 = **received ≠ processed**；且仅记 messageId
+不足以恢复（无原始内容，恢复不了只是"知道丢了任务"）。修正：
+
+- `inbox-journal.jsonl`：`{channel, messageId, userId, text, receivedAt, state:
+  received|processing|completed|failed, agentTurnId?, updatedAt}`——**完整入站消息快照**。
+- **启动恢复**：服务启动时从 Journal 取未完成（received/processing）消息重新入队处理，
+  **不等消息重新通过旧 Inbox 去重**（去重键已存在会挡掉它）。
+- 恢复前检查关联：Agent Turn 状态 / PendingAction / RunLaunchAttempt。
+- **存在不确定副作用的恢复消息禁止重调 Agent 生成新执行决策**——只允许查状态类操作或告警。
+- AM-6 幂等验收必须含 kill -9 异常恢复路径（正常去重通过不算数）。
 
 ## 5. 异步 Run 结果衔接（后续 Turn 不靠模型记忆）
 
@@ -148,10 +171,10 @@ exactly-once，此节为显式补偿**。
 | 任务 | 内容（V2 增补加粗） | 验收锚点 |
 |---|---|---|
 | T1 契约与 Fake（先行） | §2~§6 全部类型 + `FakeAgentSession` + **TaskControl Facade 接口** + **run-link/inbox-journal 契约** + **PendingAction 状态机纯逻辑单测** | 状态机全转换路径单测绿；agent-host 不 import gateway |
-| T2 AgentHost | Session 生命周期 + **同用户消息串行化队列** + **重启恢复** | 单测：同用户两条消息串行且顺序正确；重启后 Session 恢复 |
+| T2 AgentHost | Session 生命周期 + **同用户消息排队（单活动 Turn，§2.1 锁定语义）** + **重启恢复** | 单测：同用户两条消息排队串行且顺序正确；重启后 Session 恢复 |
 | T3 五工具 | 按 T1 契约实现（registry.all/search、RoutePlan 直调、Facade） | 每工具正/负例；结果可被 LLM 继续决策（结构化） |
-| T4 PendingAction | §3 全量：快照/原子认领/幂等确认/不确定态恢复 | 并发确认只一个 Run；重复确认返原始结果；kill -9 重启不盲目重启动 |
-| T5 三 ID 绑定 | **启动前预写关联 + 成功回填** | 崩溃注入：启动后回填前 kill，恢复不重复启动 |
+| T4 PendingAction | §3 全量：快照/原子认领/幂等确认/**方案 B 不确定态（unknown 禁自动重试+告警）** | 并发确认只一个 Run；重复确认返原始结果；kill -9 重启进入 unknown 不盲目重启动 |
+| T5 启动关联 | **RunLaunchAttempt 三阶段（§2.3）：启动前预写 attempt → 成功后 TaskBinding（不变）→ run-links 回填** | 崩溃注入：启动后回填前 kill → 恢复标记 unknown+人工核对，不重复启动 |
 | T6 双层预算 | §6 | 超 Turn 硬限安全停，已启 Run 不受影响 |
 | T7 WechatApp | routingMode 分支 + **inbox-journal 接线** + legacy 隔离 | legacy 零变化回归；agent 分支处理状态可恢复 |
 | T8 CLI | `--routing-mode` | 冒烟横幅 |
