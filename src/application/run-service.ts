@@ -181,11 +181,25 @@ export class RunApplicationService {
         `checkpoint 决策被拒绝：${outcome.reason}（checkpointId=${checkpointId}）`,
       );
     }
+    let delivered = false;
     if (!outcome.idempotent) {
-      const delivered = await this.engine.respondToCheckpoint(runId, input.decision);
-      if (!delivered) {
-        // 持久决策已记录；执行侧无活跃等待（如等待进程已退出）——resume 时按记录重放语义处理
-        // 注：V1 runtime 的 journal 已记录决策，resume 确定性回放，不会重复询问
+      delivered = await this.engine.respondToCheckpoint(runId, input.decision);
+    }
+    if (!delivered) {
+      // 跨进程决策/服务重启场景：等待方不在本进程（delivered=false），或决策已固化但 run 未推进
+      // （idempotent 重放）。恢复路径：resume 重挂 checkpoint 等待 → 重放已固化决策 → 推进至终态。
+      const m = readManifest(this.baseDir, runId);
+      if (m && m.status === "waiting_checkpoint") {
+        try {
+          await this.engine.resume(runId);
+          for (let i = 0; i < 20; i++) {
+            delivered = await this.engine.respondToCheckpoint(runId, input.decision);
+            if (delivered) break;
+            await new Promise((r) => setTimeout(r, 250));
+          }
+        } catch {
+          // resume 失败（如脚本已变化）：决策已持久化，由人工/后续恢复流程处置
+        }
       }
     }
     return outcome.record;

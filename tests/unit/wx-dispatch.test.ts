@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { WorkflowRegistry } from "../../src/dispatch/registry.ts";
+import { createRunApplicationService } from "../../src/index.js";
 import { IntentRouter, type RoutingLLM } from "../../src/dispatch/intent-router.ts";
 import { ConversationStore } from "../../src/dispatch/conversation.ts";
 import { TaskStore } from "../../src/dispatch/task-store.ts";
@@ -321,4 +322,26 @@ test("契约：待审批项存在时「批准」确定性直通 TaskControl（�
   (dispatcher as unknown as { deps: { router: IntentRouter } }).deps.router = router2;
   const out2 = await dispatcher.handleMessage({ ...msg, messageId: "m2", text: "帮我批准后写个报告" }, conversation);
   assert.notEqual(out2.plan.intent, "task_control");
+});
+
+test("跨进程决策恢复：决策固化但 run 未推进 → decideCheckpoint 重挂并重放推进（B13 语义）", async () => {
+  // 模拟：服务进程 A 把 run 跑到 waiting 后"消失"（active 无 resolver）；
+  // 进程 B（新 service 实例同 baseDir）提交决策 → 应 resume 重挂 + 重放 → 终态正确
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "wx-xproc-"));
+  const script = path.join(base, "cp.js");
+  fs.writeFileSync(script, 'export const meta={name:"cp_x"}\nconst a = await agent("Reply with exactly: ok")\nconst ok = await checkpoint("跨进程决策?")\nreturn { a, ok }');
+  const svcA = createRunApplicationService({ baseDir: base });
+  const { runId } = await svcA.start({ scriptPath: script, cwd: base });
+  const wait = async (p: () => Promise<boolean>, what: string, ms = 60_000) => {
+    const t0 = Date.now();
+    while (!(await p())) { if (Date.now() - t0 > ms) throw new Error(`timeout: ${what}`); await new Promise((r) => setTimeout(r, 200)); }
+  };
+  await wait(async () => (await svcA.get(runId))?.snapshot.status === "waiting_checkpoint", "waiting");
+  // 进程 B：全新 service（engine active 表为空，等价跨进程/重启后）
+  const svcB = createRunApplicationService({ baseDir: base });
+  const cp = (await svcB.get(runId))!.checkpoints[0]!;
+  await svcB.decideCheckpoint(runId, cp.checkpointId, { decision: "approve", expectedVersion: cp.version });
+  await wait(async () => (await svcB.get(runId))?.snapshot.status === "completed", "completed");
+  assert.equal((await svcB.get(runId))?.snapshot.status, "completed", "跨进程决策后 run 推进至 completed");
+  fs.rmSync(base, { recursive: true, force: true });
 });

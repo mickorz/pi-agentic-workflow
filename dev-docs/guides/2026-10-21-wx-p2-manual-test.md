@@ -106,7 +106,15 @@ npx tsx dev-examples/router-eval/evaluate.ts --mode fake --label smoke-fake
 > （D1 translate 正确路由零副作用；D2 NOT_AUTHORIZED exit1；D3 summarize 真实执行 completed；
 > D4 fake 90.5% gate=PASS）。执行中发现并修复 Windows 双盘符路径 bug（三处 evaluate 脚本
 > import.meta.url.pathname → fileURLToPath，见 experience/windows-import-meta-url-pathname.md）。
-> 待办：Part B 真机（需微信扫码 + --allow-user wxid）→ Part C 状态抽验 → WX-PT 闭环。
+
+> 2026-10-21 晚 Part B/C 执行注记：B01 真机审批卡 ✓；B02~B04 程序化决策链 5/5 ✓（批准
+> completed+第二阶段/两任务拒绝硬停/重复批准幂等；微信直通交互真机已验澄清列表）；
+> B09 ✓（resume journal 2 条回放+step-3 真实执行）；B10 ✓（服务终止 run interrupted 可查）；
+> B13 ✓（重启不重发旧卡+决策推进 completed）。B05~B08/B11/B12 为手机一句话操作，逻辑已由
+> Part A 11/11 覆盖，留用户窗口补真机证据。Part C ✓（tasks/audit/outbox/脱敏干净；程序化决策
+> 通道不记 checkpoint.approve 审计属预期，真机路径 105156b9 已证完整）。
+> **发现并修复产品缺口**：跨进程决策恢复（decideCheckpoint delivered=false → resume 重挂+重放，
+> B13 重启场景同源），新增回归测试，150 单测全绿（scripts: batch-decide.ts / b-seq.ts）。
 
 - Part A：11/11 PASS
 - Part B：B01~B13 全部符合预期（B09/B10/B13 允许时序重试一次）
