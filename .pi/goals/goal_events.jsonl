@@ -33,3 +33,5 @@
 {"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-08","evidence":"commit aebf975：UI polish（表单 Enter/空态/键盘导航/focus-visible/移动端断点）+ G-P2 真实 Chromium 浏览器门 23/23 PASS（gp2-gate.sh+gp2-browser.mts）；修复两个 V1 预存 bug（run.cancelled 谎报+manifest 双写竞态，经验已沉淀）；主仓 253 绿+web vitest 1","at":"2026-10-21T18:52:34.469Z"}
 {"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p2","evidence":"G-P2 真实 Chromium 门 23/23 PASS（gp2-gate.sh）：New Run→实时进度→checkpoint 审批（批准+拒绝）→完成→刷新重建全流程；浏览器关闭不终止 Worker（G8）；主仓 253 绿（209 基线+44 增量）；V2-P2-执行报告.md 已落 dev-docs/progress-result/；子任务 v2p2-01~08 全部 complete","at":"2026-10-21T18:52:39.788Z"}
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p3-01","at":"2026-10-21T18:52:47.994Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p3-01","evidence":"commit e91094b：mock 6/6 + real 1/1 全绿（E14 全流程状态断言/E15 双路径/E16 reload 重建/Worker 独立性/E17 tokens>0）；trace+screenshot retain-on-failure；vitest 12 绿；主仓 253 绿；playwright webServer 复数键坑经验落盘。","at":"2026-10-21T19:12:00.029Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p3-02","at":"2026-10-21T19:12:02.181Z"}

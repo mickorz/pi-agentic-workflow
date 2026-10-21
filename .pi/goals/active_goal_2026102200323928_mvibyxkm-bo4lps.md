@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 1737662,
-    "activeSeconds": 9226
+    "tokensUsed": 1896028,
+    "activeSeconds": 10284
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T19:11:47.499Z",
+  "updatedAt": "2026-10-21T19:29:57.601Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 647,
+  "revision": 716,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -183,8 +183,10 @@
           {
             "id": "v2p3-01",
             "title": "P3-01 Playwright 浏览器 E2E（Mock Worker + 真实 SDK 两级）",
-            "status": "pending",
-            "verificationContract": "E14/E17：关键状态断言（非只截图）；trace 留存"
+            "status": "complete",
+            "verificationContract": "E14/E17：关键状态断言（非只截图）；trace 留存",
+            "completedAt": "2026-10-21T19:12:00.029Z",
+            "evidence": "commit e91094b：mock 6/6 + real 1/1 全绿（E14 全流程状态断言/E15 双路径/E16 reload 重建/Worker 独立性/E17 tokens>0）；trace+screenshot retain-on-failure；vitest 12 绿；主仓 253 绿；playwright webServer 复数键坑经验落盘。"
           },
           {
             "id": "v2p3-02",
@@ -228,7 +230,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p3-01"
+  "currentTaskId": "v2p3-02"
 }
 
 # Goal Prompt
@@ -242,8 +244,8 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 2h33m46s
-- Tokens used: 1.7M (1,737,662) tokens
+- Time spent: 2h51m24s
+- Tokens used: 1.9M (1,896,028) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->
