@@ -31,6 +31,7 @@ import type { WebServerConfig } from "./config.js";
 import type { RunApplicationService } from "../application/run-service.js";
 import { ServiceError, type StartRunOptions } from "../application/run-service.js";
 import { ProjectError, type ProjectRegistry } from "./projects.js";
+import type { WorkflowEvent } from "../events/types.js";
 
 export interface WebAppDeps {
   config: WebServerConfig;
@@ -266,6 +267,84 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
     const detail = await service.get(id);
     if (!detail) return fail(reply, "RUN_NOT_FOUND", `run 不存在：${id}`);
     return { checkpoints: detail.checkpoints };
+  });
+
+  // ---- SSE：实时事件流（P1-05；PRD §4 /api/runs/:id/stream）----
+  const SSE_POLL_MS = 150;
+  const SSE_HEARTBEAT_MS = 15_000;
+  const TERMINAL_EVENT_TYPES = new Set(["run.completed", "run.failed", "run.cancelled", "run.interrupted"]);
+  const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "interrupted"]);
+
+  app.get("/api/runs/:id/stream", async (req, reply) => {
+    if (!service) return fail(reply, "SERVICE_UNAVAILABLE", "服务未配置");
+    const { id } = req.params as { id: string };
+    const detail = await service.get(id);
+    if (!detail) return fail(reply, "RUN_NOT_FOUND", `run 不存在：${id}`);
+
+    // 重连游标：Last-Event-ID 头（EventSource 自动携带）优先，query.lastEventId 兜底（token 不走 query，游标可以）
+    const query = req.query as Record<string, string | undefined>;
+    const headerRaw = req.headers["last-event-id"];
+    const lastRaw = (typeof headerRaw === "string" && headerRaw !== "" ? headerRaw : undefined) ?? query.lastEventId;
+    let cursor = Math.max(0, Number.parseInt(lastRaw ?? "0", 10) || 0);
+
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    });
+
+    let closed = false;
+    let pollTimer: NodeJS.Timeout | undefined;
+    let heartbeatTimer: NodeJS.Timeout | undefined;
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      if (pollTimer) clearInterval(pollTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      raw.end();
+    };
+    const writeEvent = (event: WorkflowEvent): void => {
+      raw.write(`id: ${event.sequence}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    };
+    raw.on("close", close);
+
+    // ① 先补传：游标之后的历史事件一次性发齐（顺序 = seq 单调）
+    const backlog = await service.readEvents(id, cursor);
+    for (const event of backlog) writeEvent(event);
+    if (backlog.length > 0) cursor = backlog.at(-1)!.sequence;
+
+    // ② 再订阅：短轮询磁盘（单写者 events.jsonl，天然去重/顺序）；终态无新增 → done 后关流
+    let sawTerminalEvent =
+      backlog.length > 0 && TERMINAL_EVENT_TYPES.has(backlog.at(-1)!.type);
+    const poll = async (): Promise<void> => {
+      if (closed) return;
+      try {
+        const events = await service.readEvents(id, cursor);
+        if (events.length > 0) {
+          for (const event of events) writeEvent(event);
+          cursor = events.at(-1)!.sequence;
+          if (TERMINAL_EVENT_TYPES.has(events.at(-1)!.type)) sawTerminalEvent = true;
+          return;
+        }
+        // 无新增：查 manifest 终态（supervisor 失联回收等无 run.* 终态事件的场景）
+        const d = await service.get(id);
+        const status = d?.snapshot.status;
+        if (sawTerminalEvent || (status !== undefined && TERMINAL_STATUSES.has(status))) {
+          raw.write("event: done\ndata: {}\n\n");
+          close();
+        }
+      } catch {
+        /* 瞬时读错（如原子写中途）：下轮重试 */
+      }
+    };
+    pollTimer = setInterval(() => void poll(), SSE_POLL_MS);
+    heartbeatTimer = setInterval(() => {
+      if (!closed) raw.write(": ping\n\n");
+    }, SSE_HEARTBEAT_MS);
+    void poll();
   });
 
   app.post("/api/runs/:id/checkpoints/:checkpointId/decision", async (req, reply) => {

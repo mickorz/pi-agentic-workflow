@@ -9,3 +9,5 @@
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-03","at":"2026-10-21T16:54:34.545Z"}
 {"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-03","evidence":"commit e7d3e25：src/server/projects.ts ProjectRegistry（白名单 realpath 归白/E13 `..`+绝对路径+symlink 越权拒绝 FORBIDDEN_PATH/未知项目 NOT_FOUND 不暴露存在性/受限遍历 parseWorkflowScript 纯解析不执行/validateWorkflow source+args 上限）；t","at":"2026-10-21T16:57:20.448Z"}
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-04","at":"2026-10-21T16:57:37.306Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-04","evidence":"commit c30a85f：app.ts 12 REST 端点（projects/workflows/validate/runs 幂等 202/分页/详情/增量事件/cancel/resume/checkpoints+decision），统一错误 {code,message,requestId}；web.ts 装配 RunSupervisor+RunApplicationService+Proj","at":"2026-10-21T17:03:36.296Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-05","at":"2026-10-21T17:04:25.285Z"}

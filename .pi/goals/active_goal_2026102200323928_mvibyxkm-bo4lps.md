@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 655812,
-    "activeSeconds": 1781
+    "tokensUsed": 753564,
+    "activeSeconds": 2189
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T17:03:16.024Z",
+  "updatedAt": "2026-10-21T17:10:18.604Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 116,
+  "revision": 141,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -65,8 +65,10 @@
           {
             "id": "v2p1-04",
             "title": "P1-04 REST 路由：projects/workflows/runs 全套 + validate + checkpoints（13 端点）",
-            "status": "pending",
-            "verificationContract": "行为符合 PRD §4；错误统一 { code, message, requestId }"
+            "status": "complete",
+            "verificationContract": "行为符合 PRD §4；错误统一 { code, message, requestId }",
+            "completedAt": "2026-10-21T17:03:36.295Z",
+            "evidence": "commit c30a85f：app.ts 12 REST 端点（projects/workflows/validate/runs 幂等 202/分页/详情/增量事件/cancel/resume/checkpoints+decision），统一错误 {code,message,requestId}；web.ts 装配 RunSupervisor+RunApplicationService+Proj"
           },
           {
             "id": "v2p1-05",
@@ -200,7 +202,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p1-04"
+  "currentTaskId": "v2p1-05"
 }
 
 # Goal Prompt
@@ -214,8 +216,8 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 29m41s
-- Tokens used: 656K (655,812) tokens
+- Time spent: 36m29s
+- Tokens used: 754K (753,564) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->
