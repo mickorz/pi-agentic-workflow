@@ -44,11 +44,14 @@
 
 **T2 路径 A（Pi Extension）——代码级判定**：submodule 自带完整 Extension 实现（安装即用），但其生命周期绑定交互式 Pi TUI 宿主（TUI 命令/ux 状态/会话桥队列），不适合 wechat-dispatch 的无人值守独立进程形态；留作对照不作为实施基线。
 
-**真机验证 SOP（挂起 → P1 T7 前执行，属人工步骤）**：
-1. `npx tsx dev-examples/wx-m0/standalone-adapter.ts --qr` → 终端输出二维码 URL（或用 qrcode-terminal 渲染）
-2. 手机微信扫码确认 → 脚本轮询 `pollQrStatus` 至 confirmed → credentials.json 生成
-3. 手机发一条文本 → 长轮询收到（onMessage 打印）；用 api.sendMessage 回一条固定文本
-4. 记录：往返时延、SessionExpired 表现、断网 5 分钟后轮询是否自愈（游标/去重恢复）
+**真机验证 SOP（✅ 2026-10-21 已补测通过，login-flow.ts 实测）**：
+1. ~~扫码登录~~ ✅ `npx tsx dev-examples/wx-m0/login-flow.ts`：终端 ASCII 二维码渲染 → 手机扫码确认 → 轮询 confirmed → 凭据落盘
+   （accountId=a87c312bbf9d@im.bot；`~/.pi/agent/wechat-assistant/{credentials.json,cursor.json}`，与 Pi 内登录共享状态目录）
+2. ~~收发回显~~ ✅ 手机发 `hi` → 终端 `[收到#1]` → 自动回显 `[login-flow 回显] hi` → 手机收到；Ctrl-C notifyStop+dispose 干净退出
+3. ~~SessionExpired/断网自愈~~ 🔶 未测（P1 T7 真机验收一并覆盖，SOP 保留）
+
+> 补测脚本 login-flow.ts 已入库（commit ac5650f）；同时验证了 Extension 工具层（renderQrCode）与
+> 状态存储（state-storage）的独立进程复用性——LK-01 路径 B 结论再获实证。
 
 **LK-01 决策**：✅ **路径 B（独立 BotAdapter）为 P1 实施基线**——协议层零 Pi 依赖可整体复用；Extension 路径留作对照。阻断项：无（真机步骤不改变架构判断）。
 
@@ -77,7 +80,7 @@
 | 编号 | 出口条件 | 状态 |
 |---|---|---|
 | G0-1 | T1 模块清单 + 复用判定 | ✅ |
-| G0-2 | C-01 真实收发全流程 | 🔶 降级（代码级+QR 网络级已证；扫码/收发挂起为 P1 T7 前置人工步骤，SOP 已附） |
+| G0-2 | C-01 真实收发全流程 | ✅（2026-10-21 补测：扫码/凭据/收发回显全过，SessionExpired/断网自愈待 P1 T7） |
 | G0-3 | C-02 两种生命周期差异结论 | ✅（路径 B 独立进程自持；路径 A 绑定交互宿主） |
 | G0-4 | C-03/C-04 Bifrost 结论 + LK-02 落定 | ✅（抽取路径为主） |
 | G0-5 | C-05 主项目回归 | ✅ 108/108 |
@@ -89,7 +92,7 @@
 
 | 风险 | 状态 |
 |---|---|
-| 真机扫码/收发未当场执行 | 挂起；P1 T7 前置（SOP 见上）；FakeBot 开发不受影响 |
+| 真机扫码/收发未当场执行 | ✅ 已补测通过（2026-10-21，login-flow.ts，见上）；SessionExpired/断线自愈待 P1 T7 |
 | iLink 接口变动/风控 | 低（官方 Bot 通道；QR 获取已实测可达） |
 | Bifrost 扩展路径在无头场景行为未知 | 已绕开（抽取路径）；备选留档 |
 | wechat-assistant 升级破坏复用面 | submodule 冻结 36f0950；升级需重跑本报告实验脚本 |
