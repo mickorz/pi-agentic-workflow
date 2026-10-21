@@ -29,6 +29,15 @@ import type { ModelRouter } from "../model-routing/model-router.js";
 import { Outbox, type OutboxOptions } from "../notify/outbox.js";
 import { MessageInbox } from "./message-inbox.js";
 import type { BotAdapter } from "./wechat/bot-adapter.js";
+import { AgentHost } from "../agent-host/agent-host.js";
+import type { RoutingMode, SessionOpener } from "../agent-host/types.js";
+import { TaskControlFacade } from "../agent-host/task-control-facade.js";
+import { PendingActionService } from "../agent-host/pending-flow.js";
+import { LaunchCoordinator } from "../agent-host/launch-flow.js";
+import { PendingActionStore } from "../agent-host/pending-action.js";
+import { RunLaunchStore, RunLinkStore } from "../agent-host/run-launch.js";
+import { createAgentTools } from "../agent-host/agent-tools.js";
+import type { CumulativeBudget } from "../agent-host/agent-budget.js";
 
 export interface WechatAppLimits {
   rateWindowMs?: number;
@@ -53,6 +62,16 @@ export interface WechatAppDeps {
   pollMs?: number;
   /** Outbox 投递间隔（缺省 5s） */
   flushMs?: number;
+  /** AM-P0（§2.4 Feature Flag）：legacy = 旧 IntentRouter 链路（零改动，缺省）；agent = Conversational Agent */
+  routingMode?: RoutingMode;
+  /** agent 模式：Agent 会话开启器注入缝（缺省 PiSessionOpener 真实 SDK 会话） */
+  agentOpenSession?: SessionOpener;
+  /** agent 模式：会话目录（缺省 dataDir 同级 .pi-agent-host/sessions） */
+  agentSessionDir?: string;
+  /** agent 模型 spec（缺省用 defaultModel；再缺省用 settings 默认模型） */
+  agentModel?: string;
+  /** agent 单 Turn 硬限（缺省 DEFAULT_TURN_LIMITS） */
+  agentLimits?: import("../agent-host/types.js").TurnLimits;
 }
 
 export class WechatApp {
@@ -67,6 +86,13 @@ export class WechatApp {
   readonly monitor: RunMonitor;
   readonly rateLimiter: RateLimiter;
   readonly budget: BudgetTracker;
+  /** agent 模式装配（legacy 模式均为 undefined） */
+  readonly agentHost?: AgentHost;
+  readonly launcher?: LaunchCoordinator;
+  readonly pendingFlow?: PendingActionService;
+  readonly pendingStore?: PendingActionStore;
+  readonly runLinks?: RunLinkStore;
+  readonly agentFacade?: TaskControlFacade;
   private flushTimer?: NodeJS.Timeout;
 
   constructor(private readonly deps: WechatAppDeps) {
@@ -93,11 +119,102 @@ export class WechatApp {
       taskControl: this.taskControl,
       preStart: (plan, origin) => this.guardBudget(plan, origin.userId),
     });
+
+    // ── AM-P0 agent 分支装配（§2.4：进入 agent 分支负责到底；legacy 零改动） ──
+    let monitorRunLinks: RunLinkStore | undefined;
+    if (deps.routingMode === "agent") {
+      const runLinks = new RunLinkStore(dataDir);
+      const launcher = new LaunchCoordinator({
+        attempts: new RunLaunchStore(dataDir),
+        runLinks,
+        dispatcher: this.dispatcher,
+        tasks: this.tasks,
+        onUnknown: (a) => {
+          this.audit.record({
+            actor: a.userId,
+            action: "am.launch.unknown",
+            outcome: "rejected",
+            target: { attemptId: a.attemptId, workflowId: a.workflowId },
+            detail: "启动结果不确定（方案 B）：禁自动重试，待人工比对 .pi-workflows/runs/",
+          });
+        },
+      });
+      const pendingStore = new PendingActionStore(dataDir);
+      const pendingFlow = new PendingActionService({
+        pending: pendingStore,
+        registry: deps.registry,
+        launcher,
+        onUncertain: (a) => {
+          this.audit.record({
+            actor: a.userId,
+            action: "am.pending.uncertain",
+            outcome: "rejected",
+            target: { actionId: a.actionId, workflowId: a.workflowId },
+            detail: "确认后中断（executing 悬置）：待人工核对，禁自动重试",
+          });
+        },
+      });
+      const facade = new TaskControlFacade({
+        registry: deps.registry,
+        launcher,
+        tasks: this.tasks,
+        service: deps.service,
+        pending: pendingStore,
+        runLinks,
+      });
+      const modelSpec = deps.agentModel ?? deps.defaultModel;
+      const cumulative: CumulativeBudget = {
+        remaining: (userId) => {
+          const max = deps.limits?.maxTokensPerUser ?? 0;
+          if (max <= 0) return Infinity;
+          return max - this.budget.used(userId);
+        },
+        settle: (userId, total) => this.budget.record(userId, total),
+      };
+      const agentHost = new AgentHost({
+        cwd: process.cwd(),
+        sessionDir: deps.agentSessionDir ?? path.resolve(dataDir, "..", ".pi-agent-host", "sessions"),
+        dataDir,
+        ...(modelSpec ? { model: modelSpec } : {}),
+        customTools: [],
+        facade,
+        ...(deps.agentLimits ? { limits: deps.agentLimits } : {}),
+        ...(deps.agentOpenSession ? { openSession: deps.agentOpenSession } : {}),
+        toolsFactory: (ctxRef) => createAgentTools({ facade, ctxRef }),
+        cumulative,
+        onTurnCompleted: (r) => {
+          this.budget.record(r.userId, r.usage.inputTokens + r.usage.outputTokens);
+          this.enqueueReply(r.userId, r.replyText);
+        },
+        onUncertainRecovery: (e) => {
+          this.audit.record({
+            actor: e.userId,
+            action: "am.recovery.uncertain",
+            outcome: "rejected",
+            target: { messageId: e.messageId },
+            detail: `消息处理中断（不确定副作用）：${e.text.slice(0, 80)}`, // 快照已落盘，禁止重调 Agent
+          });
+          this.enqueueReply(
+            e.userId,
+            "⚠️ 你此前的一条消息在处理中中断（可能已有部分操作执行）。为避免重复执行已转入人工核对，请勿重复发起。",
+          );
+        },
+      });
+      this.runLinks = runLinks;
+      this.launcher = launcher;
+      this.pendingStore = pendingStore;
+      this.pendingFlow = pendingFlow;
+      this.agentFacade = facade;
+      this.agentHost = agentHost;
+      monitorRunLinks = runLinks;
+    }
+
     this.monitor = new RunMonitor({
       tasks: this.tasks,
       service: deps.service,
       outbox: this.outbox,
       audit: this.audit,
+      ...(monitorRunLinks ? { runLinks: monitorRunLinks } : {}),
       ...(deps.pollMs ? { pollMs: deps.pollMs } : {}),
     });
   }
@@ -117,6 +234,20 @@ export class WechatApp {
     // 重启补扫：先补投存量待发通知，再扫一轮待审批
     await this.outbox.flush((userId, text) => this.deps.bot.send(userId, text));
     await this.monitor.pollOnce();
+    // agent 模式恢复（§4/§3.3/§2.3）：journal 未完成 → attempts 补链/unknown → 悬置授权告警
+    if (this.agentHost) {
+      const rec = await this.agentHost.recover();
+      const launch = this.launcher!.recoverStale();
+      const stuck = this.pendingFlow!.recoverStuck();
+      for (const a of launch.unknown) {
+        this.enqueueReply(
+          a.userId,
+          `⚠️ 你此前发起的「${a.workflowId}」启动结果不确定（进程中断），已转人工核对，请勿重复发起。`,
+        );
+      }
+      void rec;
+      void stuck;
+    }
   }
 
   /** WG-007：只停 Bot 与循环；运行中 Run 一律不动（可 CLI resume） */
@@ -124,6 +255,7 @@ export class WechatApp {
     this.monitor.stop();
     if (this.flushTimer) clearInterval(this.flushTimer);
     this.flushTimer = undefined;
+    this.agentHost?.dispose();
     await this.deps.bot.stop();
   }
 
@@ -132,6 +264,10 @@ export class WechatApp {
    * duplicate → 不再处理；返回供测试断言。
    */
   async handleInbound(message: BotInboundMessage): Promise<{ duplicate: boolean; reply?: string; plan?: RoutePlan }> {
+    // AM-P0 §2.4：agent 分支负责到底（失败报错不重路由）；legacy 链路零改动
+    if (this.deps.routingMode === "agent" && this.agentHost && this.pendingFlow) {
+      return this.handleInboundAgent(message);
+    }
     const receipt = this.inbox.accept(message);
     if (receipt.status === "duplicate") return { duplicate: true };
 
@@ -204,6 +340,113 @@ export class WechatApp {
     }
   }
 
+  /**
+   * agent 分支入站链路：幂等 → 限频 → 确定性通道（审批决策/副作用确认词，不经 LLM）
+   * → AgentHost（排队/预算/工具）。失败报错不重路由（§2.4）。
+   */
+  private async handleInboundAgent(
+    message: BotInboundMessage,
+  ): Promise<{ duplicate: boolean; reply?: string }> {
+    const receipt = this.inbox.accept(message);
+    if (receipt.status === "duplicate") return { duplicate: true };
+
+    const rate = this.rateLimiter.allow(message.userId);
+    if (!rate.ok) {
+      this.audit.record({
+        actor: message.userId,
+        action: "limit.reject",
+        outcome: "rejected",
+        detail: `频率超限，需等待 ${rate.retryAfterSec}s`,
+      });
+      const reply = `请求太频繁，请 ${rate.retryAfterSec} 秒后再试。`;
+      return { duplicate: false, reply };
+    }
+
+    // 1) 确定性通道：执行前授权决策（PendingAction 存在时，批准/拒绝/序号不经 LLM；AM-5/AM-13）
+    const pendings = this.pendingFlow!.listFor(message.userId);
+    if (pendings.length > 0) {
+      const decision = parseApprovalDecision(message.text, pendings.length);
+      if (decision) {
+        const target = pendings[decision.index]!;
+        let reply: string;
+        if (decision.kind === "approve") {
+          const out = await this.pendingFlow!.confirm(target.actionId, message.userId);
+          reply = out.ok
+            ? `✅ 已批准并启动「${target.workflowId}」（任务 ${out.taskBindingId}，runId ${out.runId}）。可发「进度」查询。`
+            : `⚠️ ${out.message}`;
+        } else {
+          const out = this.pendingFlow!.rejectAction(target.actionId, message.userId);
+          reply = out.ok ? `🚫 ${out.message}` : `⚠️ ${out.message}`;
+        }
+        this.audit.record({
+          actor: message.userId,
+          action: decision.kind === "approve" ? "am.pending.approve" : "am.pending.reject",
+          target: { actionId: target.actionId, workflowId: target.workflowId },
+          outcome: "ok",
+          detail: `待审批 ${pendings.length} 项，选中第 ${decision.index + 1} 项`,
+        });
+        this.enqueueReply(message.userId, reply);
+        return { duplicate: false, reply };
+      }
+    }
+
+    // 2) 确定性通道：中断恢复副作用确认词（EX-009；不叫 LLM 代确认）
+    const trimmed = message.text.trim();
+    if (/^(确认恢复|确认继续)$/.test(trimmed)) {
+      const interrupted = this.tasks
+        .byUser(message.userId)
+        .filter((t) => t.status === "interrupted")
+        .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0];
+      if (interrupted) {
+        const facade = this.agentFacade!;
+        const out = await facade.taskResume(message.userId, interrupted.runId, { confirmSideEffects: true });
+        const reply = out.ok
+          ? `▶️ 已恢复任务 ${interrupted.taskBindingId}（runId ${interrupted.runId}）。`
+          : `⚠️ ${out.message}`;
+        this.audit.record({
+          actor: message.userId,
+          action: "am.resume.confirm",
+          target: { runId: interrupted.runId },
+          outcome: out.ok ? "ok" : "rejected",
+        });
+        this.enqueueReply(message.userId, reply);
+        return { duplicate: false, reply };
+      }
+      // 无中断任务：落入 Agent 解答
+    }
+
+    // 3) Agent 通道（§2.1：同用户排队；首条同步回执，排队走 onTurnCompleted）
+    try {
+      const out = await this.agentHost!.handleMessage({
+        channel: "wechat",
+        messageId: message.messageId,
+        userId: message.userId,
+        text: message.text,
+        receivedAt: message.receivedAt,
+      });
+      if (out.status === "duplicate") return { duplicate: true };
+      if (out.status === "queued") {
+        const reply = "📩 已收到，正在处理上一条消息，完成后会依次回复。";
+        this.enqueueReply(message.userId, reply);
+        return { duplicate: false, reply };
+      }
+      this.audit.record({
+        actor: message.userId,
+        action: "am.turn.completed",
+        target: { agentTurnId: out.result.agentTurnId, conversationId: out.result.conversationId },
+        outcome: "ok",
+        detail: `reply=${out.result.replyText.slice(0, 60)} tokens=${out.result.usage.inputTokens + out.result.usage.outputTokens}`,
+      });
+      this.enqueueReply(message.userId, out.result.replyText);
+      return { duplicate: false, reply: out.result.replyText };
+    } catch (error) {
+      const text = `❌ 处理失败：${error instanceof Error ? error.message : String(error)}`;
+      this.audit.record({ actor: message.userId, action: "am.turn.failed", outcome: "rejected", detail: text });
+      this.enqueueReply(message.userId, text);
+      return { duplicate: false, reply: text };
+    }
+  }
+
   /** 手动触发投递（循环到无进展为止；测试/启动补投共用） */
   async flushOutbox(): Promise<{ sent: number; failed: number; deferred: number }> {
     const totals = { sent: 0, failed: 0, deferred: 0 };
@@ -244,4 +487,18 @@ export class WechatApp {
     // 回复尽力即时投递（失败由 Outbox 循环重试）
     void this.outbox.flush((uid, text) => this.deps.bot.send(uid, text));
   }
+}
+
+/** 确定性审批决策解析：批准/拒绝[序号]/纯数字序号（AM-13 多项并存；越界交回 Agent） */
+function parseApprovalDecision(text: string, count: number): { kind: "approve" | "reject"; index: number } | undefined {
+  const t = text.trim();
+  const approve = /^(批准|同意|通过|准许|approve)\s*([1-9]\d*)?$/i.exec(t);
+  const reject = /^(拒绝|驳回|不同意|否决|reject)\s*([1-9]\d*)?$/i.exec(t);
+  const number = /^([1-9]\d*)$/.exec(t);
+  if (!approve && !reject && !number) return undefined;
+  const kind: "approve" | "reject" = reject ? "reject" : "approve";
+  const n = approve?.[2] ?? reject?.[2] ?? number?.[1] ?? "1";
+  const index = parseInt(n, 10) - 1;
+  if (index < 0 || index >= count) return undefined; // 越界交回 Agent 解答（无授权通路，安全）
+  return { kind, index };
 }

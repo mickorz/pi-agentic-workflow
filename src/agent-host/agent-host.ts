@@ -177,6 +177,7 @@ export class AgentHost {
         ? `⚠️ 已达单轮预算上限（${limitHit}），已安全停止；已启动的任务不受影响，可稍后查询任务状态继续跟进。\n${outcome.replyText}`
         : outcome.replyText;
       const result: TurnResult = {
+        userId,
         conversationId: session.conversationId,
         agentTurnId,
         replyText,

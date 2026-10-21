@@ -8,8 +8,9 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 /** 入口模式（§2.4 Feature Flag）：legacy = 旧 IntentRouter 链路；agent = Conversational Agent */
 export type RoutingMode = "legacy" | "agent";
 
-/** Agent 轮次结果（§2.1） */
+/** Agent 轮次结果（§2.1；userId 供 gateway 排队回执路由） */
 export interface TurnResult {
+  userId: string;
   conversationId: string;
   agentTurnId: string;
   replyText: string;

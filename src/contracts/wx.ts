@@ -189,7 +189,16 @@ export type AuditAction =
   | "model.route"
   | "limit.reject"
   | "outbox.giveup"
-  | "gateway.reconnect";
+  | "gateway.reconnect"
+  // AM-P0（agent 分支）
+  | "am.turn.completed"
+  | "am.turn.failed"
+  | "am.pending.approve"
+  | "am.pending.reject"
+  | "am.pending.uncertain"
+  | "am.launch.unknown"
+  | "am.recovery.uncertain"
+  | "am.resume.confirm";
 
 export interface AuditRecord {
   auditId: string;
@@ -203,6 +212,12 @@ export interface AuditRecord {
     workflowId?: string;
     checkpointId?: string;
     version?: number;
+    /** AM-P0：执行前授权/启动尝试/Turn 关联标识 */
+    actionId?: string;
+    attemptId?: string;
+    agentTurnId?: string;
+    conversationId?: string;
+    messageId?: string;
   };
   outcome: "ok" | "rejected" | "failed";
   /** 已脱敏详情（SC-004：写入前必经 redact） */

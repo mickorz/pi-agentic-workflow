@@ -24,10 +24,21 @@ export interface RunMonitorDeps {
   runLinks?: RunLinkSink;
 }
 
-/** run-links 最小结构化接口（生产=agent-host RunLinkStore；不 import agent-host 保持分层） */
+/** run-links 行（agent-host RunLink 的结构化子集；生产可直接传入，无反向依赖） */
+export interface RunLinkRow {
+  runId: string;
+  taskBindingId?: string;
+  agentTurnId?: string;
+  conversationId?: string;
+  status: string;
+  resultSummary?: string;
+  resultRef?: string;
+  attemptId?: string;
+}
+
 export interface RunLinkSink {
-  get(runId: string): { runId: string; [key: string]: unknown } | undefined;
-  upsert(link: { runId: string; [key: string]: unknown }): unknown;
+  get(runId: string): RunLinkRow | undefined;
+  upsert(link: RunLinkRow): unknown;
 }
 
 export class RunMonitor {
@@ -103,9 +114,9 @@ export class RunMonitor {
   private writeRunLink(binding: TaskBinding, status: string, resultSummary?: string): void {
     const sink = this.deps.runLinks;
     if (!sink) return;
-    const prev = sink.get(binding.runId) ?? {};
+    const prev = sink.get(binding.runId);
     sink.upsert({
-      ...prev,
+      ...(prev ?? {}),
       runId: binding.runId,
       taskBindingId: binding.taskBindingId,
       status,
