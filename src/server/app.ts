@@ -183,6 +183,11 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
       void reply.code(400).send({ code: "INVALID_INPUT", message: "请求体不是合法 JSON", requestId: request.id });
       return;
     }
+    // 超过 bodyLimit（1MB）→ 413（Fastify 默认错误被自定义 handler 覆盖后需显式映射）
+    if ((error as { code?: string }).code === "FST_ERR_CTP_BODY_TOO_LARGE") {
+      void reply.code(413).send({ code: "PAYLOAD_TOO_LARGE", message: "请求体超过上限（1MB）", requestId: request.id });
+      return;
+    }
     void reply.code(500).send({
       code: "INTERNAL_ERROR",
       message: error instanceof Error ? error.message : String(error),

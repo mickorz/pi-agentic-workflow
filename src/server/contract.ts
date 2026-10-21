@@ -21,6 +21,7 @@ export type ApiErrorCode =
   | "UNAUTHORIZED"
   | "FORBIDDEN"
   | "RATE_LIMITED"
+  | "PAYLOAD_TOO_LARGE"
   | "SERVICE_UNAVAILABLE";
 
 /** 统一错误体：所有非 2xx 响应 */
@@ -196,7 +197,7 @@ export function buildOpenApiDocument(origin = "http://127.0.0.1:4317"): Record<s
           type: "object",
           required: ["code", "message", "requestId"],
           properties: {
-            code: { type: "string", description: "见 ApiErrorCode（INVALID_INPUT/RUN_NOT_FOUND/CONFLICT/RESUME_MISMATCH/CHECKPOINT_NOT_PENDING/FORBIDDEN_PATH/RUN_LIMIT_REACHED/SIDE_EFFECTS_UNACKNOWLEDGED/RUN_STILL_ACTIVE/NOT_FOUND/UNAUTHORIZED/FORBIDDEN/RATE_LIMITED/SERVICE_UNAVAILABLE）" },
+            code: { type: "string", description: "见 ApiErrorCode（INVALID_INPUT/RUN_NOT_FOUND/CONFLICT/RESUME_MISMATCH/CHECKPOINT_NOT_PENDING/FORBIDDEN_PATH/RUN_LIMIT_REACHED/SIDE_EFFECTS_UNACKNOWLEDGED/RUN_STILL_ACTIVE/NOT_FOUND/UNAUTHORIZED/FORBIDDEN/RATE_LIMITED/PAYLOAD_TOO_LARGE/SERVICE_UNAVAILABLE）" },
             message: { type: "string" },
             details: { type: "array", items: { type: "string" } },
             requestId: { type: "string", format: "uuid" },

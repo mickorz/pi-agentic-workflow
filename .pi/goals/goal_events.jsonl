@@ -37,3 +37,4 @@
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p3-02","at":"2026-10-21T19:12:02.181Z"}
 {"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p3-02","evidence":"commit 23c1613：fault-suite.sh 34/34（F1 kill-9 Worker→interrupted+回放去重；F2 Server 重启→持久+收敛+恢复；F3 journal 尾损→前缀回放不膨胀；F4 审批并发恰一生效/幂等重放 200）；浏览器 UI/API 竞争去重用例 mock 7/7；SSE 乱序去重由 runModel sequence 幂等单测覆盖；主仓","at":"2026-10-21T19:30:08.533Z"}
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p3-03","at":"2026-10-21T19:30:11.190Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p3-03","evidence":"commit 15bdb27：E06 v1-cli-smoke.sh 15/15（真实 SDK run/等待态 exit 3/resume 审批副作用/跨轨 Web 只读）；v1-manifest-compat.test.ts 3 用例；E18 主仓 256/256（209 基线全保留）+web vitest 12。","at":"2026-10-21T19:34:07.263Z"}

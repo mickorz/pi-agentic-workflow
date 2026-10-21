@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 1927436,
-    "activeSeconds": 10512
+    "tokensUsed": 2007883,
+    "activeSeconds": 10717
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T19:34:00.395Z",
+  "updatedAt": "2026-10-21T19:37:36.593Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 747,
+  "revision": 769,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -199,8 +199,10 @@
           {
             "id": "v2p3-03",
             "title": "P3-03 兼容性回归：V1 CLI/旧 manifest/journal/原 DSL 用例",
-            "status": "pending",
-            "verificationContract": "E06/E18：旧验收全过、209+ 无退化"
+            "status": "complete",
+            "verificationContract": "E06/E18：旧验收全过、209+ 无退化",
+            "completedAt": "2026-10-21T19:34:07.262Z",
+            "evidence": "commit 15bdb27：E06 v1-cli-smoke.sh 15/15（真实 SDK run/等待态 exit 3/resume 审批副作用/跨轨 Web 只读）；v1-manifest-compat.test.ts 3 用例；E18 主仓 256/256（209 基线全保留）+web vitest 12。"
           },
           {
             "id": "v2p3-04",
@@ -231,8 +233,7 @@
     ],
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
-  },
-  "currentTaskId": "v2p3-03"
+  }
 }
 
 # Goal Prompt
@@ -246,8 +247,8 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 2h55m12s
-- Tokens used: 1.9M (1,927,436) tokens
+- Time spent: 2h58m37s
+- Tokens used: 2M (2,007,883) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->
