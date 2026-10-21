@@ -19,11 +19,11 @@
 | E11 | 集成 | 恢复副作用确认缺失不执行 | PASS | tests/unit/web-rest.test.ts E11 用例（409 SIDE_EFFECTS_UNACKNOWLEDGED→ack 后 200）；UI：web/src/components/RunActions.tsx 勾选门（绝不自动补 ack） |
 | E12 | Security | 未授权请求/跨 Origin 拒绝 | PASS | tests/unit/web-security.test.ts（无/错 token 401、query token 401、evil Origin 403、限流 429）；tests/unit/web-security-extra.test.ts（413/429/脱敏扫描/XSS API 面）；dev-examples/v2-web/xplat-smoke.mjs（跨平台 10/10） |
 | E13 | Security | path traversal/symlink 拒绝越权 | PASS | tests/unit/web-projects.test.ts（symlink 越权 403 FORBIDDEN_PATH）；gp1-gate.sh E13 断言（`../` 403）；web-rest.test.ts E13 |
-| E14 | Browser E2E | Dashboard → New Run → Detail 状态正确 | PASS | web/e2e/e14-e16-app.spec.ts（Playwright mock 项目 7/7：执行树/状态 chip/用量/历史/reload）；trace/screenshot 落 web/e2e-results/（retain-on-failure） |
+| E14 | Browser E2E | Dashboard → New Run → Detail 状态正确 | PASS | web/e2e/e14-e16-app.spec.ts（Playwright mock 项目 8/8：执行树/状态 chip/用量/历史/reload/xss 字面渲染）；trace/screenshot 落 web/e2e-results/（retain-on-failure） |
 | E15 | Browser E2E | checkpoint approve/reject 两路径正确 | PASS | web/e2e/e15-checkpoint.spec.ts（批准→已完成+已批准；拒绝→失败+已拒绝；UI/API 并发去重恰一次生效） |
 | E16 | Browser E2E | reload/reconnect UI 可恢复 | PASS | e14-e16-app.spec.ts reload 用例（重建树+时间线+用量）；web/e2e/worker-independence.spec.ts（浏览器全关→API 轮询→重开历史可见）；sync-e2e-suite.sh（驱动层断流重连） |
 | E17 | Real SDK E2E | Pi Agent 真正完成完整 workflow（真实结果/Token/状态核验） | PASS | `cd web && npm run e2e:real`：web/e2e/real-sdk.spec.ts 1/1——UI 已完成 + API result.agents[0].tokens>0（真实 token 消耗核验；fake runner 不产 tokens，为真实判据）；边界说明：agents[].model 记录 DSL 指定值，未指定时为空（默认模型），非缺陷 |
-| E18 | Regression | P0–P2 原核心测试无退化 | PASS | 主仓 npm test 261/261（209 基线全保留+新增）；web vitest 13/13；CI 三平台全绿（run 39665822414，commit 95e408f：ubuntu/windows/macos Node 22，npm ci+typecheck+build+test+xplat-smoke+web vitest） |
+| E18 | Regression | P0–P2 原核心测试无退化 | PASS | 主仓 npm test 267/267（209 基线全保留+新增，含终态守卫 5 用例+approve 竞态回归 1 用例）；web vitest 13/13；CI 三平台全绿（run 39665822414，commit 95e408f：ubuntu/windows/macos Node 22，npm ci+typecheck+build+test+xplat-smoke+web vitest） |
 
 ## 复现命令速查
 

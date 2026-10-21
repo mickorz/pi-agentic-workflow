@@ -286,7 +286,8 @@ export function createWorkflowEngine(config: EngineConfig = {}): WorkflowEngine 
       // 同进程恢复：丢弃旧执行态（cancel/中断后 controller 已 abort、事件缓冲已消费），
       // 否则 attach 复用旧 state，新执行拿到已 aborted 的 signal 直接变 cancelled（V2 长驻服务场景）
       active.delete(runId);
-      const updated = updateManifest(baseDir, runId, { status: "running", pid: process.pid });
+      // 显式恢复：interrupted/cancelled → running 是合法迁移，需 force 绕过终态不可逆守卫
+      const updated = updateManifest(baseDir, runId, { status: "running", pid: process.pid }, { force: true });
       const opts = manifest.options ?? {};
       return execute(updated, {
         scriptPath: manifest.scriptPath,

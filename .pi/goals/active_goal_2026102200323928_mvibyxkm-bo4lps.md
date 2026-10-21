@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 2007883,
-    "activeSeconds": 10717
+    "tokensUsed": 2411179,
+    "activeSeconds": 13909
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T19:37:36.593Z",
+  "updatedAt": "2026-10-21T20:32:20.945Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 769,
+  "revision": 959,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -176,7 +176,7 @@
       {
         "id": "v2p3",
         "title": "V2-P3 端到端质量、安全与交付（P3-01~07）",
-        "status": "pending",
+        "status": "complete",
         "verificationContract": "G-P3 总验收：全门禁通过；E01~E18 矩阵逐条 PASS/BLOCKED 附证据；不破坏 CLI；性能数据真实采集；V2-P3-执行报告.md + 进度表 V2 三行 ✅",
         "lightweightSubtasks": true,
         "subtasks": [
@@ -207,28 +207,38 @@
           {
             "id": "v2p3-04",
             "title": "P3-04 安全测试：Origin/token/穿越/XSS/脱敏/body 大小/Run 限额",
-            "status": "pending",
-            "verificationContract": "E12/E13 全拒；事件无凭证/环境变量直推浏览器"
+            "status": "complete",
+            "verificationContract": "E12/E13 全拒；事件无凭证/环境变量直推浏览器",
+            "completedAt": "2026-10-21T19:37:43.746Z",
+            "evidence": "commit bec1e8d：web-security-extra.test.ts 4 用例（413/429/脱敏扫描/XSS API 面）+浏览器 xss.spec.ts（字面渲染+__xss 未定义+pageerror=0）；E12/E13 已全拒（既有 web-security/web-projects/gp1-gate 叠加）；主仓 260 绿。"
           },
           {
             "id": "v2p3-05",
             "title": "P3-05 跨平台：三平台最少构建与 smoke（信号测试平台特化）",
-            "status": "pending",
-            "verificationContract": "macOS 实跑；其余平台以可复现脚本/CI 交付或标 BLOCKED 附复现方法"
+            "status": "complete",
+            "verificationContract": "macOS 实跑；其余平台以可复现脚本/CI 交付或标 BLOCKED 附复现方法",
+            "completedAt": "2026-10-21T19:59:33.583Z",
+            "evidence": "CI run 39665822414（commit 95e408f）三平台全绿：ubuntu/windows/macos 各 npm ci+typecheck+build+npm test（NODE_TEST_CONCURRENCY=1）+xplat-smoke（10/10 跨平台）+web vitest。macOS 实跑门全套通过；Windows URL.pathname/fileURLToPa"
           },
           {
             "id": "v2p3-06",
             "title": "P3-06 一键运行文档/配置示例/README/OpenAPI/故障排查/演示脚本",
-            "status": "pending",
-            "verificationContract": "pi-workflow web --host 127.0.0.1 --port 4317 可按文档复现；文档进 docs/ 读者向"
+            "status": "complete",
+            "verificationContract": "pi-workflow web --host 127.0.0.1 --port 4317 可按文档复现；文档进 docs/ 读者向",
+            "completedAt": "2026-10-21T19:55:35.938Z",
+            "evidence": "commit aaa57ef：docs/web-getting-started.md+web-threat-model.md+api/web-openapi.json+README V2 段+web-api-contract 指活 openapi+demo-web.sh 9 步全链路演示 PASS；契约命令 `web --host 127.0.0.1 --port 4317` 按文档复现验证（he"
           },
           {
             "id": "v2p3-07",
             "title": "P3-07 基线记录 + E01~E18 验收矩阵 + V2-P3-执行报告 + 进度表收口",
-            "status": "pending",
-            "verificationContract": "矩阵逐条判定附证据路径；性能（启动/延迟/内存）真实采集；进度表 V2 三行 ✅"
+            "status": "complete",
+            "verificationContract": "矩阵逐条判定附证据路径；性能（启动/延迟/内存）真实采集；进度表 V2 三行 ✅",
+            "completedAt": "2026-10-21T20:04:25.317Z",
+            "evidence": "commit b46a877：V2-acceptance-matrix.md（E01~E18 逐条 PASS 附证据路径，无 BLOCKED）；性能真实采集（perf-baseline.sh：启动 755ms/5-agent run 1914ms/SSE 首帧 50ms/RSS 141MB）；G-P3 全门禁本轮复跑绿（261+21+23+34+12+15+13+7+1+10 断言+CI run "
           }
-        ]
+        ],
+        "completedAt": "2026-10-21T20:04:30.531Z",
+        "evidence": "G-P3 总验收全绿：全门禁本轮复跑（261 单测+gp1 21+gp2 23+fault 34+sync-e2e 12+v1-cli 15+web vitest 13+mock 7+real 1+xplat 10）+CI 三平台（run 39665822414）；E01~E18 全 PASS 无 BLOCKED（V2-acceptance-matrix.md）；CLI 不破（v1-cli-smo"
       }
     ],
     "blockCompletion": true,
@@ -247,13 +257,13 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 2h58m37s
-- Tokens used: 2M (2,007,883) tokens
+- Time spent: 3h51m49s
+- Tokens used: 2.4M (2,411,179) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->
 - [x] gate0: Gate-0 基线重验（V2-P0 已完成后的现状核对） — evidence: Gate-0 全过：环境记录（HEAD 10e694b / Node 25.6.1 / SDK 1.3.0）；npm ci+typecheck+build+test 209/209 绿；CLI 六命令冒烟（validate/run 真实模型 completed/list/status/resume 正确拒/stop 优雅）；差异盘点落盘 dev-docs/planning/2026-10-22-V
 - [x] v2p1: V2-P1 本地 Web Server + Worker Supervisor（P1-01~07） — evidence: V2-P1 全部 7 子任务完成（P1-01 f5047f3 / P1-02 96ef5a8 / P1-03 e7d3e25 / P1-04 c30a85f / P1-05 40b0c36 / P1-06 649fbe8 / P1-07 61c6924）：G-P1 门 21/21 PASS（gp1-gate.sh 真实 dist Server+Worker：幂等单创建/SSE 顺序+游标重连/ca
 - [x] v2p2: V2-P2 React Web 工作台（P2-01~08，web/ 目录，Vite/React/TS） — evidence: G-P2 真实 Chromium 门 23/23 PASS（gp2-gate.sh）：New Run→实时进度→checkpoint 审批（批准+拒绝）→完成→刷新重建全流程；浏览器关闭不终止 Worker（G8）；主仓 253 绿（209 基线+44 增量）；V2-P2-执行报告.md 已落 dev-docs/progress-result/；子任务 v2p2-01~08 全部 complete
-- [ ] v2p3: V2-P3 端到端质量、安全与交付（P3-01~07） — contract: G-P3 总验收：全门禁通过；E01~E18 矩阵逐条 PASS/BLOCKED 附证据；不破坏 CLI；性能数据真实采集；V2-P3-执行报告.md + 进度表 V2 三行 ✅
+- [x] v2p3: V2-P3 端到端质量、安全与交付（P3-01~07） — evidence: G-P3 总验收全绿：全门禁本轮复跑（261 单测+gp1 21+gp2 23+fault 34+sync-e2e 12+v1-cli 15+web vitest 13+mock 7+real 1+xplat 10）+CI 三平台（run 39665822414）；E01~E18 全 PASS 无 BLOCKED（V2-acceptance-matrix.md）；CLI 不破（v1-cli-smo
 

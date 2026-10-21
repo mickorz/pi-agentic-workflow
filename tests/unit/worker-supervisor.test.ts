@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RunSupervisor } from "../../src/server/worker-supervisor.js";
+import { createRunApplicationService } from "../../src/application/run-service.js";
 import { readManifest } from "../../src/persistence/run-store.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -164,6 +165,53 @@ test("checkpoint IPC 中继：checkpoint.requested 事件 → respondToCheckpoin
   const events = await sup.readEventsSince(handle.runId, 0);
   assert.ok(events.some((e) => e.type === "checkpoint.requested"));
   assert.ok(events.some((e) => e.type === "checkpoint.resolved"));
+});
+
+test("checkpoint 为最后节点：approve 后终态 completed 不被 Server 回翻（IPC 双写竞态回归）", async () => {
+  // 审计发现的真缺陷：checkpoint 是最后一个节点时，Worker 在 approve 送达后立即写终态 completed，
+  // 而 Server 侧 wireCheckpointRecording 对 checkpoint.resolved 的 waiting→running 回翻经 IPC 延迟
+  // 可能晚落地覆盖 completed→manifest 卡 running→effectiveStatus=interrupted。
+  // 修复：run-store 终态不可逆守卫（迟到回翻被丢弃）；本用例走全栈（service+supervisor+子进程），
+  // 修复后任意交错都收敛 completed（修复前竞态窗口下会间歇性 interrupted）。
+  const base = tmpBase();
+  const script = writeScript(
+    base,
+    "cp-last.js",
+    `export const meta = { name: "cp" }\nconst ok = await checkpoint("deploy?")\nreturn { ok }`,
+  );
+  const sup = makeSupervisor(base);
+  const service = createRunApplicationService({ baseDir: base, supervisor: sup, maxConcurrentRuns: 2 });
+  const { runId } = await service.start({ scriptPath: script });
+
+  await waitFor(() => readManifest(base, runId)?.status === "waiting_checkpoint", 8000, "waiting_checkpoint");
+  const detail = await service.get(runId);
+  const pending = detail?.checkpoints.find((c) => c.status === "pending");
+  assert.ok(pending, "应有 pending checkpoint");
+
+  const decided = await service.decideCheckpoint(runId, pending.checkpointId, {
+    decision: "approve",
+    expectedVersion: pending.version,
+  });
+  assert.equal(decided.status, "approved");
+
+  try {
+    await waitFor(
+      () => {
+        const s = readManifest(base, runId)?.status;
+        return s === "completed" || s === "interrupted" || s === "failed";
+      },
+      8000,
+      "终态",
+    );
+  } catch (e) {
+    console.error("DEBUG 卡住状态:", readManifest(base, runId)?.status);
+    console.error("DEBUG events:", (await sup.readEventsSince(runId, 0)).map((x) => `${x.sequence}:${x.type}`).join(" "));
+    throw e;
+  }
+  const final = readManifest(base, runId);
+  assert.equal(final?.status, "completed", "checkpoint 为最后节点时 approve 后应收敛 completed（不被回翻）");
+  const events = await sup.readEventsSince(runId, 0);
+  assert.ok(events.some((e) => e.type === "run.completed"), "事件流应含 run.completed");
 });
 
 test("取消升级：cancel → Worker 优雅取消 → cancelled 终态", async () => {

@@ -87,12 +87,70 @@ export function createManifest(baseDir: string, manifest: RunManifest): void {
   atomicWriteJson(path.join(runDir(baseDir, manifest.runId), "manifest.json"), manifest);
 }
 
-export function updateManifest(baseDir: string, runId: string, patch: Partial<RunManifest>): RunManifest {
-  const current = readManifest(baseDir, runId);
-  if (!current) throw new Error(`manifest 不存在：${runId}`);
-  const next: RunManifest = { ...current, ...patch, updatedAt: new Date().toISOString() };
-  atomicWriteJson(path.join(runDir(baseDir, runId), "manifest.json"), next);
-  return next;
+/** 终态集合：completed/failed/cancelled/interrupted——一经写入即事实，除显式恢复（force）外不可迁出 */
+export const TERMINAL_STATUSES: ReadonlySet<string> = new Set(["completed", "failed", "cancelled", "interrupted"]);
+
+/**
+ * manifest 读-合-写的跨进程互斥：Server（checkpoint 回翻/pid 回填）与 Worker（终态写入）
+ * 是两个进程写同一 manifest.json，无锁的 read-merge-write 会在交错窗口互相覆盖
+ * （实踩：Worker 已写 completed，Server 迟到的 waiting→running 回翻把它改回 running→
+ * effectiveStatus=interrupted）。锁文件 + 陈锁自愈（持锁者崩溃后 4s 强制重置）；
+ * 持锁等待用 Atomics.wait（Node 允许主线程），避免忙转烧 CPU。
+ */
+function withManifestLock<T>(dir: string, fn: () => T): T {
+  const lockPath = path.join(dir, "manifest.lock");
+  const sleeper = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    try {
+      const fd = fs.openSync(lockPath, "wx");
+      fs.closeSync(fd);
+      break; // 获锁
+    } catch {
+      try {
+        const st = fs.statSync(lockPath);
+        if (Date.now() - st.mtimeMs > 4000) {
+          fs.rmSync(lockPath, { force: true }); // 陈锁自愈：持锁者已崩溃
+          continue;
+        }
+      } catch {
+        continue; // 锁刚被释放，重试
+      }
+      Atomics.wait(sleeper, 0, 0, 15);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    fs.rmSync(lockPath, { force: true });
+  }
+}
+
+export function updateManifest(
+  baseDir: string,
+  runId: string,
+  patch: Partial<RunManifest>,
+  opts?: { force?: boolean },
+): RunManifest {
+  const dir = runDir(baseDir, runId);
+  return withManifestLock(dir, () => {
+    const current = readManifest(baseDir, runId);
+    if (!current) throw new Error(`manifest 不存在：${runId}`);
+    // 终态不可逆守卫（锁内原子判定）：终态后被迟到写入回翻是双写竞态，静默丢弃 status（其余字段照常合并）。
+    // 显式恢复（engine/CLI resume）传 opts.force。
+    let effectivePatch = patch;
+    if (
+      patch.status !== undefined &&
+      patch.status !== current.status &&
+      TERMINAL_STATUSES.has(current.status) &&
+      !opts?.force
+    ) {
+      const { status: _dropped, ...rest } = patch;
+      effectivePatch = rest as Partial<RunManifest>;
+    }
+    const next: RunManifest = { ...current, ...effectivePatch, updatedAt: new Date().toISOString() };
+    atomicWriteJson(path.join(dir, "manifest.json"), next);
+    return next;
+  });
 }
 
 export function readManifest(baseDir: string, runId: string): RunManifest | null {

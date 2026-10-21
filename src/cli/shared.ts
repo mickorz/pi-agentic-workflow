@@ -56,6 +56,7 @@ export async function executeWorkflowRun(options: ExecuteOptions): Promise<numbe
 
   let manifest: RunManifest;
   if (options.existing) {
+    // CLI resume：显式恢复路径，允许终态→running（需 force 绕过终态不可逆守卫）
     manifest = updateManifest(options.baseDir, options.existing.runId, {
       status: "running",
       pid: process.pid,

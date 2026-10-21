@@ -26,6 +26,7 @@ import {
   hashContent,
   readManifest,
   runDir,
+  TERMINAL_STATUSES,
   updateManifest,
   type RunListItem,
   type RunManifest,
@@ -405,11 +406,15 @@ export class RunSupervisor implements Pick<WorkflowEngine, "start" | "resume" | 
     return handle;
   }
 
-  /** 异常收尾：manifest interrupted + result reject（E05：kill -9 不假成功） */
+  /** 异常收尾：manifest interrupted + result reject（E05：kill -9 不假成功）。
+   *  已是终态（如 Worker 终态已落盘但 terminal 行丢失的窗口）则不覆盖——终态是事实 */
   private failRun(state: RunState, message: string): void {
     if (state.done) return;
     try {
-      updateManifest(this.baseDir, state.runId, { status: "interrupted", error: message });
+      const m = readManifest(this.baseDir, state.runId);
+      if (!m || !TERMINAL_STATUSES.has(m.status)) {
+        updateManifest(this.baseDir, state.runId, { status: "interrupted", error: message });
+      }
     } catch {
       /* manifest 可能尚未建成（spawn 即败） */
     }
