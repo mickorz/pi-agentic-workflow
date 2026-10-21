@@ -65,7 +65,7 @@ export type HandleOutcome =
   | { status: "duplicate"; state: MessageState };
 
 /** 启动关联三阶段（§2.3）：启动前 RunLaunchAttempt → 成功后 TaskBinding（不变）→ 恢复/完成 run-links */
-export type LaunchStatus = "launched" | "linked" | "unknown";
+export type LaunchStatus = "launched" | "linked" | "unknown" | "discarded";
 
 export interface RunLaunchAttempt {
   attemptId: string;
@@ -73,6 +73,8 @@ export interface RunLaunchAttempt {
   workflowId: string;
   argsDigest: string;
   agentTurnId?: string;
+  /** 原始消息（恢复期与 TaskBinding.messageId 比对，自动补链依据） */
+  originMessageId?: string;
   status: LaunchStatus;
   runId?: string;
   taskBindingId?: string;
@@ -103,6 +105,8 @@ export interface PendingAction {
   /** 服务端执行快照：完整参数（确认后从这里取，不依赖会话记忆） */
   args: unknown;
   argsDigest: string;
+  /** 发起本轮的 Agent Turn（run-links 关联；T5） */
+  agentTurnId?: string;
   originMessageId: string;
   riskLevel: string;
   /** Registry 无版本字段的替代：注册元数据稳定哈希（确认时重校验一致性） */

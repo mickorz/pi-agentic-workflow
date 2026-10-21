@@ -16,7 +16,8 @@ import { TaskStore } from "../../src/dispatch/task-store.js";
 import type { TaskControlService } from "../../src/dispatch/task-control.js";
 import type { WorkflowRegistration, TaskBinding } from "../../src/contracts/wx.js";
 import { PendingActionStore } from "../../src/agent-host/pending-action.js";
-import { RunLinkStore } from "../../src/agent-host/run-launch.js";
+import { RunLinkStore, RunLaunchStore } from "../../src/agent-host/run-launch.js";
+import { LaunchCoordinator } from "../../src/agent-host/launch-flow.js";
 import { TaskControlFacade } from "../../src/agent-host/task-control-facade.js";
 import { computeArgsDigest, computeRegistryDigest, stableStringify } from "../../src/agent-host/digest.js";
 import { createAgentTools } from "../../src/agent-host/agent-tools.js";
@@ -102,7 +103,13 @@ function makeFixture(): Fixture {
   });
   const pending = new PendingActionStore(path.join(root, "data"));
   const runLinks = new RunLinkStore(path.join(root, "data"));
-  const facade = new TaskControlFacade({ registry, dispatcher, tasks, service, pending, runLinks });
+  const launcher = new LaunchCoordinator({
+    attempts: new RunLaunchStore(path.join(root, "data")),
+    runLinks,
+    dispatcher,
+    tasks,
+  });
+  const facade = new TaskControlFacade({ registry, launcher, tasks, service, pending, runLinks });
   return { root, registry, dispatcher, tasks, pending, runLinks, service, facade };
 }
 

@@ -20,6 +20,14 @@ export interface RunMonitorDeps {
   audit?: AuditLog;
   /** 轮询间隔（缺省 3000ms） */
   pollMs?: number;
+  /** AM-P0 §5：Run 终态回写 run-links（后续 Turn 的 task_status 读真实产物；结构化接口避免反向依赖） */
+  runLinks?: RunLinkSink;
+}
+
+/** run-links 最小结构化接口（生产=agent-host RunLinkStore；不 import agent-host 保持分层） */
+export interface RunLinkSink {
+  get(runId: string): { runId: string; [key: string]: unknown } | undefined;
+  upsert(link: { runId: string; [key: string]: unknown }): unknown;
 }
 
 export class RunMonitor {
@@ -56,6 +64,7 @@ export class RunMonitor {
       } else if (eff === "completed") {
         const summary = summarizeResult(detail.snapshot.result);
         this.deps.tasks.update(binding.runId, { status: "completed", summary });
+        this.writeRunLink(binding, "completed", summary);
         this.deps.outbox.enqueue({
           userId: binding.userId,
           kind: "completed",
@@ -65,6 +74,7 @@ export class RunMonitor {
         });
       } else if (eff === "failed") {
         this.deps.tasks.update(binding.runId, { status: "failed" });
+        this.writeRunLink(binding, "failed");
         this.deps.outbox.enqueue({
           userId: binding.userId,
           kind: "failed",
@@ -74,8 +84,10 @@ export class RunMonitor {
         });
       } else if (eff === "cancelled") {
         this.deps.tasks.update(binding.runId, { status: "cancelled" });
+        this.writeRunLink(binding, "cancelled");
       } else if (eff === "interrupted") {
         this.deps.tasks.update(binding.runId, { status: "interrupted" });
+        this.writeRunLink(binding, "interrupted");
         this.deps.outbox.enqueue({
           userId: binding.userId,
           kind: "interrupted",
@@ -85,6 +97,20 @@ export class RunMonitor {
         });
       }
     }
+  }
+
+  /** §5：终态回写 run-links（合并保留既有 attemptId/agentTurnId 关联字段） */
+  private writeRunLink(binding: TaskBinding, status: string, resultSummary?: string): void {
+    const sink = this.deps.runLinks;
+    if (!sink) return;
+    const prev = sink.get(binding.runId) ?? {};
+    sink.upsert({
+      ...prev,
+      runId: binding.runId,
+      taskBindingId: binding.taskBindingId,
+      status,
+      ...(resultSummary !== undefined ? { resultSummary } : {}),
+    });
   }
 
   /** 审批卡通知：同版本只发一次（A11）；resume 后版本自增 → 新卡 */

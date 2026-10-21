@@ -22,6 +22,7 @@ export interface CreatePendingActionInput {
   workflowId: string;
   args: unknown;
   argsDigest: string;
+  agentTurnId?: string;
   originMessageId: string;
   riskLevel: string;
   registryDigest: string;
@@ -72,6 +73,7 @@ export class PendingActionStore {
       workflowId: input.workflowId,
       args: input.args,
       argsDigest: input.argsDigest,
+      ...(input.agentTurnId ? { agentTurnId: input.agentTurnId } : {}),
       originMessageId: input.originMessageId,
       riskLevel: input.riskLevel,
       registryDigest: input.registryDigest,

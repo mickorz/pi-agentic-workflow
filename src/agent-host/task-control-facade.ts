@@ -14,6 +14,7 @@
 
 import { PendingActionStore } from "./pending-action.js";
 import { RunLinkStore } from "./run-launch.js";
+import { LaunchCoordinator } from "./launch-flow.js";
 import { computeArgsDigest, computeRegistryDigest } from "./digest.js";
 import type {
   AgentToolFacade,
@@ -22,14 +23,14 @@ import type {
   WorkflowSearchItem,
 } from "./types.js";
 import type { TaskBinding, RoutePlan } from "../contracts/wx.js";
-import type { Dispatcher } from "../dispatch/dispatcher.js";
 import type { TaskControlService } from "../dispatch/task-control.js";
 import type { TaskStore } from "../dispatch/task-store.js";
 import type { WorkflowRegistry } from "../dispatch/registry.js";
 
 export interface TaskControlFacadeDeps {
   registry: WorkflowRegistry;
-  dispatcher: Dispatcher;
+  /** 启动通道（T5：预写 attempt → dispatcher.execute → link + run-links） */
+  launcher: LaunchCoordinator;
   tasks: TaskStore;
   /** RunApplicationService 结构化子集（get/cancel/resume） */
   service: TaskControlService;
@@ -92,10 +93,11 @@ export class TaskControlFacade implements AgentToolFacade {
         confidence: 1,
       };
       try {
-        const r = await this.deps.dispatcher.execute(
+        const r = await this.deps.launcher.execute(
           plan,
           { actor: input.userId, authorized: true, entrypoint: this.channel },
           { channel: this.channel, userId: input.userId, messageId: input.originMessageId },
+          { agentTurnId: input.agentTurnId },
         );
         return { accepted: true, runId: r.runId, taskBindingId: r.taskBindingId, status: r.status };
       } catch (e) {
@@ -109,6 +111,7 @@ export class TaskControlFacade implements AgentToolFacade {
       workflowId: input.workflowId,
       args: input.args ?? {},
       argsDigest: computeArgsDigest(input.args),
+      ...(input.agentTurnId ? { agentTurnId: input.agentTurnId } : {}),
       originMessageId: input.originMessageId,
       riskLevel: reg.riskLevel,
       registryDigest: computeRegistryDigest(this.deps.registry),

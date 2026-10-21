@@ -12,16 +12,17 @@
  */
 
 import { PendingActionStore } from "./pending-action.js";
+import { LaunchCoordinator } from "./launch-flow.js";
 import { computeArgsDigest, computeRegistryDigest } from "./digest.js";
 import type { PendingAction } from "./types.js";
 import type { RoutePlan } from "../contracts/wx.js";
-import type { Dispatcher } from "../dispatch/dispatcher.js";
 import type { WorkflowRegistry } from "../dispatch/registry.js";
 
 export interface PendingFlowDeps {
   pending: PendingActionStore;
   registry: WorkflowRegistry;
-  dispatcher: Dispatcher;
+  /** 启动通道（T5：预写 attempt → execute → link + run-links） */
+  launcher: LaunchCoordinator;
   channel?: "wechat" | "cli";
   /** 方案 B 告警：executing 悬置（启动结果不确定，禁自动重试，待人工核对） */
   onUncertain?: (action: PendingAction) => void;
@@ -91,10 +92,11 @@ export class PendingActionService {
       confidence: 1,
     };
     try {
-      const r = await this.deps.dispatcher.execute(
+      const r = await this.deps.launcher.execute(
         plan,
         { actor: userId, authorized: true, entrypoint: this.channel },
         { channel: this.channel, userId, messageId: claim.action.originMessageId },
+        { agentTurnId: claim.action.agentTurnId },
       );
       this.deps.pending.complete(actionId, { runId: r.runId, taskBindingId: r.taskBindingId });
       return { ok: true, runId: r.runId, taskBindingId: r.taskBindingId };

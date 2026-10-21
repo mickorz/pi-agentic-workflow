@@ -15,6 +15,8 @@ import { TaskStore } from "../../src/dispatch/task-store.js";
 import type { WorkflowRegistration } from "../../src/contracts/wx.js";
 import { PendingActionStore } from "../../src/agent-host/pending-action.js";
 import { PendingActionService } from "../../src/agent-host/pending-flow.js";
+import { RunLaunchStore, RunLinkStore } from "../../src/agent-host/run-launch.js";
+import { LaunchCoordinator } from "../../src/agent-host/launch-flow.js";
 import { computeArgsDigest, computeRegistryDigest } from "../../src/agent-host/digest.js";
 
 const DEPLOY: WorkflowRegistration = {
@@ -58,7 +60,13 @@ function makeFixture(): Fixture {
     scriptsRoot: root,
   });
   const pending = new PendingActionStore(path.join(root, "data"));
-  const flow = new PendingActionService({ pending, registry, dispatcher });
+  const launcher = new LaunchCoordinator({
+    attempts: new RunLaunchStore(path.join(root, "data")),
+    runLinks: new RunLinkStore(path.join(root, "data")),
+    dispatcher,
+    tasks,
+  });
+  const flow = new PendingActionService({ pending, registry, launcher });
   return {
     root, registry, tasks, pending, flow, started,
     setFailStart: (v: boolean) => { failStart = v; },
@@ -179,7 +187,13 @@ test("T4：kill -9 重启（executing 悬置）→ recoverStuck 告警，禁自�
   const uncertain: string[] = [];
   const pending2 = new PendingActionStore(path.join(root, "data"));
   const flow2 = new PendingActionService({
-    pending: pending2, registry, dispatcher,
+    pending: pending2, registry,
+    launcher: new LaunchCoordinator({
+      attempts: new RunLaunchStore(path.join(root, "data")),
+      runLinks: new RunLinkStore(path.join(root, "data")),
+      dispatcher,
+      tasks,
+    }),
     onUncertain: (a) => uncertain.push(a.actionId),
   });
   const stuck = flow2.recoverStuck();

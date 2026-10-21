@@ -46,6 +46,7 @@ export class RunLaunchStore {
     workflowId: string;
     argsDigest: string;
     agentTurnId?: string;
+    originMessageId?: string;
   }): RunLaunchAttempt {
     const attempt: RunLaunchAttempt = {
       attemptId: `la-${randomUUID().slice(0, 8)}`,
@@ -53,6 +54,7 @@ export class RunLaunchStore {
       workflowId: input.workflowId,
       argsDigest: input.argsDigest,
       ...(input.agentTurnId ? { agentTurnId: input.agentTurnId } : {}),
+      ...(input.originMessageId ? { originMessageId: input.originMessageId } : {}),
       status: "launched",
       createdAt: new Date().toISOString(),
     };
@@ -81,6 +83,15 @@ export class RunLaunchStore {
     const a = this.byId.get(attemptId);
     if (!a || a.status !== "launched") return;
     const next = { ...a, status: "unknown" as const };
+    append(this.file, next);
+    this.byId.set(attemptId, next);
+  }
+
+  /** 确定性同步失败作废（启动被拒/未发生；区别于 unknown 不确定态）：launched → discarded */
+  discard(attemptId: string): void {
+    const a = this.byId.get(attemptId);
+    if (!a || a.status !== "launched") return;
+    const next = { ...a, status: "discarded" as const };
     append(this.file, next);
     this.byId.set(attemptId, next);
   }
