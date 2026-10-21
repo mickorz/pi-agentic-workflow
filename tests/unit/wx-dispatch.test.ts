@@ -330,7 +330,13 @@ test("跨进程决策恢复：决策固化但 run 未推进 → decideCheckpoint
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "wx-xproc-"));
   const script = path.join(base, "cp.js");
   fs.writeFileSync(script, 'export const meta={name:"cp_x"}\nconst a = await agent("Reply with exactly: ok")\nconst ok = await checkpoint("跨进程决策?")\nreturn { a, ok }');
-  const svcA = createRunApplicationService({ baseDir: base });
+  // fake runner：单测不依赖本机 Pi 凭证（CI 环境无 ~/.pi/agent/auth.json）
+  const fakeRunner = {
+    async run(prompt: string) {
+      return { type: "text" as const, value: `v:${prompt}`, sessionId: "s" };
+    },
+  };
+  const svcA = createRunApplicationService({ baseDir: base, runner: fakeRunner });
   const { runId } = await svcA.start({ scriptPath: script, cwd: base });
   const wait = async (p: () => Promise<boolean>, what: string, ms = 60_000) => {
     const t0 = Date.now();

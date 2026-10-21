@@ -10,7 +10,8 @@ const answers = await parallel([() => agent("${topic}"), () => agent("${topic}")
 return answers`;
 
 test("并行分支执行时间重叠（非串行）", async () => {
-  const { runner, calls } = delayedEchoRunner("slow-answer", 150);
+  // 延迟 500ms：重叠窗口留足余量，避免 CI 慢机负载下假阴性（本地 150ms 曾在 macOS/ubuntu CI 挂）
+  const { runner, calls } = delayedEchoRunner("slow-answer", 500);
   const result = await runWorkflow(script("topic"), { agent: runner });
   assert.equal(result.result[0], "slow-answer");
   assert.equal(result.result[1], "slow-answer");
