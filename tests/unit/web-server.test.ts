@@ -70,10 +70,12 @@ test("P1-01 health：app.inject 200，形状正确且无敏感信息", async () 
   assert.ok(!raw.includes("/Users/"), "health 不泄露本机路径");
 });
 
-test("P1-01 app 工厂：依赖可注入（service 占位），未知路由 404 JSON", async () => {
+test("P1-06 后：未知 /api 路由无 token → 401（不暴露路由存在性）；带 token → 404 JSON", async () => {
   const config = resolveWebConfig({});
   const app = createWebApp({ config, service: undefined });
-  const res = await app.inject({ method: "GET", url: "/api/no-such" });
-  assert.equal(res.statusCode, 404);
+  const noToken = await app.inject({ method: "GET", url: "/api/no-such" });
+  assert.equal(noToken.statusCode, 401);
+  const withToken = await app.inject({ method: "GET", url: "/api/no-such", headers: { authorization: `Bearer ${config.token}` } });
+  assert.equal(withToken.statusCode, 404);
   await app.close();
 });

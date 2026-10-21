@@ -11,3 +11,5 @@
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-04","at":"2026-10-21T16:57:37.306Z"}
 {"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-04","evidence":"commit c30a85f：app.ts 12 REST 端点（projects/workflows/validate/runs 幂等 202/分页/详情/增量事件/cancel/resume/checkpoints+decision），统一错误 {code,message,requestId}；web.ts 装配 RunSupervisor+RunApplicationService+Proj","at":"2026-10-21T17:03:36.296Z"}
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-05","at":"2026-10-21T17:04:25.285Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-05","evidence":"commit 40b0c36：app.ts /api/runs/:id/stream（hijack+先补传后订阅+Last-Event-ID/query 游标+150ms 轮询+15s 心跳+终态 done 关流）；tests/unit/web-sse.test.ts 3 用例（E08 断连→重连合并无重复无缺口）；237 全绿；dist 真实栈冒烟 12/12 PASS（smoke.js com","at":"2026-10-21T17:10:39.923Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-06","at":"2026-10-21T17:11:23.284Z"}

@@ -65,7 +65,9 @@ export async function web(argv: string[]): Promise<number> {
     [
       `pi-workflow web 已启动：http://${config.host}:${config.port}`,
       `本地访问 token（本次会话）：${config.token}`,
-      `健康检查：curl http://${config.host}:${config.port}/api/health`,
+      `用法示例：curl -H "Authorization: Bearer ${config.token}" http://${config.host}:${config.port}/api/projects`,
+      `注意：token 仅接受 Authorization/X-PI-Workflow-Token 头，不走 URL query；跨 Origin 请求全拒。`,
+      `健康检查（免 token）：curl http://${config.host}:${config.port}/api/health`,
       `项目白名单（${config.projectRoots.length}）：${config.projectRoots.join(", ")}`,
       ...(registry.warnings.length > 0 ? registry.warnings : []),
       `Ctrl-C 优雅停止（运行中 Run 不受影响）`,

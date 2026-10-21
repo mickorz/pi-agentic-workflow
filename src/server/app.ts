@@ -22,11 +22,14 @@
  *   POST /api/runs/:id/checkpoints/:cid/decision    approve/reject（expectedVersion）
  *
  * 错误统一：{ code, message, details?, requestId }（requestId 每请求随机）。
- * token/Origin 强制校验属 P1-06（本任务注入点已留 hooks 位）。
+ * 安全层（P1-06，PRD §6.1）：除 /api/health 外全部要求 Bearer token（绝不从 URL query 读
+ * token，SSE 同规）；带 Origin 头时仅允许本机同源（跨站全拒，防 CSRF）；CORS 默认拒绝
+ * （不加任何 Access-Control-Allow-* 头，浏览器只能同源读）；POST body JSON Schema 校验；
+ * 每 IP 滑动窗口限流 + 全局 1MB body 上限。
  */
 
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { WebServerConfig } from "./config.js";
 import type { RunApplicationService } from "../application/run-service.js";
 import { ServiceError, type StartRunOptions } from "../application/run-service.js";
@@ -40,6 +43,34 @@ export interface WebAppDeps {
   registry?: ProjectRegistry;
   version?: string;
   startedAt?: number;
+  /** 每 IP 滑动窗口限流（缺省 60s / 600 次） */
+  rateLimit?: { windowMs: number; max: number };
+}
+
+/** 恒时比较 token（防时序侧信道） */
+function tokenEquals(received: string, expected: string): boolean {
+  const a = Buffer.from(received);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** 每 IP 滑动窗口限流器（进程内；本地服务足够，无需外置存储） */
+class RateLimiter {
+  private readonly hits = new Map<string, number[]>();
+  constructor(
+    private readonly windowMs: number,
+    private readonly max: number,
+  ) {}
+  allow(key: string, now = Date.now()): boolean {
+    const arr = (this.hits.get(key) ?? []).filter((t) => now - t < this.windowMs);
+    if (arr.length >= this.max) {
+      this.hits.set(key, arr);
+      return false;
+    }
+    arr.push(now);
+    this.hits.set(key, arr);
+    return true;
+  }
 }
 
 /** 错误码 → HTTP 状态映射（PRD §4 错误枚举） */
@@ -60,6 +91,13 @@ function statusForCode(code: string): number {
       return 409;
     case "RUN_LIMIT_REACHED":
       return 429;
+    case "RATE_LIMITED":
+      return 429;
+    case "UNAUTHORIZED":
+      return 401;
+    case "FORBIDDEN":
+    case "FORBIDDEN_PATH":
+      return 403;
     case "SERVICE_UNAVAILABLE":
       return 503;
     default:
@@ -81,19 +119,61 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
     logger: false,
     bodyLimit: 1 * 1024 * 1024, // 1MB：POST /api/runs 参数上限（P1-06 细化 Rate/Size）
     genReqId: () => randomUUID(),
+    // 覆盖 Fastify 默认 ajv removeAdditional:true（静默剥离未知字段）：
+    // additionalProperties:false 必须真正报 400，防止调用方误传字段被无声忽略。
+    // 保留 coerceTypes（数字/字符串宽松互转，可接受的 ergonomics）。
+    ajv: { customOptions: { removeAdditional: false } },
   });
   const startedAt = deps.startedAt ?? Date.now();
   const version = deps.version ?? "0.0.0";
   const service = deps.service;
   const registry = deps.registry;
+  const limiter = new RateLimiter(deps.rateLimit?.windowMs ?? 60_000, deps.rateLimit?.max ?? 600);
+  const allowedOrigins = new Set([
+    `http://127.0.0.1:${deps.config.port}`,
+    `http://localhost:${deps.config.port}`,
+    `http://${deps.config.host}:${deps.config.port}`,
+  ]);
 
-  // 统一错误出口：ServiceError/ProjectError 按码映射；语法/解析错 → INVALID_INPUT；其余 500
+  // ---- 安全层（P1-06）：限流 → token → Origin（对全部 /api 生效；/api/health 除外）----
+  app.addHook("onRequest", async (request, reply) => {
+    if (request.url === "/api/health" || request.url.startsWith("/api/health?")) return;
+    if (!limiter.allow(request.ip ?? "unknown")) {
+      return reply.code(429).send({ code: "RATE_LIMITED", message: "请求过于频繁", requestId: request.id });
+    }
+    // token：仅 Authorization: Bearer 或专用头（绝不从 URL query 读，含 SSE）
+    const authHeader = request.headers.authorization;
+    const altHeader = request.headers["x-pi-workflow-token"];
+    const received =
+      (typeof authHeader === "string" && authHeader.startsWith("Bearer ") ? authHeader.slice(7) : undefined) ??
+      (typeof altHeader === "string" ? altHeader : undefined);
+    if (received === undefined || !tokenEquals(received, deps.config.token)) {
+      return reply.code(401).send({ code: "UNAUTHORIZED", message: "缺少或错误的访问 token", requestId: request.id });
+    }
+    // Origin：带头的请求仅允许本机同源（跨站 GET/POST 全拒；curl 无 Origin 不受影响）
+    const origin = request.headers.origin;
+    if (typeof origin === "string" && origin !== "" && !allowedOrigins.has(origin)) {
+      return reply.code(403).send({ code: "FORBIDDEN", message: `跨 Origin 请求被拒：${origin}`, requestId: request.id });
+    }
+  });
+
+  // 统一错误出口：ServiceError/ProjectError 按码映射；Schema/语法错 → INVALID_INPUT；其余 500
   app.setErrorHandler((error, request, reply) => {
     if (reply.sent) return;
     if (error instanceof ServiceError || error instanceof ProjectError) {
       void reply.code(statusForCode(error.code)).send({
         code: error.code,
         message: error.message,
+        requestId: request.id,
+      });
+      return;
+    }
+    if ((error as { validation?: unknown }).validation) {
+      const validation = (error as { validation: Array<{ message?: string }> }).validation;
+      void reply.code(400).send({
+        code: "INVALID_INPUT",
+        message: "请求体不符合 Schema",
+        details: validation.map((v) => v.message ?? String(v)),
         requestId: request.id,
       });
       return;
@@ -136,7 +216,20 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
     }
   });
 
-  app.post("/api/workflows/validate", async (req, reply) => {
+  app.post("/api/workflows/validate", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          source: { type: "string" },
+          projectId: { type: "string" },
+          path: { type: "string" },
+          args: {},
+        },
+      },
+    },
+  }, async (req, reply) => {
     if (!registry) return fail(reply, "SERVICE_UNAVAILABLE", "项目白名单未配置");
     const body = (req.body ?? {}) as Record<string, unknown>;
     try {
@@ -159,7 +252,28 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
   const idempotencyCache = new Map<string, { runId: string }>();
   const IDEMPOTENCY_CACHE_LIMIT = 1000;
 
-  app.post("/api/runs", async (req, reply) => {
+  app.post("/api/runs", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["projectId", "path"],
+        additionalProperties: false,
+        properties: {
+          projectId: { type: "string" },
+          path: { type: "string" },
+          idempotencyKey: { type: "string", minLength: 1, maxLength: 128 },
+          args: {},
+          model: { type: "string" },
+          cwd: { type: "string" },
+          concurrency: { type: "number" },
+          timeoutMs: { type: "number" },
+          retries: { type: "number" },
+          maxAgents: { type: "number" },
+          continueOnFailure: { type: "boolean" },
+        },
+      },
+    },
+  }, async (req, reply) => {
     if (!service || !registry) return fail(reply, "SERVICE_UNAVAILABLE", "服务未配置");
     const body = (req.body ?? {}) as Record<string, unknown>;
     // 幂等键：Header 优先，body.idempotencyKey 兜底
@@ -251,7 +365,15 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
     return { snapshot: await service.cancel(id) };
   });
 
-  app.post("/api/runs/:id/resume", async (req, reply) => {
+  app.post("/api/runs/:id/resume", {
+    schema: {
+      body: {
+        type: "object",
+        additionalProperties: false,
+        properties: { acknowledgeSideEffects: { type: "boolean" } },
+      },
+    },
+  }, async (req, reply) => {
     if (!service) return fail(reply, "SERVICE_UNAVAILABLE", "服务未配置");
     const { id } = req.params as { id: string };
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -347,7 +469,19 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
     void poll();
   });
 
-  app.post("/api/runs/:id/checkpoints/:checkpointId/decision", async (req, reply) => {
+  app.post("/api/runs/:id/checkpoints/:checkpointId/decision", {
+    schema: {
+      body: {
+        type: "object",
+        required: ["decision", "expectedVersion"],
+        additionalProperties: false,
+        properties: {
+          decision: { type: "string", enum: ["approve", "reject"] },
+          expectedVersion: { type: "integer", minimum: 0 },
+        },
+      },
+    },
+  }, async (req, reply) => {
     if (!service) return fail(reply, "SERVICE_UNAVAILABLE", "服务未配置");
     const { id, checkpointId } = req.params as { id: string; checkpointId: string };
     const body = (req.body ?? {}) as Record<string, unknown>;

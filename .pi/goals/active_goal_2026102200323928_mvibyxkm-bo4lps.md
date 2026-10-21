@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 753564,
-    "activeSeconds": 2189
+    "tokensUsed": 857350,
+    "activeSeconds": 2643
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T17:10:18.604Z",
+  "updatedAt": "2026-10-21T17:18:11.016Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 141,
+  "revision": 179,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -73,8 +73,10 @@
           {
             "id": "v2p1-05",
             "title": "P1-05 SSE + 断线重连（Last-Event-ID、历史补传、顺序保证）",
-            "status": "pending",
-            "verificationContract": "E08：断连重试不丢事件、seq 去重；先补传后订阅"
+            "status": "complete",
+            "verificationContract": "E08：断连重试不丢事件、seq 去重；先补传后订阅",
+            "completedAt": "2026-10-21T17:10:39.922Z",
+            "evidence": "commit 40b0c36：app.ts /api/runs/:id/stream（hijack+先补传后订阅+Last-Event-ID/query 游标+150ms 轮询+15s 心跳+终态 done 关流）；tests/unit/web-sse.test.ts 3 用例（E08 断连→重连合并无重复无缺口）；237 全绿；dist 真实栈冒烟 12/12 PASS（smoke.js com"
           },
           {
             "id": "v2p1-06",
@@ -202,7 +204,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p1-05"
+  "currentTaskId": "v2p1-06"
 }
 
 # Goal Prompt
@@ -216,8 +218,8 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 36m29s
-- Tokens used: 754K (753,564) tokens
+- Time spent: 44m03s
+- Tokens used: 857K (857,350) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->

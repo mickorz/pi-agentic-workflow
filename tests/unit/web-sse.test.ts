@@ -61,11 +61,12 @@ class SseClient {
     }
   }
 
-  static async connect(url: string, init?: { lastEventId?: number; signal?: AbortSignal }): Promise<SseClient> {
+  static async connect(url: string, init?: { lastEventId?: number; signal?: AbortSignal; token?: string }): Promise<SseClient> {
     const client = new SseClient();
     const response = await fetch(url, {
       headers: {
         accept: "text/event-stream",
+        ...(init?.token ? { authorization: `Bearer ${init.token}` } : {}),
         ...(init?.lastEventId !== undefined ? { "last-event-id": String(init.lastEventId) } : {}),
       },
       signal: init?.signal ?? client.controller.signal,
@@ -111,7 +112,10 @@ function makeApp(base: string, runner: AgentSessionRunner) {
   const registry = new ProjectRegistry([path.join(base, "proj")]);
   const service = createRunApplicationService({ baseDir: base, runner });
   const config = resolveWebConfig({ configDir: base });
-  return createWebApp({ config, service, registry, version: "test" });
+  return {
+    app: createWebApp({ config, service, registry, version: "test" }),
+    token: config.token,
+  };
 }
 
 function setup(name: string, script: string): string {
@@ -125,15 +129,15 @@ const OK_SCRIPT = `export const meta = { name: "ok" }\nconst a = await agent("hi
 
 test("已完成 run：连接即全量补传 + 顺序 + done 关流（刷新重建历史）", async () => {
   const base = setup("history", OK_SCRIPT);
-  const app = makeApp(base, { async run(p) { return { type: "text", value: `v:${p}`, sessionId: "s" }; } });
+  const { app, token } = makeApp(base, { async run(p) { return { type: "text", value: `v:${p}`, sessionId: "s" }; } });
   await app.listen({ host: "127.0.0.1", port: 0 });
   try {
     const port = (app.server.address() as { port: number }).port;
-    const created = await app.inject({ method: "POST", url: "/api/runs", payload: { projectId: "proj", path: "wf.js" } });
+    const created = await app.inject({ method: "POST", url: "/api/runs", headers: { authorization: `Bearer ${token}` }, payload: { projectId: "proj", path: "wf.js" } });
     const { runId } = created.json() as { runId: string };
     await new Promise((r) => setTimeout(r, 400)); // 跑完
 
-    const client = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream`);
+    const client = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream`, { token });
     await client.waitDone();
     const seqs = client.events.map((e) => e.id);
     assert.deepEqual(seqs, [...seqs].sort((a, b) => a - b), "序列单调递增");
@@ -149,7 +153,7 @@ test("已完成 run：连接即全量补传 + 顺序 + done 关流（刷新重�
 test("E08：运行中断连 → Last-Event-ID 重连补传（不丢/不重/顺序）", async () => {
   const base = setup("reconnect", OK_SCRIPT);
   // 800ms 延迟制造宽的断连窗口
-  const app = makeApp(base, {
+  const { app, token } = makeApp(base, {
     async run(p) {
       await new Promise((r) => setTimeout(r, 800));
       return { type: "text", value: `v:${p}`, sessionId: "s" };
@@ -158,19 +162,19 @@ test("E08：运行中断连 → Last-Event-ID 重连补传（不丢/不重/顺�
   await app.listen({ host: "127.0.0.1", port: 0 });
   try {
     const port = (app.server.address() as { port: number }).port;
-    const created = await app.inject({ method: "POST", url: "/api/runs", payload: { projectId: "proj", path: "wf.js" } });
+    const created = await app.inject({ method: "POST", url: "/api/runs", headers: { authorization: `Bearer ${token}` }, payload: { projectId: "proj", path: "wf.js" } });
     const { runId } = created.json() as { runId: string };
     await new Promise((r) => setTimeout(r, 200)); // 等早期事件落盘，run 仍在跑
 
     // 第一段连接：收若干事件后主动断开
-    const first = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream`);
+    const first = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream`, { token });
     const early = await first.collect(1);
     await new Promise((r) => setTimeout(r, 100));
     first.controller.abort(); // 模拟断网/关页
 
     // 第二段：Last-Event-ID 重连，收齐到 done
     const lastId = first.events.at(-1)!.id;
-    const second = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream`, { lastEventId: lastId });
+    const second = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream`, { token, lastEventId: lastId });
     await second.waitDone();
 
     // 合并校验：无重复、无缺口（1..max 连续）、含终态
@@ -187,31 +191,31 @@ test("E08：运行中断连 → Last-Event-ID 重连补传（不丢/不重/顺�
 
 test("游标 query.lastEventId 兜底 + 未知 run 404", async () => {
   const base = setup("cursor", OK_SCRIPT);
-  const app = makeApp(base, { async run(p) { return { type: "text", value: `v:${p}`, sessionId: "s" }; } });
+  const { app, token } = makeApp(base, { async run(p) { return { type: "text", value: `v:${p}`, sessionId: "s" }; } });
   await app.listen({ host: "127.0.0.1", port: 0 });
   try {
     const port = (app.server.address() as { port: number }).port;
-    const created = await app.inject({ method: "POST", url: "/api/runs", payload: { projectId: "proj", path: "wf.js" } });
+    const created = await app.inject({ method: "POST", url: "/api/runs", headers: { authorization: `Bearer ${token}` }, payload: { projectId: "proj", path: "wf.js" } });
     const { runId } = created.json() as { runId: string };
     await new Promise((r) => setTimeout(r, 400));
 
-    const all = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream`);
+    const all = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream`, { token });
     await all.waitDone();
     const lastId = all.events.at(-1)!.id;
 
     // query 游标：只应收到 done（游标已到末尾）
-    const tail = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream?lastEventId=${lastId}`);
+    const tail = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream?lastEventId=${lastId}`, { token });
     await tail.waitDone();
     assert.equal(tail.events.length, 0, "游标在末尾 → 无补传事件");
 
     // 中间游标：只补传后半
     const mid = Math.floor(lastId / 2);
-    const half = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream?lastEventId=${mid}`);
+    const half = await SseClient.connect(`http://127.0.0.1:${port}/api/runs/${runId}/stream?lastEventId=${mid}`, { token });
     await half.waitDone();
     assert.ok(half.events.every((e) => e.id > mid));
     assert.equal(half.events.length, all.events.length - mid);
 
-    const nf = await app.inject({ method: "GET", url: "/api/runs/run-nope/stream" });
+    const nf = await app.inject({ method: "GET", url: "/api/runs/run-nope/stream", headers: { authorization: `Bearer ${token}` } });
     assert.equal(nf.statusCode, 404);
     assert.equal((nf.json() as { code: string }).code, "RUN_NOT_FOUND");
   } finally {
