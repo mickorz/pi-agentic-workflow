@@ -18,6 +18,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcess } from "node:child_process";
 import {
   createManifest,
@@ -416,11 +417,13 @@ export class RunSupervisor implements Pick<WorkflowEngine, "start" | "resume" | 
   }
 }
 
-/** 缺省 Worker 命令：优先 dist 产物，回退 tsx 源码（开发/测试环境） */
+/** 缺省 Worker 命令：优先 dist 产物，回退 tsx 源码（开发/测试环境）。
+ *  必须经 fileURLToPath：Windows 上 URL.pathname 是 /C:/... 形式，existsSync 恒 false，
+ *  spawn 会拿到不存在的模块路径→Worker 启动即退→run 被误判 interrupted（CI Windows 实踩） */
 function resolveDefaultWorkerCommand(): string[] {
   const here = new URL(".", import.meta.url);
-  const distEntry = new URL("worker-main.js", here);
-  if (fs.existsSync(distEntry)) return [process.execPath, distEntry.pathname];
-  const srcEntry = new URL("../../../src/server/worker-main.ts", here);
-  return [process.execPath, "--import", "tsx", srcEntry.pathname];
+  const distEntry = fileURLToPath(new URL("worker-main.js", here));
+  if (fs.existsSync(distEntry)) return [process.execPath, distEntry];
+  const srcEntry = fileURLToPath(new URL("../../../src/server/worker-main.ts", here));
+  return [process.execPath, "--import", "tsx", srcEntry];
 }
