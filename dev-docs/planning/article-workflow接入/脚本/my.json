@@ -1,0 +1,83 @@
+{
+  "presets": [
+    {
+      "path": "structures/清单体.md",
+      "content": "# 清单体结构\n\n## 标准结构\n\n```\n标题\n├── 摘要（80–128 字，概括核心价值与结论）\n├── 开头（1–2 段，直给式：今天分享 N 个 XXX 技巧/步骤）\n├── 正文（每节一个小标题 + 2–4 段，短段为主）\n│   ├── 一、……\n│   ├── 二、……\n│   └── …\n├── 结尾（1 段：总结 + 行动号召）\n└── 文末区块（按 closing_block 预设）\n```\n\n## 要求\n\n- 小标题简洁，不超过 15 字\n- 每段 3–5 行，核心观点放段首\n- 配图密度：每节一图或按 config `image_density`"
+    },
+    {
+      "path": "title-styles/干货型.md",
+      "content": "# 干货型标题\n\n## 特点\n\n直接点明文章价值，让读者一眼看到收益。\n\n## 适用场景\n\n教程、工具推荐、方法论、实操指南。\n\n## 示例句式\n\n- XX 完全指南：从入门到精通\n- 5 个让效率翻倍的 XX 技巧\n- 手把手教你用 XX 做 YY"
+    },
+    {
+      "path": "formatting/技术.yaml",
+      "content": "displayName: 技术\nname: ma\ndescription: 开发者文档感。等宽只用于小标签与元数据，正文干净，发丝线网格，大量留白，一个冷静的蓝。像 Stripe / Linear 的技术博客。\nskeleton: ma\nsort_order: 8\nwhen_to_use: 工程实践、技术文档、代码讲解。等宽体小标加发丝线网格，是八套里最像一份文档的一档。\nwhen_not_to_use: '情绪向和故事向的内容：这套刻意没有情绪。\n\n  完全没有代码和数据的稿子：等宽小标会显得为技术而技术。'\nvariables:\n  text-color: '#111827'\n  text-muted: '#6B7280'\n  primary-color: '#2563EB'\n  secondary-color: '#E5E7EB'\ndefault_scheme: 蓝\nschemes:\n  - name: 蓝\n    variables:\n      primary-color: '#2563EB'\n      secondary-color: '#E5E7EB'\n    description: 标准工程蓝，链接和标注都用它。默认色。\n  - name: 紫\n    variables:\n      primary-color: '#7C3AED'\n      secondary-color: '#E5E7EB'\n    description: 偏冷的紫，适合 AI 和算法类内容。\n  - name: 绿\n    variables:\n      primary-color: '#047857'\n      secondary-color: '#E5E7EB'\n    description: 深松绿，适合运维、数据库、稳定性一类话题。\nstyles:\n  a: color:{primary-ink}; text-decoration:none; border-bottom:1px solid {primary-ink};\n  p: font-size:16px; line-height:1.95; letter-spacing:0.2px; color:#111827; margin:0 0 26px; font-variant-numeric:tabular-nums;\n  em: font-style:normal; color:{primary-ink}; font-weight:600;\n  h1: font-size:25px; font-weight:700; color:#111827; line-height:1.4; letter-spacing:-0.3px; margin:0 0 28px;\n  h2: font-size:20px; font-weight:700; color:#111827; line-height:1.5; letter-spacing:-0.2px; margin:8px 0 20px;\n  h3: font-size:16px; font-weight:700; color:#111827; margin:36px 0 12px;\n  hr: border:none; height:1px; background:#E5E7EB; margin:52px 0;\n  li: font-size:16px; line-height:1.85; color:#111827; margin:0 0 10px; font-variant-numeric:tabular-nums;\n  ol: margin:0 0 26px; padding-left:22px; list-style:decimal;\n  td: 'color:#111827; padding:11px 8px; border-bottom:1px solid #E5E7EB;'\n  th: 'font-family:Menlo, Consolas, ''SF Mono'', monospace; font-size:11px; letter-spacing:2px; text-transform:uppercase;\n    color:#6B7280; font-weight:600; text-align:left; padding:10px 8px; border-bottom:1px solid #111827;'\n  ul: margin:0 0 26px; padding-left:22px; list-style:square;\n  img: 'display:block; width:100%; height:auto; border:1px solid #E5E7EB; border-radius:6px;'\n  pre: font-family:Menlo, Consolas, 'SF Mono', monospace; background:#111827; color:#E2E8F0; font-size:13px; line-height:1.8;\n    padding:18px 16px; margin:0 0 28px; border-radius:8px;\n  code: font-family:Menlo, Consolas, 'SF Mono', monospace; font-size:14px; background:#F6F8FA; color:#111827; padding:1px\n    6px; border-radius:4px;\n  table: width:100%; border-collapse:collapse; margin:0 0 28px; font-size:14.5px; font-variant-numeric:tabular-nums;\n  strong: color:{primary-ink}; font-weight:800;\n  blockquote: color:#6B7280; font-size:16px; line-height:1.9; padding:2px 0 2px 18px; margin:0 0 28px; border-left:2px solid\n    {primary-ink};\n  figcaption: font-family:Menlo, Consolas, 'SF Mono', monospace; font-size:11px; letter-spacing:2px; text-transform:uppercase;\n    color:#6B7280; margin:10px 0 34px;\n"
+    }
+  ],
+  "config": {
+    "tone": "专业",
+    "embeds": {
+      "profiles": [
+        {
+          "name": "",
+          "alias": ""
+        }
+      ],
+      "miniprograms": [
+        {
+          "name": "",
+          "path": "pages/index/index",
+          "appid": "",
+          "title": ""
+        }
+      ],
+      "related_articles": {
+        "manual": [],
+        "strategy": "auto",
+        "auto_count": 3
+      }
+    },
+    "drafts_root": "drafts/",
+    "image_model": {
+      "model": "",
+      "api_key": "",
+      "base_url": "",
+      "default_size": "1024x1024",
+      "default_quality": "standard"
+    },
+    "series_root": "series/",
+    "account_type": "职场",
+    "wechat_appid": "wx8cc123bf38237132",
+    "article_style": "分析性",
+    "image_density": "按需配图",
+    "target_reader": "25-50岁职场白领和老板",
+    "writing_model": {
+      "model": "",
+      "api_key": "",
+      "base_url": "",
+      "max_tokens": 4000,
+      "temperature": 0.7
+    },
+    "default_author": "AI奇点",
+    "publish_method": "draft",
+    "published_root": "posts/published/",
+    "wechat_api_base": "https://wechat.aiworkskills.cn",
+    "custom_structure": [
+      "清单体"
+    ],
+    "title_max_length": "20",
+    "update_frequency": "日更",
+    "wechat_appsecret": "30ce432ef10f84c60d395d597e732624",
+    "multi_image_count": 0,
+    "need_open_comment": 1,
+    "target_word_count": "1800-2500",
+    "custom_title_style": [
+      "干货型"
+    ],
+    "custom_format_preset": [
+      "技术"
+    ],
+    "only_fans_can_comment": 0,
+    "wechat_accounts": 1,
+    "article_category": "职场"
+  }
+}
