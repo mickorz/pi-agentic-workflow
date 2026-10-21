@@ -35,6 +35,10 @@ export interface WechatClientLike {
 
 export interface WechatBotAdapterOptions {
   allowedUserIds?: string[];
+  /** 无 allowedUserIds 时：首个发消息的用户自动绑定为唯一授权用户（免记 wxid） */
+  autoBindFirstUser?: boolean;
+  /** 自动绑定发生时回调（持久化/横幅用） */
+  onUserBound?: (userId: string) => void;
   /** 客户端工厂（测试注入 fake；真实缺省走凭据 + WeixinClient.create） */
   clientFactory?: () => Promise<WechatClientLike>;
   /** 断线重连策略 */
@@ -137,6 +141,11 @@ export class WechatBotAdapter implements BotAdapter {
         }
         for (const incoming of messages) {
           if (!this.handler) continue;
+          // 免记 wxid：无白名单且开启自动绑定 → 首个发消息用户成为唯一授权用户
+          if (!this.options.allowedUserIds?.length && this.options.autoBindFirstUser) {
+            this.options.allowedUserIds = [incoming.userId];
+            this.options.onUserBound?.(incoming.userId);
+          }
           // WG-002：绑定用户过滤
           if (this.options.allowedUserIds && !this.options.allowedUserIds.includes(incoming.userId)) continue;
           const text = (incoming.text ?? "").trim();

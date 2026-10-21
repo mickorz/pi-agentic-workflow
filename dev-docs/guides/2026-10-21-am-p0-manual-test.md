@@ -12,12 +12,14 @@
 cd /Users/michaelchang/Desktop/WorkProjects/pi-agentic-workflow
 npm ci && npm run build && npm link     # dist 重建（bin 符号链接自动生效）
 pi-workflow list | head -3              # CLI 可用
-ls ~/.pi/agent/wechat-assistant/credentials.json   # 真机凭据（无则先 SOP 扫码）
+pi-workflow wechat login                # 微信登录：已有凭据直接复用；无凭据出二维码扫码
 pi-workflow run examples/hello.js       # 默认模型预热（首条不因冷启动误判失败）
-npm test 2>&1 | tail -3                 # 207 全绿（基线）
+npm test 2>&1 | tail -3                 # 207+ 全绿（基线）
 ```
 
-真机 SOP（如凭据缺失）：`npx tsx dev-examples/wx-m0/standalone-adapter.ts --qr` 扫码登录。
+凭据失效（SessionExpired 重连耗尽）时：删除 `~/.pi/agent/wechat-assistant/credentials.json` 后重跑 login。
+**无需记住 wxid**：`wechat start` 不传 `--allow-user` 时，首个发消息的微信号自动绑定为唯一授权用户
+（落盘 `.pi-wechat/bound-user.json`，重启免重绑；换人删该文件）。
 
 ## Part A：程序化套件（无需真机，10 分钟，先跑）
 
@@ -39,18 +41,18 @@ npm test 2>&1 | tail -3
 
 ## Part B：真机用例（微信渠道，核心）
 
-启动（终端 1，仓库根；注意 `--scripts dev-examples`，registry 内为相对其的路径）：
+启动（终端 1，仓库根；注意 `--scripts dev-examples`，registry 内为相对其的路径；无需 --allow-user，首条消息自动绑定）：
 
 ```bash
 pi-workflow wechat start \
   --registry dev-examples/am-p0/registry.json \
   --scripts dev-examples \
-  --allow-user <你的wxid> \
   --routing-mode agent
 ```
 
-预期横幅：`wechat-dispatch 已启动（routing-mode=agent，registry=4 个流程 …）`+ agent 模式说明 + 会话目录。
-用绑定微信号向 Bot 发消息，逐条执行（**B1~B6 顺序执行**，后续用例注明前置）：
+预期横幅：`wechat-dispatch 已启动（routing-mode=agent，registry=4 个流程 …）`+ agent 模式说明 + 会话目录
++ `用户绑定：未绑定（首条消息发送者将自动绑定为唯一授权用户）`——用绑定微信号发首条消息后
+终端会打印 `🔔 已自动绑定用户：wxid_xxx（写入 .pi-wechat/bound-user.json …）`，并原样回执。逐条执行（**B1~B6 顺序执行**，后续用例注明前置）：
 
 | # | 用例 | 发送内容 | 预期回执 | 文件证据 | 对应 |
 |---|------|----------|----------|----------|------|
@@ -66,13 +68,13 @@ pi-workflow wechat start \
 | B9 | 模型故障 | 关闭网络（或临时改坏 settings 默认模型）→ 发 `帮我分析 https://github.com/x/y` → 收到 ❌ 后恢复网络/配置，重启 | 「❌ 处理失败：…」明确报错；**不回落 legacy 路由、无 Run 启动** | audit 出现 `am.turn.failed`；run-attempts 无新行（或仅 discarded） | AM-7/验收4 |
 | B10 | 同用户排队 | 发一条**长 Turn** 请求：`先列出所有可用流程，逐个详细介绍各自功能和参数，然后帮我跑长任务演示并汇报` ；在 Agent 还在回复过程中（数秒内）连发 `第二条：再跑一次` | 第二条**立即**收到「📩 已收到，正在处理上一条消息…」；第一条回执到达后第二条才被处理，顺序正确 | journal：m2 `received`→`completed` 晚于 m1；两条 `am.turn.completed` | AM-10/串行化 |
 | B11 | 单 Turn 硬限 | Ctrl-C → 带 `--agent-limits 2,3,600000` 重启 → 发 `列出所有流程并逐个详细介绍，然后跑长任务演示` | 回执含「⚠️ 已达单轮预算上限（llm_requests），已安全停止；已启动的任务不受影响」；若 execute 已发生 → `进度如何` 可查且**最终完成通知照常到达** | 回执文本 + 该任务 tasks.jsonl 终态 completed | AM-11/硬限 |
-| B12 | 越权查询 | Ctrl-C → **去掉 `--allow-user`** 重启（接收所有用户）→ 微信 A 号发 `帮我跑一下长任务演示` 记下回执 tb-xxxx → **另一微信号 B** 发 `查一下任务 tb-xxxx 的状态` | B 收到「无权访问该任务」类回复，**不泄露状态/结果** | audit：B 的 turn 无 taskBinding 泄露；tasks.jsonl 归属仍 A | AM-12/归属 |
+| B12 | 越权查询 | Ctrl-C → 带 `--allow-all` 重启（接收所有用户，仅本用例）→ 微信 A 号发 `帮我跑一下长任务演示` 记下回执 tb-xxxx → **另一微信号 B** 发 `查一下任务 tb-xxxx 的状态` | B 收到「无权访问该任务」类回复，**不泄露状态/结果** | audit：B 的 turn 无 taskBinding 泄露；tasks.jsonl 归属仍 A | AM-12/归属 |
 | B13 | 引用已结束任务 | （A 号）任一任务 completed 后发 `上次那个任务最后的结论是什么？` | 先 task_status 取真实 resultSummary/resultRef 再作答，不凭记忆编造 | audit `am.turn.completed`；run-links.jsonl 该 run 已有终态回写 | AM-14/验收7 |
 
 操作注意：
 - **B8/B11/B12 的重启**：Ctrl-C 后确认终端回到提示符再重启；kill -9 兜底命令 `pkill -9 -f "wechat start"`（macOS）。
 - **B9 改配置方式**（不想断网时）：`cp ~/.pi/agent/settings.json ~/.pi/agent/settings.json.bak` → 把 defaultModel 改成 `foo/nonexistent` → 测完 `mv` 还原。**必须还原**。
-- **B12 测完必须恢复 `--allow-user`**（无过滤=任意好友可触发）。
+- **B12 测完必须去掉 `--allow-all` 重启**（无过滤=任意好友可触发；日常首消息自动绑定已够安全）。
 - B10 若排队窗口太短（Turn 已结束才发第二条），换更长话术或降低语速；判定看回执顺序与 journal 时间戳，不看手感。
 - 并发上限：默认 maxConcurrentRuns=2，B3/B10 连发任务若撞上限会收到 RUN_LIMIT 话术——属预期，间隔开即可。
 - 任何用例中 Agent 回复乱码/超时 >2 分钟：看终端 1 报错，记录后 Ctrl-C 重启续跑后续用例（单用例失败不阻断）。
@@ -99,7 +101,7 @@ ls -la .pi-agent-host/sessions/
 同批输入在 legacy 模式重跑（B1/B3/B4 话术），记录行为差异（尤其 B4：legacy 走确认卡直通 vs agent 授权协议）：
 
 ```bash
-pi-workflow wechat start --registry dev-examples/am-p0/registry.json --scripts dev-examples --allow-user <wxid>
+pi-workflow wechat start --registry dev-examples/am-p0/registry.json --scripts dev-examples
 # B4 对照：发「把这句话保存下来：legacy 对照句」→ 预期旧链路确认卡（卡片样式）→「批准」→ 启动
 ```
 

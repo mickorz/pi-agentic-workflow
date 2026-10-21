@@ -81,7 +81,7 @@ async function main(argv: string[]): Promise<number> {
     case "stop":
       return stopCommand(rest);
     case "wechat":
-      return wechatCommand(rest);
+      return wechatCommand(rest, { reexecTsx: true });
     case "route":
       return routeCommand(rest);
     case "help":
