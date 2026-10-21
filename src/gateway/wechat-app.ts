@@ -183,7 +183,16 @@ export class WechatApp {
         toolsFactory: (ctxRef) => createAgentTools({ facade, ctxRef }),
         cumulative,
         onTurnCompleted: (r) => {
+          // 所有 Turn（含排队 drain）统一出口：入账 + 审计 + 回执。
+          // 注意：回执仅在此处入队一次——processed 分支不得重复 enqueueReply（曾致真机双发）
           this.budget.record(r.userId, r.usage.inputTokens + r.usage.outputTokens);
+          this.audit.record({
+            actor: r.userId,
+            action: "am.turn.completed",
+            target: { agentTurnId: r.agentTurnId, conversationId: r.conversationId },
+            outcome: "ok",
+            detail: `reply=${r.replyText.slice(0, 60)} tokens=${r.usage.inputTokens + r.usage.outputTokens}`,
+          });
           this.enqueueReply(r.userId, r.replyText);
         },
         onUncertainRecovery: (e) => {
@@ -430,14 +439,7 @@ export class WechatApp {
         this.enqueueReply(message.userId, reply);
         return { duplicate: false, reply };
       }
-      this.audit.record({
-        actor: message.userId,
-        action: "am.turn.completed",
-        target: { agentTurnId: out.result.agentTurnId, conversationId: out.result.conversationId },
-        outcome: "ok",
-        detail: `reply=${out.result.replyText.slice(0, 60)} tokens=${out.result.usage.inputTokens + out.result.usage.outputTokens}`,
-      });
-      this.enqueueReply(message.userId, out.result.replyText);
+      // processed：回执已由 onTurnCompleted 统一入队发送（此处不得重复 enqueue，否则双发）
       return { duplicate: false, reply: out.result.replyText };
     } catch (error) {
       const text = `❌ 处理失败：${error instanceof Error ? error.message : String(error)}`;

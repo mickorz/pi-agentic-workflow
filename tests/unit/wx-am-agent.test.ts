@@ -134,13 +134,14 @@ test("T7 legacy 隔离：缺省 routingMode → 旧链路，agent 装配为空",
   assert.match(out.reply!, /旧链路/, "走旧 IntentRouter 链路");
 });
 
-test("T7 agent 分支：processed → 回执经 Outbox 投递 + 审计 + 预算入账", async () => {
+test("T7 agent 分支：processed → 回执仅投递一次（防双发）+ 审计 + 预算入账", async () => {
   const env = makeEnv();
   const out = await env.app.handleInbound(msg("m1", "帮我分析这个仓库"));
   assert.equal(out.duplicate, false);
   assert.equal(out.reply, "好的", "首条消息同步回执");
   await env.app.flushOutbox();
-  assert.ok(env.bot.sent.some((s) => s.userId === "u1" && s.text === "好的"));
+  const sends = env.bot.sent.filter((s) => s.text === "好的");
+  assert.equal(sends.length, 1, "回执只投递一次（onTurnCompleted 唯一出口，processed 分支不得重复入队）");
   assert.equal(env.app.agentHost!.inbox.get("wechat", "m1")?.state, "completed", "journal 状态接线");
 });
 
@@ -160,8 +161,8 @@ test("T7 agent 分支：排队 ack + 排队完成后异步回执", async () => {
   session.release();
   await new Promise((r) => setTimeout(r, 100));
   await env.app.flushOutbox();
-  assert.ok(env.bot.sent.some((s) => /排队|正在处理/.test(s.text)), "排队 ack 送达");
-  assert.ok(env.bot.sent.some((s) => s.text === "ok"), "排队消息完成回执送达");
+  assert.equal(env.bot.sent.filter((s) => /排队|正在处理/.test(s.text)).length, 1, "排队 ack 恰一次");
+  assert.equal(env.bot.sent.filter((s) => s.text === "ok").length, 2, "两条消息各一次回执（排队不双发不漏发）");
 });
 
 test("T7 agent 分支：duplicate 直接吞掉", async () => {
