@@ -65,6 +65,8 @@ export interface ServiceConfig {
   runner?: AgentSessionRunner;
   /** 最大并行 Run 数（缺省 2） */
   maxConcurrentRuns?: number;
+  /** V2-P1：注入 Worker Supervisor（进程隔离执行）；缺省 in-process engine */
+  supervisor?: Pick<WorkflowEngine, "start" | "resume" | "cancel" | "respondToCheckpoint">;
 }
 
 export interface RunDetail {
@@ -74,6 +76,8 @@ export interface RunDetail {
 
 export class RunApplicationService {
   private readonly engine: WorkflowEngine;
+  /** 变更路径（start/resume/cancel/respondToCheckpoint）：supervisor 或 in-process engine */
+  private readonly executor: Pick<WorkflowEngine, "start" | "resume" | "cancel" | "respondToCheckpoint">;
   private readonly checkpoints: CheckpointService;
   private readonly maxConcurrentRuns: number;
   private readonly baseDir: string;
@@ -81,6 +85,7 @@ export class RunApplicationService {
   constructor(config: ServiceConfig = {}) {
     this.baseDir = config.baseDir ?? process.cwd();
     this.engine = createWorkflowEngine({ baseDir: this.baseDir, ...(config.runner ? { runner: config.runner } : {}) });
+    this.executor = config.supervisor ?? this.engine;
     this.checkpoints = new CheckpointService(this.baseDir);
     this.maxConcurrentRuns = config.maxConcurrentRuns ?? 2;
   }
@@ -94,7 +99,7 @@ export class RunApplicationService {
     if (active >= this.maxConcurrentRuns) {
       throw new ServiceError("RUN_LIMIT_REACHED", `并发 Run 上限 ${this.maxConcurrentRuns}（当前活跃 ${active}）`);
     }
-    const handle = await this.engine.start({
+    const handle = await this.executor.start({
       scriptPath: input.scriptPath,
       ...(input.args !== undefined ? { args: input.args } : {}),
       ...(input.cwd ? { cwd: input.cwd } : {}),
@@ -126,7 +131,7 @@ export class RunApplicationService {
       // 幂等：非活跃状态直接返回快照
       return snapshot;
     }
-    await this.engine.cancel(runId);
+    await this.executor.cancel(runId);
     // 等待终态落盘（事件写入 manifest 在 result promise 结算后）
     return (await this.waitForStatus(runId, ["cancelled", "failed", "completed"], 10_000)) ?? snapshot;
   }
@@ -157,7 +162,7 @@ export class RunApplicationService {
       throw new ServiceError("RUN_LIMIT_REACHED", `并发 Run 上限 ${this.maxConcurrentRuns}`);
     }
     try {
-      const handle = await this.engine.resume(runId);
+      const handle = await this.executor.resume(runId);
       this.wireCheckpointRecording(handle);
       return { runId };
     } catch (error) {
@@ -183,7 +188,7 @@ export class RunApplicationService {
     }
     let delivered = false;
     if (!outcome.idempotent) {
-      delivered = await this.engine.respondToCheckpoint(runId, input.decision);
+      delivered = await this.executor.respondToCheckpoint(runId, input.decision);
     }
     if (!delivered) {
       // 跨进程决策/服务重启场景：等待方不在本进程（delivered=false），或决策已固化但 run 未推进
@@ -191,9 +196,9 @@ export class RunApplicationService {
       const m = readManifest(this.baseDir, runId);
       if (m && m.status === "waiting_checkpoint") {
         try {
-          await this.engine.resume(runId);
+          await this.executor.resume(runId);
           for (let i = 0; i < 20; i++) {
-            delivered = await this.engine.respondToCheckpoint(runId, input.decision);
+            delivered = await this.executor.respondToCheckpoint(runId, input.decision);
             if (delivered) break;
             await new Promise((r) => setTimeout(r, 250));
           }

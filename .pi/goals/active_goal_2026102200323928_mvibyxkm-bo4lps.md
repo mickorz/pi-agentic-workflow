@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 356655,
-    "activeSeconds": 483
+    "tokensUsed": 515808,
+    "activeSeconds": 1252
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T16:40:56.640Z",
+  "updatedAt": "2026-10-21T16:54:06.923Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 34,
+  "revision": 76,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -41,8 +41,10 @@
           {
             "id": "v2p1-01",
             "title": "P1-01 app 工厂/环境配置/健康检查/`pi-workflow web` 启动命令",
-            "status": "pending",
-            "verificationContract": "app 工厂可注入依赖；GET /api/health 无敏感信息；CLI 注册 web 子命令；单测绿"
+            "status": "complete",
+            "verificationContract": "app 工厂可注入依赖；GET /api/health 无敏感信息；CLI 注册 web 子命令；单测绿",
+            "completedAt": "2026-10-21T16:41:17.819Z",
+            "evidence": "fastify@5 依赖；src/server/config.ts 三级优先级解析+token 高熵+白名单绝对化；createWebApp 依赖注入+GET /api/health 无敏感信息（测试断言不含 token/路径）；CLI web 子命令注册（非法端口 fail-fast、优雅关停）；6 新单测 215 全绿；真实冒烟 `pi-workflow web --port 4599` cu"
           },
           {
             "id": "v2p1-02",
@@ -194,7 +196,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p1-01"
+  "currentTaskId": "v2p1-02"
 }
 
 # Goal Prompt
@@ -208,8 +210,8 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 8m03s
-- Tokens used: 357K (356,655) tokens
+- Time spent: 20m52s
+- Tokens used: 516K (515,808) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->

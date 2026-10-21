@@ -37,8 +37,12 @@ export interface RunManifest {
   args?: unknown;
   cwd: string;
   status: RunStatus;
-  /** 启动进程 pid（stop / 死进程检测） */
+  /** 启动进程 pid（stop / 死进程检测；V2：Worker 子进程 pid，Server 预写时为占位 server pid） */
   pid: number;
+  /** V2-P1 写入所有权（V2-runtime-server.md §3.1）：启动服务实例标识，PID 复用误杀防护 */
+  ownerInstanceId?: string;
+  /** V2-P1：Worker 启动时间（与 ownerInstanceId 共同校验身份） */
+  startedAt?: string;
   meta: { name: string; description?: string };
   createdAt: string;
   updatedAt: string;

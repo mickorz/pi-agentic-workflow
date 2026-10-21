@@ -41,6 +41,8 @@ const EVENT_BUFFER_LIMIT = 500;
 
 export interface WorkflowInput {
   scriptPath: string;
+  /** V2-P1：预指派 runId（Server 先写 manifest 再 spawn Worker 时由 Supervisor 注入） */
+  runId?: string;
   args?: unknown;
   cwd?: string;
   model?: string;
@@ -93,6 +95,8 @@ export interface EngineConfig {
   baseDir?: string;
   /** 运行级默认模型 */
   model?: string;
+  /** V2-P1 Worker 模式：false = 事件不落盘（Server 单写 events.jsonl），仅内存订阅转发 */
+  eventsToDisk?: boolean;
 }
 
 interface ActiveRun {
@@ -177,7 +181,7 @@ export function createWorkflowEngine(config: EngineConfig = {}): WorkflowEngine 
           return reply;
         },
         onEvent: (event) => {
-          appendEvent(dir, event);
+          if (config.eventsToDisk !== false) appendEvent(dir, event);
           if (state.buffer.length >= EVENT_BUFFER_LIMIT) state.buffer.shift();
           state.buffer.push(event);
           for (const waiter of state.waiters.splice(0)) waiter(event);
@@ -218,7 +222,7 @@ export function createWorkflowEngine(config: EngineConfig = {}): WorkflowEngine 
       const script = fs.readFileSync(scriptPath, "utf-8");
       const meta = parseWorkflowScript(script).meta;
       const now = new Date().toISOString();
-      const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      const runId = input.runId ?? `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       const manifest: RunManifest = {
         runId,
         scriptPath,
@@ -240,6 +244,11 @@ export function createWorkflowEngine(config: EngineConfig = {}): WorkflowEngine 
           continueOnFailure: input.continueOnFailure,
         },
       };
+      // V2-P1 Worker 模式：Server 预写 manifest（所有权先于进程存在）——采纳并覆盖 pid，不重建
+      const existing = readManifest(baseDir, runId);
+      if (existing) {
+        return execute(updateManifest(baseDir, runId, { status: "running", pid: process.pid }), input);
+      }
       createManifest(baseDir, manifest);
       return execute(manifest, input);
     },
