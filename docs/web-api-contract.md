@@ -2,6 +2,12 @@
 
 > V1 不实现 Web Server；本文定义 V2 如何复用同一套引擎与事件协议。
 > 引擎入口：`createWorkflowEngine(config)` → `WorkflowEngine`（src/engine.ts，随包导出）。
+>
+> **V2 已交付**：HTTP/SSE 服务与 React 工作台见 [web-getting-started.md](web-getting-started)。
+> REST 端点/DTO/错误码的机器可读真源：
+> - 静态快照：[api/web-openapi.json](api/web-openapi.json)（构建期生成）
+> - 运行时活文档：`GET /api/openapi.json`（需 token，与实现同源永不过期）
+> - 契约源码：`src/server/contract.ts`（`API_ROUTES` / DTO / `ApiErrorCode`）
 
 ## 能力映射
 

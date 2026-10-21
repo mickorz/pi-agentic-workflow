@@ -1,0 +1,371 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "pi-workflow web",
+    "version": "2",
+    "description": "本地单用户 Web API（token 保护）"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:4317"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "requestId"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "见 ApiErrorCode（INVALID_INPUT/RUN_NOT_FOUND/CONFLICT/RESUME_MISMATCH/CHECKPOINT_NOT_PENDING/FORBIDDEN_PATH/RUN_LIMIT_REACHED/SIDE_EFFECTS_UNACKNOWLEDGED/RUN_STILL_ACTIVE/NOT_FOUND/UNAUTHORIZED/FORBIDDEN/RATE_LIMITED/SERVICE_UNAVAILABLE）"
+          },
+          "message": {
+            "type": "string"
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "健康检查（免 token）",
+        "responses": {
+          "200": {
+            "description": "ok"
+          }
+        }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "summary": "本文档",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1"
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "summary": "项目白名单列表",
+        "responses": {
+          "200": {
+            "description": "ProjectDto[]"
+          },
+          "401": {
+            "description": "未授权",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{id}/workflows": {
+      "get": {
+        "summary": "项目内 workflow 枚举（meta 解析，不执行）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WorkflowDto[]"
+          },
+          "404": {
+            "description": "未知项目"
+          }
+        }
+      }
+    },
+    "/api/workflows/validate": {
+      "post": {
+        "summary": "解析 meta + args 校验（不执行 JS）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ValidateResponse"
+          },
+          "400": {
+            "description": "解析失败"
+          }
+        }
+      }
+    },
+    "/api/runs": {
+      "post": {
+        "summary": "启动 Run（202；Idempotency-Key 幂等）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "projectId",
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "StartRunResponse"
+          },
+          "403": {
+            "description": "路径越权"
+          },
+          "429": {
+            "description": "并发/限流上限"
+          }
+        }
+      },
+      "get": {
+        "summary": "Run 历史（分页+状态过滤）",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "maximum": 200
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RunListResponse"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}": {
+      "get": {
+        "summary": "Run 快照（缺失 404）",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "RunDetailResponse"
+          },
+          "404": {
+            "description": "RUN_NOT_FOUND"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/events": {
+      "get": {
+        "summary": "事件历史（after/limit）",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "maximum": 1000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EventsResponse"
+          },
+          "404": {
+            "description": "RUN_NOT_FOUND"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/stream": {
+      "get": {
+        "summary": "SSE 增量事件流（Last-Event-ID 重连补传；token 走头不走 query）",
+        "parameters": [
+          {
+            "name": "lastEventId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream"
+          },
+          "404": {
+            "description": "RUN_NOT_FOUND"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/cancel": {
+      "post": {
+        "summary": "取消（幂等）",
+        "responses": {
+          "200": {
+            "description": "快照"
+          },
+          "404": {
+            "description": "RUN_NOT_FOUND"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/resume": {
+      "post": {
+        "summary": "恢复（要求副作用确认）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "acknowledgeSideEffects"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "runId"
+          },
+          "409": {
+            "description": "CONFLICT/SIDE_EFFECTS_UNACKNOWLEDGED"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/checkpoints": {
+      "get": {
+        "summary": "审批清单（只读）",
+        "responses": {
+          "200": {
+            "description": "CheckpointDto[]"
+          },
+          "404": {
+            "description": "RUN_NOT_FOUND"
+          }
+        }
+      }
+    },
+    "/api/runs/{id}/checkpoints/{checkpointId}/decision": {
+      "post": {
+        "summary": "批准/拒绝（expectedVersion 乐观并发；拒绝后硬停）",
+        "parameters": [
+          {
+            "name": "checkpointId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "decision",
+                  "expectedVersion"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "CheckpointDecisionResponse"
+          },
+          "409": {
+            "description": "版本冲突/CHECKPOINT_NOT_PENDING"
+          }
+        }
+      }
+    }
+  }
+}

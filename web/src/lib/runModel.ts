@@ -248,14 +248,17 @@ export interface UsageSummary {
 
 export function usageFromSnapshot(snapshot: { result?: unknown } | undefined): UsageSummary | null {
   const r = snapshot?.result as
-    | { agentCount?: number; durationMs?: number; agents?: Array<{ id: string; tokens?: number; cost?: number; durationMs?: number; model?: string; maxAttempts?: number }> }
+    | { agentCount?: number; durationMs?: number; agents?: Array<{ id: string; kind?: string; tokens?: number; cost?: number; durationMs?: number; model?: string; maxAttempts?: number }> }
     | undefined;
   if (!r || typeof r !== "object" || !Array.isArray(r.agents)) return null;
+  // kind==="checkpoint" 的记录是 runtime 写入的 checkpoint 节点（非 LLM 调用），
+  // 不计入用量面板（V1 result.json 形状兼容保留，展示层过滤）
+  const agents = r.agents.filter((a) => a.kind !== "checkpoint");
   const perNode: UsageSummary["perNode"] = {};
   let tokens = 0;
   let cost = 0;
   let hasTokens = false;
-  for (const a of r.agents) {
+  for (const a of agents) {
     perNode[a.id] = { tokens: a.tokens, cost: a.cost, durationMs: a.durationMs, model: a.model, maxAttempts: a.maxAttempts };
     if (typeof a.tokens === "number") {
       tokens += a.tokens;
@@ -264,7 +267,7 @@ export function usageFromSnapshot(snapshot: { result?: unknown } | undefined): U
     if (typeof a.cost === "number") cost += a.cost;
   }
   return {
-    agentCount: typeof r.agentCount === "number" ? r.agentCount : r.agents.length,
+    agentCount: agents.length,
     durationMs: typeof r.durationMs === "number" ? r.durationMs : 0,
     ...(hasTokens ? { tokens } : {}),
     ...(cost > 0 ? { cost } : {}),

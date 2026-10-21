@@ -102,6 +102,24 @@ describe("runModel.usageFromSnapshot", () => {
     expect(usage!.perNode["r:2"]!.tokens).toBeUndefined();
   });
 
+  it("kind=checkpoint 的伪 agent 不计入用量（runtime 把 checkpoint 节点写进 result.agents；agentCount 字段含它，展示层过滤）", () => {
+    const usage = usageFromSnapshot({
+      result: {
+        agentCount: 4, // 含 checkpoint 伪 agent（探针：3 agent + 1 checkpoint → 4）
+        durationMs: 2000,
+        agents: [
+          { id: "r:1", tokens: 100, durationMs: 500 },
+          { id: "r:2", tokens: 100, durationMs: 500 },
+          { id: "r:3", kind: "checkpoint", durationMs: 50 },
+          { id: "r:4", tokens: 100, durationMs: 500 },
+        ],
+      },
+    });
+    expect(usage!.agentCount).toBe(3);
+    expect(usage!.tokens).toBe(300);
+    expect(usage!.perNode["r:3"]).toBeUndefined();
+  });
+
   it("非终态/无 result → null", () => {
     expect(usageFromSnapshot({})).toBeNull();
     expect(usageFromSnapshot(undefined)).toBeNull();

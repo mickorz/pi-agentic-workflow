@@ -16,6 +16,20 @@ node dist/cli/index.js run examples/smoke.js --model "provider/modelId"
 - **同源事件**：`run.*`/`node.*`/`checkpoint.*` JSONL 事件流，sequence 连续可游标回放（CLI 展示与 V2 SSE 同源）
 - **公共引擎 API**：`createWorkflowEngine()`——启停/订阅/审批/历史，不依赖 CLI（见 [docs/web-api-contract.md](docs/web-api-contract.md)）
 
+## V2 Web 工作台（已交付）
+
+本地 Web Server + 独立 Worker 进程 + React 工作台：Run 启动/实时进度（SSE 断线重连）/checkpoint 审批/取消恢复/历史与用量。
+
+```bash
+npm run build
+pi-workflow web --port 4317              # 或：node dist/cli/index.js web --port 4317
+# 启动横幅会打印本次会话 token；浏览器打开 http://localhost:4317 之外的 web/ 前端（或 vite dev）粘贴 token
+```
+
+- 仅监听 127.0.0.1 + Bearer token（双头二选一，绝不读 query），跨 Origin 全拒；项目白名单 `projectRoots`（禁穿越/symlink 越权）
+- Run 在独立 Worker 子进程执行：Server 被杀不伪造成功（interrupted→副作用确认后可 resume）；幂等键防重复创建
+- 详见 [docs/web-getting-started.md](docs/web-getting-started.md) · 威胁模型 [docs/security/web-threat-model.md](docs/security/web-threat-model.md) · OpenAPI [docs/api/web-openapi.json](docs/api/web-openapi.json)
+
 ## 快速开始
 
 ```bash
