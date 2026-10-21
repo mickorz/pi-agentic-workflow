@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 857350,
-    "activeSeconds": 2643
+    "tokensUsed": 922921,
+    "activeSeconds": 3070
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T17:18:11.016Z",
+  "updatedAt": "2026-10-21T17:25:36.091Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 179,
+  "revision": 217,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -81,8 +81,10 @@
           {
             "id": "v2p1-06",
             "title": "P1-06 安全：本地 token/Origin 校验/CORS 默认拒绝/Schema 校验/Rate+Size limits",
-            "status": "pending",
-            "verificationContract": "E12：未授权与跨 Origin 全拒（SSE 不走 URL query 透传 token）"
+            "status": "complete",
+            "verificationContract": "E12：未授权与跨 Origin 全拒（SSE 不走 URL query 透传 token）",
+            "completedAt": "2026-10-21T17:18:28.533Z",
+            "evidence": "commit 649fbe8：onRequest 安全钩子（token 仅双头+timingSafeEqual 不读 query/SSE 同规 401；Origin 白名单三形态外 403 全拒+CORS 零放行头；每 IP 滑动窗口限流 429；health 豁免）+四 POST 路由 JSON Schema（ajv removeAdditional:false 未知字段真 400）+错误统一带"
           },
           {
             "id": "v2p1-07",
@@ -204,7 +206,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p1-06"
+  "currentTaskId": "v2p1-07"
 }
 
 # Goal Prompt
@@ -218,8 +220,8 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 44m03s
-- Tokens used: 857K (857,350) tokens
+- Time spent: 51m10s
+- Tokens used: 923K (922,921) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->

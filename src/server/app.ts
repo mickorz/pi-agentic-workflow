@@ -30,6 +30,7 @@
 
 import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import { randomUUID, timingSafeEqual } from "node:crypto";
+import { buildOpenApiDocument } from "./contract.js";
 import type { WebServerConfig } from "./config.js";
 import type { RunApplicationService } from "../application/run-service.js";
 import { ServiceError, type StartRunOptions } from "../application/run-service.js";
@@ -188,6 +189,8 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
       requestId: request.id,
     });
   });
+
+  app.get("/api/openapi.json", async () => buildOpenApiDocument(`http://${deps.config.host}:${deps.config.port}`));
 
   app.get("/api/health", async () => {
     return {
