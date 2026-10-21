@@ -78,3 +78,23 @@ export class InMemoryCumulativeBudget implements CumulativeBudget {
     this.used.set(userId, (this.used.get(userId) ?? 0) + totalTokens);
   }
 }
+
+/** 不限累计预算（缺省；单 Turn 硬限仍生效） */
+export class UnlimitedCumulativeBudget implements CumulativeBudget {
+  remaining(): number {
+    return Infinity;
+  }
+  settle(): void {}
+}
+
+/** 累计余量容差检查（§6：可读实时 usage 时按剩余预算中止，预留 20% 超额容差） */
+export function overCumulativeTolerance(
+  cumulative: CumulativeBudget,
+  userId: string,
+  usedTokens: number,
+  tolerance = 1.2,
+): boolean {
+  const remaining = cumulative.remaining(userId);
+  if (!Number.isFinite(remaining)) return false;
+  return usedTokens > remaining * tolerance;
+}

@@ -29,6 +29,9 @@ export interface TurnContext {
 /** 每 per-user 会话一个的可变上下文槽（AgentHost 每 Turn 写入；工具闭包读取） */
 export type TurnContextRef = { current: TurnContext | undefined };
 
+/** Turn 执行事件（§6 硬限实时检查的观察面） */
+export type TurnEvent = { type: "llm_request" } | { type: "tool_call" };
+
 /**
  * 会话抽象（T2）：per-user 持久会话的最小注入缝
  * 真实现见 pi-session.ts（Pi SDK createAgentSession + per-user SessionManager 文件）；
@@ -41,6 +44,12 @@ export interface HostedAgentSession {
   prompt(text: string): Promise<{ replyText: string; usage: { inputTokens: number; outputTokens: number } }>;
   /** AgentHost 每 Turn 写入上下文（工具闭包经 ctxRef 读取；T3） */
   setTurnContext?(ctx: TurnContext): void;
+  /** 观察本轮事件（§6 硬限实时检查；T6） */
+  observe?(onEvent: (e: TurnEvent) => void): void;
+  /** 实时用量（累计余量容差中止用；读不到就不被调用） */
+  currentUsage?(): { inputTokens: number; outputTokens: number };
+  /** 安全中止 Agent Loop（不影响已启动 Workflow；T6 硬限触发） */
+  abort?(): void | Promise<void>;
   /** 释放底层资源（Host 关闭时调用；缺省无操作） */
   dispose?(): void;
 }
@@ -202,6 +211,10 @@ export interface AgentHostDeps {
   openSession?: SessionOpener;
   /** 五工具工厂（T3）：每 per-user 会话一个 ctxRef，工具闭包读当前 Turn 上下文；缺省用 customTools */
   toolsFactory?: (ctxRef: TurnContextRef) => ToolDefinition[];
+  /** 累计预算（§6 双层之一；缺省不限；生产接 BudgetTracker 适配） */
+  cumulative?: import("./agent-budget.js").CumulativeBudget;
+  /** 单 Turn 硬限轮询间隔（缺省 500ms；测试可调小） */
+  budgetPollMs?: number;
   onTurnCompleted?: (r: TurnResult) => void;
   /** §4 恢复告警：processing 中断消息（不确定副作用，禁止重调 Agent；T4/T5 接入关联核查后细化） */
   onUncertainRecovery?: (e: InboxJournalEntry) => void;

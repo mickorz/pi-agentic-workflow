@@ -17,7 +17,9 @@
 
 import { randomUUID } from "node:crypto";
 import { InboxJournal } from "./inbox-journal.js";
-import type { HostedAgentSession, InboxJournalEntry } from "./types.js";
+import { TurnBudget, UnlimitedCumulativeBudget, overCumulativeTolerance } from "./agent-budget.js";
+import type { CumulativeBudget } from "./agent-budget.js";
+import type { HostedAgentSession, InboxJournalEntry, TurnEvent } from "./types.js";
 import type { AgentMessageInput, AgentHostDeps, HandleOutcome, SessionOpener, TurnResult } from "./types.js";
 import { PiSessionOpener } from "./pi-session.js";
 
@@ -34,9 +36,13 @@ export class AgentHost {
   private readonly sessions = new Map<string, HostedAgentSession>();
   /** 有 drain 在跑的用户（单活动 Turn 的串行锁） */
   private readonly runningUsers = new Set<string>();
+  private readonly cumulative: CumulativeBudget;
+  private readonly budgetPollMs: number;
 
   constructor(private readonly deps: AgentHostDeps) {
     this.journal = new InboxJournal(deps.dataDir);
+    this.cumulative = deps.cumulative ?? new UnlimitedCumulativeBudget();
+    this.budgetPollMs = deps.budgetPollMs ?? 500;
     const fallback = new PiSessionOpener({
       cwd: deps.cwd,
       sessionDir: deps.sessionDir,
@@ -125,23 +131,67 @@ export class AgentHost {
 
   private async runTurn(userId: string, entry: InboxJournalEntry): Promise<TurnResult> {
     const agentTurnId = randomUUID();
+    // 双层预算（§6）：累计预算开始前检查（不足不开会话）；单 Turn 硬限执行中实时中止
+    const budget = new TurnBudget(this.cumulative, this.deps.limits);
+    if (!budget.begin(userId).ok) {
+      this.journal.markProcessing(entry.channel, entry.messageId, agentTurnId);
+      this.journal.markFailed(entry.channel, entry.messageId);
+      throw new Error("累计 Token 预算已用尽，本轮不执行（已启动任务不受影响）");
+    }
     this.journal.markProcessing(entry.channel, entry.messageId, agentTurnId);
     const session = await this.openSession(userId);
     session.setTurnContext?.({ userId, agentTurnId, originMessageId: entry.messageId });
+
+    budget.activate();
+    let limitHit: string | null = null;
+    const tripLimit = (why: string) => {
+      if (limitHit) return;
+      limitHit = why;
+      // 安全停止：仅中止 Agent Loop；已启动 Workflow（工具内 Run）不受影响
+      void Promise.resolve(session.abort?.()).catch(() => undefined);
+    };
+    session.observe?.((e: TurnEvent) => {
+      if (e.type === "llm_request") budget.onLlmRequest();
+      else budget.onToolCall();
+      const usage = session.currentUsage?.();
+      if (
+        usage &&
+        overCumulativeTolerance(this.cumulative, userId, usage.inputTokens + usage.outputTokens)
+      ) {
+        tripLimit("cumulative");
+        return;
+      }
+      const why = budget.exceeded();
+      if (why) tripLimit(why);
+    });
+    const timer = setInterval(() => {
+      const why = budget.exceeded();
+      if (why) tripLimit(why);
+    }, this.budgetPollMs);
+
     try {
       const outcome = await session.prompt(entry.text);
+      budget.settle(userId, outcome.usage);
       this.journal.markCompleted(entry.channel, entry.messageId);
+      const replyText = limitHit
+        ? `⚠️ 已达单轮预算上限（${limitHit}），已安全停止；已启动的任务不受影响，可稍后查询任务状态继续跟进。\n${outcome.replyText}`
+        : outcome.replyText;
       const result: TurnResult = {
         conversationId: session.conversationId,
         agentTurnId,
-        replyText: outcome.replyText,
+        replyText,
         usage: outcome.usage,
       };
       this.deps.onTurnCompleted?.(result);
       return result;
     } catch (err) {
+      // 失败也入账（已读实时用量则按实际，否则零）
+      const partial = session.currentUsage?.();
+      budget.settle(userId, partial ?? { inputTokens: 0, outputTokens: 0 });
       this.journal.markFailed(entry.channel, entry.messageId);
       throw err;
+    } finally {
+      clearInterval(timer);
     }
   }
 

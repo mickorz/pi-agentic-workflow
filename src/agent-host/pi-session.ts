@@ -21,7 +21,7 @@ import path from "node:path";
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { ModelResolver } from "../adapters/pi/model-resolver.js";
-import type { HostedAgentSession, TurnContextRef } from "./types.js";
+import type { HostedAgentSession, TurnContextRef, TurnEvent } from "./types.js";
 
 export interface PiSessionOpenerOptions {
   /** 会话工作目录 */
@@ -69,10 +69,16 @@ export class PiSessionOpener {
 
     let inputTokens = 0;
     let outputTokens = 0;
+    let observer: ((e: TurnEvent) => void) | undefined;
     const unsubscribe = session.subscribe((event) => {
-      if (event.type === "message_end" && event.message.role === "assistant" && event.message.usage) {
-        inputTokens += event.message.usage.input;
-        outputTokens += event.message.usage.output;
+      if (event.type === "message_end" && event.message.role === "assistant") {
+        if (event.message.usage) {
+          inputTokens += event.message.usage.input;
+          outputTokens += event.message.usage.output;
+        }
+        observer?.({ type: "llm_request" });
+      } else if (event.type === "tool_execution_start") {
+        observer?.({ type: "tool_call" });
       }
     });
 
@@ -81,6 +87,11 @@ export class PiSessionOpener {
       setTurnContext: (ctx) => {
         ctxRef.current = ctx;
       },
+      observe: (onEvent) => {
+        observer = onEvent;
+      },
+      currentUsage: () => ({ inputTokens, outputTokens }),
+      abort: () => session.abort(),
       prompt: async (text: string) => {
         inputTokens = 0;
         outputTokens = 0;

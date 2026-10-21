@@ -10,6 +10,7 @@ import type {
   AgentToolFacade,
   HostedAgentSession,
   TurnContext,
+  TurnEvent,
   WorkflowExecuteResult,
   WorkflowSearchItem,
 } from "./types.js";
@@ -145,7 +146,12 @@ export class ScriptedHostedSession implements HostedAgentSession {
 export class GatedHostedSession implements HostedAgentSession {
   readonly prompts: string[] = [];
   readonly turnContexts: TurnContext[] = [];
+  abortCalls = 0;
+  /** 可配置的实时用量（容差中止测试） */
+  usageNow?: { inputTokens: number; outputTokens: number };
   private gates: Array<() => void> = [];
+  private observer?: (e: TurnEvent) => void;
+  private aborted = false;
   constructor(
     readonly conversationId: string,
     private readonly replies: string[] = ["ok"],
@@ -154,6 +160,22 @@ export class GatedHostedSession implements HostedAgentSession {
   setTurnContext(ctx: TurnContext): void {
     this.turnContexts.push(ctx);
   }
+  observe(onEvent: (e: TurnEvent) => void): void {
+    this.observer = onEvent;
+  }
+  /** 测试注入事件（模拟 LLM 请求/工具调用发生） */
+  emit(e: TurnEvent): void {
+    this.observer?.(e);
+  }
+  currentUsage(): { inputTokens: number; outputTokens: number } {
+    return this.usageNow ?? { inputTokens: 0, outputTokens: 0 };
+  }
+  /** 模拟安全中止：放行被阻塞的 prompt，标记中止态 */
+  abort(): void {
+    this.abortCalls++;
+    this.aborted = true;
+    this.release();
+  }
   /** 放行最早一个被阻塞的 prompt */
   release(): void {
     this.gates.shift()?.();
@@ -161,6 +183,9 @@ export class GatedHostedSession implements HostedAgentSession {
   async prompt(text: string): Promise<{ replyText: string; usage: { inputTokens: number; outputTokens: number } }> {
     this.prompts.push(text);
     await new Promise<void>((resolve) => this.gates.push(resolve));
+    if (this.aborted) {
+      return { replyText: "（已中止）", usage: { inputTokens: 0, outputTokens: 0 } };
+    }
     const err = this.errors[this.prompts.length - 1];
     if (err) throw err;
     return {
