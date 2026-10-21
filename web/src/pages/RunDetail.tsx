@@ -5,6 +5,7 @@ import { formatDateTime, shortRunId } from "../util/format";
 import { usageFromSnapshot, type NodeModel, type RunModel } from "../lib/runModel";
 import { useRunEvents } from "../lib/useRunEvents";
 import CheckpointPanel from "../components/CheckpointPanel";
+import RunActions from "../components/RunActions";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled", "interrupted"]);
 
@@ -135,6 +136,7 @@ export default function RunDetail() {
                 : "连接已断开，自动重连中…"}
           </span>
           <span className="grow" />
+          <RunActions runId={runId} effectiveStatus={effectiveStatus} onChanged={refresh} />
           <button onClick={() => refresh()}>重新同步</button>
         </div>
         {snap && (

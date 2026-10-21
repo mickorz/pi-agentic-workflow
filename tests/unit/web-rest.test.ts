@@ -324,3 +324,38 @@ test("cancel/resume：幂等取消 + 完成后恢复 409", async () => {
   });
   assert.equal(badAck.statusCode, 400);
 });
+
+test("E11 resume 副作用确认：interrupted 且有 journal → 无 ack 拒绝；带 ack → 恢复续跑（P2-07）", async () => {
+  const base = setup();
+  const { inject } = makeApp(base);
+  const created = await inject({
+    method: "POST",
+    url: "/api/runs",
+    payload: { projectId: "proj", path: "ok.js" },
+  });
+  const { runId } = created.json() as { runId: string };
+  await waitStatus(inject, runId, "completed");
+
+  // 模拟 kill -9 后现场：manifest 改 interrupted + 死 pid（journal 已有 1 条 agent 记录）
+  const manifestPath = path.join(base, ".pi-workflows", "runs", runId, "manifest.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+  fs.writeFileSync(
+    manifestPath,
+    JSON.stringify({ ...manifest, status: "interrupted", pid: 999_999_999 }, null, 2),
+  );
+
+  const noAck = await inject({ method: "POST", url: `/api/runs/${runId}/resume`, payload: {} });
+  assert.equal(noAck.statusCode, 409);
+  const body = noAck.json() as { code: string; message: string };
+  assert.equal(body.code, "SIDE_EFFECTS_UNACKNOWLEDGED");
+  assert.ok(body.message.includes("副作用"), "提示应说明副作用风险");
+
+  const acked = await inject({
+    method: "POST",
+    url: `/api/runs/${runId}/resume`,
+    payload: { acknowledgeSideEffects: true },
+  });
+  assert.equal(acked.statusCode, 200, "resume 返回 200（POST /resume 无异步受理语义）");
+  // journal 回放：节点不再重跑，run 直接收敛完成
+  await waitStatus(inject, runId, "completed");
+});

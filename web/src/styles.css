@@ -169,3 +169,19 @@ tr.clickable:hover { background: #f0f4ff; }
 .checkpoint-history li {
   margin: 2px 0;
 }
+
+/* ---- 取消/恢复操作（P2-07）---- */
+.run-actions .warn,
+.resume-panel .warn {
+  color: var(--warn, #b45309);
+}
+.resume-panel {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border, #ddd);
+  border-radius: 8px;
+}
+button.danger {
+  color: #b91c1c;
+  border-color: #ef4444;
+}
