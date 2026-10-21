@@ -34,6 +34,8 @@ export interface ExecutionService {
 /** 任务控制模块接口（生产=TaskController；测试=fake） */
 export interface TaskControlPort {
   handle(message: BotInboundMessage): Promise<{ reply: string }>;
+  /** 该用户是否存在等待审批的任务（审批决策确定性直通判定） */
+  hasPendingApproval?(userId: string): boolean;
 }
 
 export interface DispatcherDeps {
@@ -135,6 +137,32 @@ export class Dispatcher {
   ): Promise<{ reply: string; plan: RoutePlan; executeResult?: ExecuteResult }> {
     const state = conversation.get(message.userId);
     const pending = state?.pendingPlan;
+    // EX-007/§9.2 确定性直通：该用户存在待审批项时，批准/拒绝是决策指令，不经 LLM 路由
+    // （置信度门限不适用于审批语境；「批准」两字被路由拒掉会卡死审批链）
+    if (
+      this.deps.taskControl?.hasPendingApproval &&
+      this.deps.taskControl.hasPendingApproval(message.userId)
+    ) {
+      const t = message.text.trim();
+      const isDecision =
+        /^(批准|同意|通过|准许|approve)|.{0,12}(批准|同意审批|通过审批)/i.test(t) ||
+        /^approve\b/i.test(t) ||
+        /^(拒绝|驳回|不同意|否决|reject)/.test(t) ||
+        /^reject\b/i.test(t) ||
+        /^[1-9]\d*$/.test(t); // 纯数字：歧义澄清后的序号选择（如「2」）
+      if (isDecision) {
+        const out = await this.deps.taskControl.handle(message);
+        return {
+          reply: out.reply,
+          plan: {
+            intent: "task_control",
+            action: "perform_task_control",
+            confidence: 1,
+            reason: "审批决策直通（存在待审批项）",
+          },
+        };
+      }
+    }
     // 有挂起的补参计划：本条消息视作参数补充（CV-002）
     if (pending) {
       const merged = mergeArgs(pending.args ?? {}, parseLooseArgs(message.text));

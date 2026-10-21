@@ -50,15 +50,23 @@ const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 export class TaskController {
   constructor(private readonly deps: TaskControllerDeps) {}
 
+  /** 该用户是否存在等待审批的任务（dispatcher 审批决策确定性直通判定用） */
+  hasPendingApproval(userId: string): boolean {
+    return this.deps.tasks.byUser(userId).some((b) => b.status === "waiting_checkpoint");
+  }
+
   /** 入口（由 Dispatcher 在 intent=task_control 时调用） */
   async handle(message: BotInboundMessage): Promise<{ reply: string }> {
     const text = message.text;
     const verb = parseVerb(text);
     switch (verb) {
       case "approve":
-        return { reply: await this.decide(message.userId, "approve", text) };
-      case "reject":
-        return { reply: await this.decide(message.userId, "reject", text) };
+      case "reject": {
+        // 批量决策（「批准 2 拒绝 1」）：按澄清列表快照逐项执行；非批量返回 null 回退单决策
+        const multi = await this.decideMulti(message.userId, text);
+        if (multi !== null) return { reply: multi };
+        return { reply: await this.decide(message.userId, verb === "approve" ? "approve" : "reject", text) };
+      }
       case "cancel":
         return { reply: await this.cancel(message.userId, text) };
       case "resume":
@@ -181,10 +189,74 @@ export class TaskController {
 
   // ── 审批（EX-007/008，A11/A12，SC-006） ──
 
+  // ── 批量审批：「批准 2 拒绝 1 tb-xxx」一条消息多段操作，序号按澄清列表快照解析 ──
+
+  /** 解析多段决策；少于 2 段返回 null（单决策走 decide 原路径） */
+  private parseDecisionOps(
+    text: string,
+  ): Array<{ decision: "approve" | "reject"; target: string }> | null {
+    const ops: Array<{ decision: "approve" | "reject"; target: string }> = [];
+    const re = /(批准|同意|通过|准许|approve|拒绝|驳回|不同意|否决|reject)\s*(tb-[0-9a-zA-Z-]+|[1-9]\d*)?/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const verb = m[1] ?? "";
+      const decision: "approve" | "reject" = /^(拒绝|驳回|不同意|否决|reject)/i.test(verb)
+        ? "reject"
+        : "approve";
+      ops.push({ decision, target: m[2] ?? "" });
+    }
+    return ops.length >= 2 ? ops : null;
+  }
+
+  async decideMulti(userId: string, text: string): Promise<string | null> {
+    const ops = this.parseDecisionOps(text);
+    if (!ops) return null;
+
+    // 快照：与澄清列表同序展开 pending（批量内序号不随执行位移）
+    const mine = this.deps.tasks.byUser(userId);
+    let candidates = mine.filter((b) => b.status === "waiting_checkpoint");
+    if (candidates.length === 0) {
+      for (const b of mine) {
+        const detail = await this.deps.service.get(b.runId);
+        if ((detail?.checkpoints ?? []).some((c) => c.status === "pending")) candidates = [...candidates, b];
+      }
+    }
+    const pending: Array<{ binding: TaskBinding; checkpoint: TaskControlCheckpoint }> = [];
+    for (const b of candidates) {
+      const detail = await this.deps.service.get(b.runId);
+      for (const cp of detail?.checkpoints ?? []) {
+        if (cp.status === "pending") pending.push({ binding: b, checkpoint: cp });
+      }
+    }
+    if (pending.length === 0) return "当前没有等待你审批的任务。";
+
+    const lines: string[] = [];
+    for (const op of ops) {
+      let chosen: (typeof pending)[number] | undefined;
+      if (op.target.startsWith("tb-")) {
+        chosen = pending.find((p) => p.binding.taskBindingId === op.target);
+      } else if (/^[1-9]\d*$/.test(op.target)) {
+        chosen = pending[Number(op.target) - 1];
+      } else if (pending.length === 1) {
+        chosen = pending[0]; // 无目标且唯一候选：允许（「批准 拒绝」作用于同项时第二段走幂等话术）
+      }
+      const label = op.decision === "approve" ? "批准" : "拒绝";
+      if (!chosen) {
+        lines.push(`× ${label} ${op.target || "(未指定)"}：未找到对应待审批项（可选 1-${pending.length}）`);
+        continue;
+      }
+      lines.push(
+        `• ${label} ${chosen.binding.taskBindingId}：${await this.applyDecision(userId, op.decision, chosen.binding, chosen.checkpoint)}`,
+      );
+    }
+    return lines.join("\n");
+  }
+
   async decide(userId: string, decision: "approve" | "reject", text: string): Promise<string> {
     // 候选：名下处于等待审批态的任务（含已决未扫拍——用于幂等/冲突话术）
     const mine = this.deps.tasks.byUser(userId);
     const ref = parseRef(text);
+    const index = parseApprovalIndex(text); // 序号选择（歧义澄清后回复「批准 2」或纯「2」）
     let candidates: TaskBinding[] = [];
     if (ref?.kind === "id") {
       const binding = this.findById(mine, ref.value);
@@ -224,14 +296,19 @@ export class TaskController {
       }
     }
     if (pending.length === 0 && decided.length === 0) return "当前没有等待你审批的任务。";
+    // 序号选择（歧义澄清后）：按澄清列表同序取第 N 项
+    if (index !== null) {
+      const chosen = pending[index - 1];
+      if (!chosen) return `序号超出范围（1-${pending.length}），请回复列表中的序号。`;
+      return this.applyDecision(userId, decision, chosen.binding, chosen.checkpoint);
+    }
     if (pending.length > 1) {
-      // IR-009：多个待审批必须先澄清
-      const lines = ["有多个待审批项，请指明任务："];
-      for (const { binding, checkpoint } of pending) {
-        lines.push(
-          `• 回复「${decision === "approve" ? "批准" : "拒绝"} ${binding.taskBindingId}」— ${checkpoint.question}`,
-        );
-      }
+      // IR-009：多个待审批先澄清（序号制，免复制长任务号）
+      const verb = decision === "approve" ? "批准" : "拒绝";
+      const lines = ["有多个待审批项，请回复序号选择："];
+      pending.forEach(({ binding, checkpoint }, i) => {
+        lines.push(`• [${i + 1}] ${binding.taskBindingId} — ${checkpoint.question}（回复「${verb} ${i + 1}」或「${verb} ${binding.taskBindingId}」）`);
+      });
       return lines.join("\n");
     }
     // A12a：无 pending 但存在已决项 → 幂等/冲突话术（不再触碰执行侧）
@@ -337,6 +414,14 @@ export class TaskController {
 }
 
 // ── 文本解析（确定性规则，不依赖 LLM） ──
+
+/** 歧义澄清后的序号选择：「批准 2」「拒绝 3」或纯「2」→ 序号（>=1）；不匹配返回 null */
+export function parseApprovalIndex(text: string): number | null {
+  const t = text.trim();
+  if (/^[1-9]\d*$/.test(t)) return Number(t);
+  const m = t.match(/^(?:批准|同意|通过|准许|拒绝|驳回|不同意|否决|approve|reject)[^0-9]{0,4}([1-9]\d*)\s*$/i);
+  return m ? Number(m[1]) : null;
+}
 
 export function parseVerb(text: string): Verb {
   const t = text.trim();

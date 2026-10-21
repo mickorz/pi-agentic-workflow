@@ -284,3 +284,41 @@ test("契约：Intent 与 Action 独立枚举（示例：缺参=execute_workflow
   assert.equal(plan.intent, "execute_workflow");
   assert.equal(plan.action, "ask_clarification");
 });
+
+test("契约：待审批项存在时「批准」确定性直通 TaskControl（不经 LLM 路由）", async () => {
+  // B02 真机缺陷回归：LLM 对裸「批准」置信度不足（0.6<0.75）会拒掉审批决策
+  let llmCalled = false;
+  const llm: RoutingLLM = {
+    async route() {
+      llmCalled = true;
+      throw new Error("审批直通不应调用 LLM");
+    },
+  };
+  const handled: string[] = [];
+  const taskControl = {
+    hasPendingApproval: () => true,
+    async handle(m: { text: string }) {
+      handled.push(m.text);
+      return { reply: "已批准（tb-test）" };
+    },
+  };
+  const { dispatcher, conversation } = makeDispatcher(llm, makeFakes({}).service);
+  (dispatcher as unknown as { deps: { taskControl: unknown } }).deps.taskControl = taskControl;
+  const msg = { channel: "wechat", userId: "u1", messageId: "m1", text: "批准", receivedAt: "t" };
+  const out = await dispatcher.handleMessage(msg, conversation);
+  assert.equal(out.reply, "已批准（tb-test）");
+  assert.equal(out.plan.intent, "task_control");
+  assert.equal(out.plan.confidence, 1);
+  assert.equal(llmCalled, false, "未调用 LLM");
+  assert.deepEqual(handled, ["批准"]);
+
+  // 无待审批项时不直通（长句含「批准」不被劫持，仍走路由）
+  taskControl.hasPendingApproval = () => false;
+  const router2 = new IntentRouter({
+    llm: { async route() { return { text: '{"intent":"execute_workflow","workflowId":"github-review","args":{"repoUrl":"https://github.com/a/b"},"confidence":0.9}', latencyMs: 1 }; } },
+    registry: (dispatcher as unknown as { deps: { registry: WorkflowRegistry } }).deps.registry,
+  });
+  (dispatcher as unknown as { deps: { router: IntentRouter } }).deps.router = router2;
+  const out2 = await dispatcher.handleMessage({ ...msg, messageId: "m2", text: "帮我批准后写个报告" }, conversation);
+  assert.notEqual(out2.plan.intent, "task_control");
+});

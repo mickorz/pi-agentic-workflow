@@ -13,7 +13,7 @@ import type { BotInboundMessage, WorkflowRegistration } from "../../src/contract
 import type { ExecutionService } from "../../src/dispatch/dispatcher.ts";
 import type { RoutingLLM } from "../../src/dispatch/intent-router.ts";
 import { WorkflowRegistry } from "../../src/dispatch/registry.ts";
-import type { TaskControlCheckpoint, TaskControlService } from "../../src/dispatch/task-control.ts";
+import { TaskController, type TaskControlCheckpoint, type TaskControlService } from "../../src/dispatch/task-control.ts";
 import { MessageInbox } from "../../src/gateway/message-inbox.ts";
 import { WechatApp } from "../../src/gateway/wechat-app.ts";
 import { WechatBotAdapter } from "../../src/gateway/wechat/bot-adapter.ts";
@@ -497,7 +497,7 @@ test("A17d：会话过期 → 退避重连；超限停止不伪装在线", async
   let connects = 0;
   const factory = async () => {
     connects += 1;
-    return { sendMessage: async () => undefined };
+    return { sendText: async () => undefined, getUpdates: async () => [] };
   };
   const adapter = new WechatBotAdapter({
     clientFactory: factory,
@@ -519,7 +519,7 @@ test("A17d：会话过期 → 退避重连；超限停止不伪装在线", async
     clientFactory: async () => {
       if (firstConnect) {
         firstConnect = false;
-        return { sendMessage: async () => undefined };
+        return { sendText: async () => undefined, getUpdates: async () => [] };
       }
       throw new Error("断线");
     },
@@ -679,4 +679,75 @@ test("ModelRouter 决策经钩子进审计与路由日志", async () => {
   assert.equal(decision?.actualModel, "p/quick");
   assert.ok(app.audit.byRun("run-x").some((a) => a.action === "model.route"));
   assert.equal(new ModelRoutingLog(dataDir).list("run-x").length, 1);
+});
+
+test("A11 补充：歧义审批支持序号选择（批准 2 / 纯数字）与越界拒绝", async () => {
+  // 复用 S1 已有的 TaskController 构造方式见上；此处直接构造最小依赖
+  const bindings = [
+    { taskBindingId: "tb-a", runId: "run-a", channel: "wechat", userId: "u1", workflowId: "w", status: "waiting_checkpoint", createdAt: "t", updatedAt: "t" },
+    { taskBindingId: "tb-b", runId: "run-b", channel: "wechat", userId: "u1", workflowId: "w", status: "waiting_checkpoint", createdAt: "t", updatedAt: "t" },
+  ];
+  const decided: Array<{ id: string; decision: string }> = [];
+  const controller = new TaskController({
+    tasks: { byUser: () => bindings, list: () => bindings } as never,
+    service: {
+      get: async (runId: string) => ({
+        snapshot: { status: "waiting_checkpoint", effectiveStatus: "waiting_checkpoint" },
+        checkpoints: [{ checkpointId: `${runId}:1`, nodeId: `${runId}:1`, question: `q-${runId}`, status: "pending", version: 1 }],
+      }),
+      decideCheckpoint: async (runId: string, _cp: string, input: { decision: string }) => {
+        decided.push({ id: runId, decision: input.decision });
+        return { status: input.decision === "approve" ? "approved" : "rejected" };
+      },
+    } as never,
+  });
+  // 多待审批 → 澄清话术含序号提示
+  const clarify = await controller.decide("u1", "approve", "批准");
+  assert.ok(clarify.includes("[1]") && clarify.includes("[2]"), "澄清列表带序号");
+  assert.ok(clarify.includes("批准 1"), "提示序号回复方式");
+  // 序号选择：批准 2 → 作用于第二个
+  const pick = await controller.decide("u1", "approve", "批准 2");
+  assert.ok(pick.includes("run-b") || pick.includes("tb-b"), `作用于第二项：${pick}`);
+  assert.equal(decided.at(-1)?.id, "run-b");
+  // 纯数字选择
+  const pick1 = await controller.decide("u1", "reject", "1");
+  assert.ok(pick1.length > 0);
+  assert.equal(decided.at(-1)?.id, "run-a");
+  // 越界拒绝
+  const oob = await controller.decide("u1", "approve", "批准 9");
+  assert.ok(oob.includes("超出范围"), `越界话术：${oob}`);
+});
+
+test("A11 补充：批量决策「批准 2 拒绝 1」按快照序号逐项执行", async () => {
+  const bindings = ["run-a", "run-b", "run-c"].map((runId, i) => ({
+    taskBindingId: `tb-${runId}`, runId, channel: "wechat", userId: "u1", workflowId: "w",
+    status: "waiting_checkpoint", createdAt: "t", updatedAt: "t", __i: i,
+  }));
+  const decided: Array<{ id: string; decision: string }> = [];
+  const controller = new TaskController({
+    tasks: { byUser: () => bindings, list: () => bindings } as never,
+    service: {
+      get: async (runId: string) => ({
+        snapshot: { status: "waiting_checkpoint", effectiveStatus: "waiting_checkpoint" },
+        checkpoints: [{ checkpointId: `${runId}:1`, nodeId: `${runId}:1`, question: `q-${runId}`, status: "pending", version: 1 }],
+      }),
+      decideCheckpoint: async (runId: string, _cp: string, input: { decision: string }) => {
+        decided.push({ id: runId, decision: input.decision });
+        return { status: input.decision === "approve" ? "approved" : "rejected" };
+      },
+    } as never,
+  });
+  const out = await controller.decideMulti("u1", "批准 2 拒绝 1");
+  assert.ok(out && out.includes("tb-run-b") && out.includes("tb-run-a"), `汇总含两项：${out}`);
+  assert.deepEqual(
+    decided.map((d) => `${d.decision}:${d.id}`),
+    ["approve:run-b", "reject:run-a"],
+    "按快照序号各自落位",
+  );
+  // 混合 tb- 精确 + 序号 + 越界段
+  const out2 = await controller.decideMulti("u1", "批准 tb-run-c 拒绝 9");
+  assert.ok(out2?.includes("tb-run-c"), "tb- 精确段生效");
+  assert.ok(out2?.includes("超出") || out2?.includes("未找到"), "越界段提示");
+  // 单段（<2）返回 null 走 decide 原路径
+  assert.equal(await controller.decideMulti("u1", "批准 2"), null);
 });
