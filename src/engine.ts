@@ -14,6 +14,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { runWorkflow } from "./runtime/workflow-runtime.js";
 import { parseWorkflowScript } from "./runtime/vm.js";
+
+/** workflow 脚本加载/解析失败（engine/supervisor 抛出；run-service 映射为 INVALID_INPUT） */
+export class WorkflowScriptError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WorkflowScriptError";
+  }
+}
 import { PiAgentAdapter } from "./adapters/pi/pi-agent-adapter.js";
 import type { AgentSessionRunner } from "./agent/session-runner.js";
 import { appendJournalEntry, loadJournal } from "./persistence/journal.js";
@@ -219,8 +227,15 @@ export function createWorkflowEngine(config: EngineConfig = {}): WorkflowEngine 
   return {
     async start(input) {
       const scriptPath = path.resolve(input.scriptPath);
-      const script = fs.readFileSync(scriptPath, "utf-8");
-      const meta = parseWorkflowScript(script).meta;
+      let script: string;
+      let meta: ReturnType<typeof parseWorkflowScript>["meta"];
+      try {
+        script = fs.readFileSync(scriptPath, "utf-8");
+        meta = parseWorkflowScript(script).meta;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new WorkflowScriptError(`workflow 无法加载/解析：${msg}`);
+      }
       const now = new Date().toISOString();
       const runId = input.runId ?? `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
       const manifest: RunManifest = {

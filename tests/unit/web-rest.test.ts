@@ -41,6 +41,7 @@ function setup(): string {
     path.join(base, "proj", "cp.js"),
     `export const meta = { name: "cp" }\nconst ok = await checkpoint("deploy?")\nreturn { ok }`,
   );
+  fs.writeFileSync(path.join(base, "proj", "bad_meta.js"), `export const meta = { name: "Bad-Name" }`);
   return base;
 }
 
@@ -96,6 +97,20 @@ test("POST /api/workflows/validate：解析不执行 + 错误映射", async () =
   const body = bad.json() as { code: string; message: string; requestId: string };
   assert.equal(body.code, "INVALID_INPUT");
   assert.ok(body.requestId, "错误体带 requestId");
+});
+
+test("POST /api/runs：坏脚本（meta 非法）→ 400 INVALID_INPUT（不 500）", async () => {
+  const base = setup();
+  const { inject } = makeApp(base);
+  const res = await inject({
+    method: "POST",
+    url: "/api/runs",
+    payload: { projectId: "proj", path: "bad_meta.js" },
+  });
+  assert.equal(res.statusCode, 400);
+  const body = res.json() as { code: string; message: string };
+  assert.equal(body.code, "INVALID_INPUT");
+  assert.ok(body.message.includes("snake_case"));
 });
 
 test("POST /api/runs：202+runId；真实执行到 completed；GET 详情/事件/列表", async () => {

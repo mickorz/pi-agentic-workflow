@@ -32,6 +32,7 @@ import {
 import { appendEvent } from "../events/jsonl-sink.js";
 import type { WorkflowEvent } from "../events/types.js";
 import { parseWorkflowScript } from "../runtime/vm.js";
+import { WorkflowScriptError } from "../engine.js";
 import {
   createWorkflowEngine,
   type CheckpointDecision,
@@ -129,8 +130,15 @@ export class RunSupervisor implements Pick<WorkflowEngine, "start" | "resume" | 
       throw err;
     }
     const scriptPath = path.resolve(input.scriptPath);
-    const script = fs.readFileSync(scriptPath, "utf-8");
-    const meta = parseWorkflowScript(script).meta;
+    let script: string;
+    let meta: ReturnType<typeof parseWorkflowScript>["meta"];
+    try {
+      script = fs.readFileSync(scriptPath, "utf-8");
+      meta = parseWorkflowScript(script).meta;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new WorkflowScriptError(`workflow 无法加载/解析：${msg}`);
+    }
     const runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     const now = new Date().toISOString();
     // 预写 manifest：所有权先于进程存在；pid 暂为 Server 占位，Worker ready 后覆盖

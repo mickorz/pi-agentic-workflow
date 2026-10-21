@@ -14,7 +14,7 @@
 
 import path from "node:path";
 import fs from "node:fs";
-import { createWorkflowEngine, type WorkflowEngine, type WorkflowHandle, type RunSnapshot } from "../engine.js";
+import { createWorkflowEngine, type WorkflowEngine, type WorkflowHandle, type RunSnapshot, WorkflowScriptError } from "../engine.js";
 import type { WorkflowEvent } from "../events/types.js";
 import { CheckpointService } from "./checkpoint-service.js";
 import { loadJournal } from "../persistence/journal.js";
@@ -100,7 +100,9 @@ export class RunApplicationService {
     if (active >= this.maxConcurrentRuns) {
       throw new ServiceError("RUN_LIMIT_REACHED", `并发 Run 上限 ${this.maxConcurrentRuns}（当前活跃 ${active}）`);
     }
-    const handle = await this.executor.start({
+    let handle: WorkflowHandle;
+    try {
+      handle = await this.executor.start({
       scriptPath: input.scriptPath,
       ...(input.args !== undefined ? { args: input.args } : {}),
       ...(input.cwd ? { cwd: input.cwd } : {}),
@@ -110,7 +112,13 @@ export class RunApplicationService {
       ...(input.retries !== undefined ? { retries: input.retries } : {}),
       ...(input.maxAgents ? { maxAgents: input.maxAgents } : {}),
       ...(input.continueOnFailure !== undefined ? { continueOnFailure: input.continueOnFailure } : {}),
-    });
+      });
+    } catch (e) {
+      if (e instanceof WorkflowScriptError) {
+        throw new ServiceError("INVALID_INPUT", e.message);
+      }
+      throw e;
+    }
     this.wireCheckpointRecording(handle);
     return { runId: handle.runId };
   }
