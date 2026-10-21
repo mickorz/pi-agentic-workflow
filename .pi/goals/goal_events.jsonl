@@ -26,3 +26,7 @@
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-04","at":"2026-10-21T17:37:48.555Z"}
 {"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-04","evidence":"commit 20c636c：runModel.ts 纯函数 reducer（sequence 去重/层级/attempt 重试/replayed/null 结果不误判——8 vitest 用例锁契约）；RunDetail 页面（分层树+Inspector+时间线+用量面板）；真实 Server parallel.js 冒烟 phases/nodes/result.agents 数据链全通；web","at":"2026-10-21T17:41:42.986Z"}
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-05","at":"2026-10-21T17:42:25.364Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-05","evidence":"commit ffb97a8：RunEventSync（磁盘补洞→快照→SSE/断流退避重连/done 收敛）+useRunEvents hook+RunDetail 实时流；附带修复 SSE 帧解析（event=WorkflowEvent.type）、SSE 终态判定用 effectiveStatus（E16 kill 收敛）、config web.token 读取缺失。E2E sync-e2e","at":"2026-10-21T18:08:51.734Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-06","evidence":"commit d6a7f93：CheckpointPanel（双击确认批准/拒绝+冲突族提示刷新+无自动批准）+useRunEvents.checkpoints（快照携带+checkpoint.* 事件补拉）+RunDetail 接线；web-rest 新增 E15 用例（reject=Human Reject 强停止 failed+人工拒绝文案+重复决策 409）9/9 过；主仓 252 全绿。","at":"2026-10-21T18:13:36.130Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-07","evidence":"commit c121ead：RunActions（取消双确认+仅取消态出现；恢复副作用勾选框，409 SIDE_EFFECTS_UNACKNOWLEDGED 停住不自动补 ack——E11）；E11 服务端单测（interrupted+journal 无 ack 409/带 ack 回放收敛 completed）；253 全绿；web build 过。","at":"2026-10-21T18:15:33.856Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p2-08","at":"2026-10-21T18:15:54.600Z"}

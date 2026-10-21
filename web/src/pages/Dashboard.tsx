@@ -37,7 +37,14 @@ function RunTable({ title, runs, empty, onOpen }: SectionProps) {
           </thead>
           <tbody>
             {runs.map((r) => (
-              <tr key={r.runId} className="clickable" onClick={() => onOpen(r.runId)}>
+              <tr
+                key={r.runId}
+                className="clickable"
+                tabIndex={0}
+                aria-label={`打开 run ${shortRunId(r.runId)}（${r.effectiveStatus}）`}
+                onClick={() => onOpen(r.runId)}
+                onKeyDown={(e) => e.key === "Enter" && onOpen(r.runId)}
+              >
                 <td>
                   <code>{shortRunId(r.runId)}</code>
                 </td>
@@ -164,7 +171,14 @@ export default function Dashboard() {
             </thead>
             <tbody>
               {groups.history.map((r) => (
-                <tr key={r.runId} className="clickable" onClick={() => navigate(r.runId)}>
+                <tr
+                  key={r.runId}
+                  className="clickable"
+                  tabIndex={0}
+                  aria-label={`打开 run ${shortRunId(r.runId)}（${r.effectiveStatus}）`}
+                  onClick={() => navigate(r.runId)}
+                  onKeyDown={(e) => e.key === "Enter" && navigate(r.runId)}
+                >
                   <td>
                     <code>{shortRunId(r.runId)}</code>
                   </td>

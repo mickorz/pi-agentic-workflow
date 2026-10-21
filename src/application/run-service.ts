@@ -259,9 +259,14 @@ export class RunApplicationService {
             }
           }
           if (event.type === "checkpoint.resolved") {
-            const m = readManifest(this.baseDir, handle.runId);
-            if (m && m.status === "waiting_checkpoint") {
-              updateManifest(this.baseDir, handle.runId, { status: "running" });
+            // 拒绝（approved:false）后 run 马上进入终态（failed），不回翻 running——
+            // IPC 延迟下无条件回翻会在 Worker 终态写入之后落地，把 failed 覆盖回 running（浏览器门抓出的双写竞态）
+            const approved = (event.payload as { approved?: boolean } | undefined)?.approved !== false;
+            if (approved) {
+              const m = readManifest(this.baseDir, handle.runId);
+              if (m && m.status === "waiting_checkpoint") {
+                updateManifest(this.baseDir, handle.runId, { status: "running" });
+              }
             }
           }
           if (event.type === "run.completed" || event.type === "run.failed" || event.type === "run.cancelled") {

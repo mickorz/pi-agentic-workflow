@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import StatusChip from "../components/StatusChip";
 import { formatDateTime, shortRunId } from "../util/format";
 import { usageFromSnapshot, type NodeModel, type RunModel } from "../lib/runModel";
@@ -112,9 +112,12 @@ export default function RunDetail() {
       <div className="panel">
         <h2>无法加载 Run</h2>
         <p className="error">{error}</p>
-        <button className="primary" onClick={() => refresh()}>
-          重试
-        </button>
+        <div className="row">
+          <button className="primary" onClick={() => refresh()}>
+            重试
+          </button>
+          <Link to="/">← 返回 Run 列表</Link>
+        </div>
       </div>
     );
   }
@@ -205,7 +208,13 @@ export default function RunDetail() {
                   </thead>
                   <tbody>
                     {Object.entries(usage.perNode).map(([id, u]) => (
-                      <tr key={id} className="clickable" onClick={() => setSelected(id)}>
+                      <tr
+                      key={id}
+                      className="clickable"
+                      tabIndex={0}
+                      onClick={() => setSelected(id)}
+                      onKeyDown={(e) => e.key === "Enter" && setSelected(id)}
+                    >
                         <td>
                           <code>{model.nodes[id]?.label ?? id}</code>
                         </td>

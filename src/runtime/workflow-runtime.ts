@@ -257,11 +257,13 @@ export async function runWorkflow<T = unknown>(
     }
     shared.events.emit("run.completed", { payload: { agentCount: shared.agentCount } });
   } catch (error) {
-    const aborted =
-      shared.aborted ||
+    // 仅真取消（信号中止/WORKFLOW_ABORTED）发 run.cancelled；脚本异常（含人工拒绝 CHECKPOINT_REJECTED）发 run.failed。
+    // 注意：shared.aborted 在任何根脚本异常都会置位（用于中止后续调度），不能作为「取消」证据——
+    // 否则失败 run 会谎报 run.cancelled，与 manifest.failed 终态自相矛盾（V2-P2 浏览器门抓出）。
+    const cancelled =
       Boolean(shared.signal?.aborted) ||
       (error instanceof WorkflowError && error.code === WorkflowErrorCode.WORKFLOW_ABORTED);
-    shared.events.emit(aborted ? "run.cancelled" : "run.failed", {
+    shared.events.emit(cancelled ? "run.cancelled" : "run.failed", {
       payload: { error: error instanceof Error ? error.message : String(error) },
     });
     throw error;

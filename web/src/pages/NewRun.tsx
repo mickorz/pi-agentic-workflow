@@ -138,6 +138,21 @@ export default function NewRun() {
     <div className="panel">
       <h2>新建 Run</h2>
 
+      {projects !== null && projects.length === 0 && (
+        <div className="panel" style={{ background: "#fffbeb" }}>
+          <b>Server 未配置任何项目白名单</b>
+          <p className="muted" style={{ margin: "4px 0 0" }}>
+            在 pi-workflow.config.json 的 web.projectRoots 中登记工作流目录后重启 Server。
+          </p>
+        </div>
+      )}
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!submitting) void submit();
+        }}
+      >
       <div className="row" style={{ marginBottom: 12 }}>
         <label>项目（白名单）</label>
         <select value={projectId} onChange={(e) => setProjectId(e.target.value)} disabled={!projects}>
@@ -217,12 +232,17 @@ export default function NewRun() {
 
       {error && <p className="error" style={{ whiteSpace: "pre-wrap" }}>{error}</p>}
 
+      {workflows !== null && workflows.length === 0 && (
+        <p className="muted">该项目下没有可用工作流（仅识别 .js/.mjs 且 meta 合法者）。</p>
+      )}
+
       <div className="row">
-        <button className="primary" onClick={submit} disabled={submitting || !projectId || !workflowPath}>
+        <button className="primary" type="submit" onClick={submit} disabled={submitting || !projectId || !workflowPath}>
           {submitting ? "启动中…" : "启动 Run"}
         </button>
         <span className="muted">幂等保护已启用：失败重试不会重复创建</span>
       </div>
+      </form>
     </div>
   );
 }

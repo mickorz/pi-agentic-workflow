@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 1339225,
-    "activeSeconds": 5559
+    "tokensUsed": 1587027,
+    "activeSeconds": 8109
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T18:08:33.161Z",
+  "updatedAt": "2026-10-21T18:52:22.841Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 407,
+  "revision": 553,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -140,20 +140,26 @@
           {
             "id": "v2p2-05",
             "title": "P2-05 useRunEvents：SSE 重连/offset/去重/snapshot 合并/刷新恢复",
-            "status": "pending",
-            "verificationContract": "E16：断网刷新后 UI 状态重建不丢"
+            "status": "complete",
+            "verificationContract": "E16：断网刷新后 UI 状态重建不丢",
+            "completedAt": "2026-10-21T18:08:51.733Z",
+            "evidence": "commit ffb97a8：RunEventSync（磁盘补洞→快照→SSE/断流退避重连/done 收敛）+useRunEvents hook+RunDetail 实时流；附带修复 SSE 帧解析（event=WorkflowEvent.type）、SSE 终态判定用 effectiveStatus（E16 kill 收敛）、config web.token 读取缺失。E2E sync-e2e"
           },
           {
             "id": "v2p2-06",
             "title": "P2-06 Checkpoint 审批面板（冲突与拒绝路径）",
-            "status": "pending",
-            "verificationContract": "E15：两路径正确；expectedVersion 冲突提示刷新；无自动批准"
+            "status": "complete",
+            "verificationContract": "E15：两路径正确；expectedVersion 冲突提示刷新；无自动批准",
+            "completedAt": "2026-10-21T18:13:36.129Z",
+            "evidence": "commit d6a7f93：CheckpointPanel（双击确认批准/拒绝+冲突族提示刷新+无自动批准）+useRunEvents.checkpoints（快照携带+checkpoint.* 事件补拉）+RunDetail 接线；web-rest 新增 E15 用例（reject=Human Reject 强停止 failed+人工拒绝文案+重复决策 409）9/9 过；主仓 252 全绿。"
           },
           {
             "id": "v2p2-07",
             "title": "P2-07 取消/恢复 UX：防误操作 + 副作用警告 + 明确确认",
-            "status": "pending",
-            "verificationContract": "E11：副作用确认缺失不执行；取消仅可取消态出现"
+            "status": "complete",
+            "verificationContract": "E11：副作用确认缺失不执行；取消仅可取消态出现",
+            "completedAt": "2026-10-21T18:15:33.855Z",
+            "evidence": "commit c121ead：RunActions（取消双确认+仅取消态出现；恢复副作用勾选框，409 SIDE_EFFECTS_UNACKNOWLEDGED 停住不自动补 ack——E11）；E11 服务端单测（interrupted+journal 无 ack 409/带 ack 回放收敛 completed）；253 全绿；web build 过。"
           },
           {
             "id": "v2p2-08",
@@ -218,7 +224,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p2-05"
+  "currentTaskId": "v2p2-08"
 }
 
 # Goal Prompt
@@ -232,8 +238,8 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 1h32m39s
-- Tokens used: 1.3M (1,339,225) tokens
+- Time spent: 2h15m09s
+- Tokens used: 1.6M (1,587,027) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->

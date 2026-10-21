@@ -185,3 +185,41 @@ button.danger {
   color: #b91c1c;
   border-color: #ef4444;
 }
+
+/* ---- P2-08：键盘可用性 + 响应式 ---- */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+tr.clickable {
+  cursor: pointer;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+@media (max-width: 640px) {
+  header {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  main {
+    padding: 10px;
+  }
+  .row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .inspector dl {
+    grid-template-columns: 1fr;
+  }
+  .timeline {
+    font-size: 12px;
+  }
+}
