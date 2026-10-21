@@ -7,6 +7,7 @@
  * 用法：pi-workflow wechat start --registry dev-examples/wx-p1/registry.json \
  *        --scripts dev-examples/wx-p1 [--allow-user wxid_xxx]
  *        [--rate-max 20] [--budget-tokens 200000] [--data .pi-wechat]
+ *        [--routing-mode legacy|agent]（缺省 legacy；agent = Conversational Agent 模式，AM-P0）
  * WG-007：Ctrl-C 只停 Bot；运行中任务不取消，可 `pi-workflow resume <runId>` 续跑。
  */
 
@@ -30,6 +31,8 @@ export async function wechat(argv: string[]): Promise<number> {
   const dataDir = flag("--data") ?? path.join(".pi-wechat");
   const rateMax = flag("--rate-max") ? Number(flag("--rate-max")) : undefined;
   const budgetTokens = flag("--budget-tokens") ? Number(flag("--budget-tokens")) : undefined;
+  const routingModeRaw = flag("--routing-mode");
+  const routingMode = routingModeRaw === "agent" ? "agent" : "legacy"; // 缺省 legacy（§2.4 Feature Flag）
 
   const { registry, issues } = WorkflowRegistry.loadFromFile(registryFile);
   if (issues.length > 0) console.warn(`registry 问题条目：${issues.join("; ")}`);
@@ -69,6 +72,7 @@ export async function wechat(argv: string[]): Promise<number> {
     service,
     scriptsRoot,
     dataDir,
+    routingMode,
     ...(model ? { defaultModel: model } : {}),
     limits: {
       ...(rateMax !== undefined && !Number.isNaN(rateMax) ? { rateMax } : {}),
@@ -84,7 +88,13 @@ export async function wechat(argv: string[]): Promise<number> {
   }
   process.stdout.write(
     [
-      `wechat-dispatch 已启动（registry=${registry.all().length} 个流程，scripts=${scriptsRoot}，data=${dataDir}）`,
+      `wechat-dispatch 已启动（routing-mode=${routingMode}，registry=${registry.all().length} 个流程，scripts=${scriptsRoot}，data=${dataDir}）`,
+      ...(routingMode === "agent"
+        ? [
+            `agent 模式：Conversational Agent（持久会话+五工具；高风险需「批准」确认；同用户消息排队串行）`,
+            `会话目录：${path.resolve(dataDir, "..", ".pi-agent-host", "sessions")}`,
+          ]
+        : []),
       `任务指令：任务列表 / 进度如何 / 取消任务 / 恢复任务 / 批准 / 拒绝`,
       `Ctrl-C 仅停止 Bot（运行中任务不受影响，可用 pi-workflow resume <runId> 恢复）`,
     ].join("\n") + "\n",
