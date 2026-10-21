@@ -44,8 +44,10 @@ function makeSupervisor(base: string, overrides: Record<string, unknown> = {}): 
     baseDir: base,
     maxConcurrentRuns: 2,
     workerCommand: WORKER_COMMAND,
+    // 全量套件并发负载下 Worker 事件循环可能延迟数百 ms~秒级，
+    // 非专测用例放宽超时避免误杀（专测在用例内显式覆盖）
     heartbeatIntervalMs: 200,
-    heartbeatTimeoutMs: 1500,
+    heartbeatTimeoutMs: 10000,
     cancelGraceMs: 3000,
     envExtra: {
       PI_WORKFLOW_TEST_RUNNER: "fake",

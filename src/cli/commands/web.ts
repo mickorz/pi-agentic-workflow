@@ -9,6 +9,9 @@
 
 import { resolveWebConfig } from "../../server/config.js";
 import { createWebApp } from "../../server/app.js";
+import { ProjectRegistry } from "../../server/projects.js";
+import { RunSupervisor } from "../../server/worker-supervisor.js";
+import { RunApplicationService } from "../../application/run-service.js";
 
 export async function web(argv: string[]): Promise<number> {
   const flag = (name: string): string | undefined => {
@@ -29,8 +32,24 @@ export async function web(argv: string[]): Promise<number> {
     ...(port !== undefined ? { port } : {}),
     ...(configDir ? { configDir } : {}),
   });
+
+  // V2-P1-04：装配真实执行栈（Worker 进程隔离 + 白名单）
+  const baseDir = process.cwd();
+  const supervisor = new RunSupervisor({
+    baseDir,
+    maxConcurrentRuns: config.maxConcurrentRuns,
+  });
+  const service = new RunApplicationService({
+    baseDir,
+    maxConcurrentRuns: config.maxConcurrentRuns,
+    supervisor,
+  });
+  const registry = new ProjectRegistry(config.projectRoots);
+
   const app = createWebApp({
     config,
+    service,
+    registry,
     version: process.env.npm_package_version ?? "0.1.0",
   });
 
@@ -48,6 +67,7 @@ export async function web(argv: string[]): Promise<number> {
       `本地访问 token（本次会话）：${config.token}`,
       `健康检查：curl http://${config.host}:${config.port}/api/health`,
       `项目白名单（${config.projectRoots.length}）：${config.projectRoots.join(", ")}`,
+      ...(registry.warnings.length > 0 ? registry.warnings : []),
       `Ctrl-C 优雅停止（运行中 Run 不受影响）`,
     ].join("\n") + "\n",
   );

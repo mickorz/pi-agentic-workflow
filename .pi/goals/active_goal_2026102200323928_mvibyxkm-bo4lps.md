@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 546748,
-    "activeSeconds": 1423
+    "tokensUsed": 655812,
+    "activeSeconds": 1781
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T16:57:04.516Z",
+  "updatedAt": "2026-10-21T17:03:16.024Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 90,
+  "revision": 116,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -57,8 +57,10 @@
           {
             "id": "v2p1-03",
             "title": "P1-03 项目白名单 + 安全文件枚举 + workflow 解析校验",
-            "status": "pending",
-            "verificationContract": "realpath/symlink 校验；E13：`..` 穿越被拒；白名单外不可见"
+            "status": "complete",
+            "verificationContract": "realpath/symlink 校验；E13：`..` 穿越被拒；白名单外不可见",
+            "completedAt": "2026-10-21T16:57:20.447Z",
+            "evidence": "commit e7d3e25：src/server/projects.ts ProjectRegistry（白名单 realpath 归白/E13 `..`+绝对路径+symlink 越权拒绝 FORBIDDEN_PATH/未知项目 NOT_FOUND 不暴露存在性/受限遍历 parseWorkflowScript 纯解析不执行/validateWorkflow source+args 上限）；t"
           },
           {
             "id": "v2p1-04",
@@ -198,7 +200,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p1-03"
+  "currentTaskId": "v2p1-04"
 }
 
 # Goal Prompt
@@ -212,8 +214,8 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 23m43s
-- Tokens used: 547K (546,748) tokens
+- Time spent: 29m41s
+- Tokens used: 656K (655,812) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->

@@ -15,6 +15,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { createWorkflowEngine, type WorkflowEngine, type WorkflowHandle, type RunSnapshot } from "../engine.js";
+import type { WorkflowEvent } from "../events/types.js";
 import { CheckpointService } from "./checkpoint-service.js";
 import { loadJournal } from "../persistence/journal.js";
 import { readManifest, updateManifest, isPidAlive, runDir, type RunListItem } from "../persistence/run-store.js";
@@ -122,6 +123,11 @@ export class RunApplicationService {
 
   async list(): Promise<RunListItem[]> {
     return this.engine.listRuns();
+  }
+
+  /** 增量事件读取（Web /api/runs/:id/events 数据面；纯磁盘读） */
+  async readEvents(runId: string, afterSequence: number): Promise<WorkflowEvent[]> {
+    return this.engine.readEventsSince(runId, afterSequence);
   }
 
   async cancel(runId: string): Promise<RunSnapshot> {

@@ -7,3 +7,5 @@
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-02","at":"2026-10-21T16:41:31.652Z"}
 {"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-02","evidence":"commit 96ef5a8：engine 扩展（runId 预指派/eventsToDisk/manifest 采纳）+ worker-main.ts JSON-lines 协议 + worker-supervisor.ts（预写所有权/事件单写/心跳回收/取消升级/interrupted 不假成功）+ run-service executor 间接层；tests/unit/worker-sup","at":"2026-10-21T16:54:25.050Z"}
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-03","at":"2026-10-21T16:54:34.545Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-03","evidence":"commit e7d3e25：src/server/projects.ts ProjectRegistry（白名单 realpath 归白/E13 `..`+绝对路径+symlink 越权拒绝 FORBIDDEN_PATH/未知项目 NOT_FOUND 不暴露存在性/受限遍历 parseWorkflowScript 纯解析不执行/validateWorkflow source+args 上限）；t","at":"2026-10-21T16:57:20.448Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-04","at":"2026-10-21T16:57:37.306Z"}
