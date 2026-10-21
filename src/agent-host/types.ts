@@ -17,6 +17,19 @@ export interface TurnResult {
 }
 
 /**
+ * Turn 上下文（T3）：工具执行时注入的会话/消息关联（五工具从 Facade 入参取，不经 LLM 转述）
+ */
+export interface TurnContext {
+  userId: string;
+  agentTurnId: string;
+  /** 本轮消息 messageId（审计链：PendingAction.originMessageId / TaskBinding.messageId） */
+  originMessageId: string;
+}
+
+/** 每 per-user 会话一个的可变上下文槽（AgentHost 每 Turn 写入；工具闭包读取） */
+export type TurnContextRef = { current: TurnContext | undefined };
+
+/**
  * 会话抽象（T2）：per-user 持久会话的最小注入缝
  * 真实现见 pi-session.ts（Pi SDK createAgentSession + per-user SessionManager 文件）；
  * Fake 见 fakes.ts。P0 不使用 followUp()（§2.1 锁定语义）。
@@ -26,6 +39,8 @@ export interface HostedAgentSession {
   readonly conversationId: string;
   /** 单轮提示；返回最终回复与本轮用量 */
   prompt(text: string): Promise<{ replyText: string; usage: { inputTokens: number; outputTokens: number } }>;
+  /** AgentHost 每 Turn 写入上下文（工具闭包经 ctxRef 读取；T3） */
+  setTurnContext?(ctx: TurnContext): void;
   /** 释放底层资源（Host 关闭时调用；缺省无操作） */
   dispose?(): void;
 }
@@ -161,7 +176,11 @@ export interface AgentToolFacade {
   }): Promise<WorkflowExecuteResult>;
   taskStatus(userId: string, ref: { runId?: string; taskBindingId?: string }): Promise<TaskStatusResult>;
   taskCancel(userId: string, runId: string): Promise<{ ok: boolean; message: string }>;
-  taskResume(userId: string, runId: string): Promise<{ ok: boolean; message: string; needsConfirm?: boolean }>;
+  taskResume(
+    userId: string,
+    runId: string,
+    options?: { confirmSideEffects?: boolean },
+  ): Promise<{ ok: boolean; message: string; needsConfirm?: boolean }>;
 }
 
 /** AgentHost 依赖（T2 实现；FakeAgentSession 见 fakes.ts） */
@@ -177,6 +196,8 @@ export interface AgentHostDeps {
   limits?: Partial<TurnLimits>;
   /** 会话开启器注入缝（缺省 PiSessionOpener：Pi SDK 持久会话） */
   openSession?: SessionOpener;
+  /** 五工具工厂（T3）：每 per-user 会话一个 ctxRef，工具闭包读当前 Turn 上下文；缺省用 customTools */
+  toolsFactory?: (ctxRef: TurnContextRef) => ToolDefinition[];
   onTurnCompleted?: (r: TurnResult) => void;
   /** §4 恢复告警：processing 中断消息（不确定副作用，禁止重调 Agent；T4/T5 接入关联核查后细化） */
   onUncertainRecovery?: (e: InboxJournalEntry) => void;

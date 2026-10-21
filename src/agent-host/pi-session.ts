@@ -21,7 +21,7 @@ import path from "node:path";
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { ModelResolver } from "../adapters/pi/model-resolver.js";
-import type { HostedAgentSession } from "./types.js";
+import type { HostedAgentSession, TurnContextRef } from "./types.js";
 
 export interface PiSessionOpenerOptions {
   /** 会话工作目录 */
@@ -31,7 +31,9 @@ export interface PiSessionOpenerOptions {
   /** 模型 spec（provider/modelId 或裸 id；缺省用 settings 默认模型） */
   model?: string;
   /** 五工具（T3 提供；P0 会话只启用这些工具） */
-  customTools: ToolDefinition[];
+  customTools?: ToolDefinition[];
+  /** 工具工厂（T3）：每会话独立 ctxRef，工具闭包读当前 Turn 上下文（优先于 customTools） */
+  toolsFactory?: (ctxRef: TurnContextRef) => ToolDefinition[];
 }
 
 /** userId → 安全文件名（防路径注入；截断 + 哈希后缀防碰撞） */
@@ -54,11 +56,14 @@ export class PiSessionOpener {
     fs.mkdirSync(this.opts.sessionDir, { recursive: true });
     const manager = SessionManager.open(this.sessionFile(userId), this.opts.sessionDir, this.opts.cwd);
     const model = this.opts.model ? await this.resolver.resolve(this.opts.model) : undefined;
+    // 每会话独立 Turn 上下文槽：AgentHost 每 Turn 写入，五工具闭包读取（T3）
+    const ctxRef: TurnContextRef = { current: undefined };
+    const tools = this.opts.toolsFactory ? this.opts.toolsFactory(ctxRef) : (this.opts.customTools ?? []);
     const { session } = await createAgentSession({
       cwd: this.opts.cwd,
       ...(model ? { model } : {}),
-      tools: this.opts.customTools.map((t) => t.name),
-      customTools: this.opts.customTools,
+      tools: tools.map((t) => t.name),
+      customTools: tools,
       sessionManager: manager,
     });
 
@@ -73,6 +78,9 @@ export class PiSessionOpener {
 
     return {
       conversationId: manager.getSessionId(),
+      setTurnContext: (ctx) => {
+        ctxRef.current = ctx;
+      },
       prompt: async (text: string) => {
         inputTokens = 0;
         outputTokens = 0;

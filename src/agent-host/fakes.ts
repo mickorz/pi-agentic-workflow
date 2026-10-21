@@ -6,7 +6,13 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { AgentToolFacade, HostedAgentSession, WorkflowExecuteResult, WorkflowSearchItem } from "./types.js";
+import type {
+  AgentToolFacade,
+  HostedAgentSession,
+  TurnContext,
+  WorkflowExecuteResult,
+  WorkflowSearchItem,
+} from "./types.js";
 
 /** 脚本化会话：按预设脚本依次"决策"（调用工具或给出最终回复），记录全部调用 */
 export interface FakeTurnScript {
@@ -101,21 +107,29 @@ export class FakeAgentToolFacade implements AgentToolFacade {
   async taskCancel(): Promise<{ ok: boolean; message: string }> {
     return { ok: true, message: "已取消" };
   }
-  async taskResume(): Promise<{ ok: boolean; message: string }> {
+  async taskResume(
+    _userId?: string,
+    _runId?: string,
+    _options?: { confirmSideEffects?: boolean },
+  ): Promise<{ ok: boolean; message: string }> {
     return { ok: true, message: "已恢复" };
   }
 }
 
 // ── T2：HostedAgentSession 测试替身 ──
 
-/** 自动回复会话：prompt 立即返回预设回复；可选按轮次抛错（测试失败路径） */
+/** 自动回复会话：prompt 立即返回预设回复；可选按轮次抛错（测试失败路径）；记录 Turn 上下文写入 */
 export class ScriptedHostedSession implements HostedAgentSession {
   readonly prompts: string[] = [];
+  readonly turnContexts: TurnContext[] = [];
   constructor(
     readonly conversationId: string,
     private readonly replies: string[] = ["好的"],
     private readonly errors: Array<Error | undefined> = [],
   ) {}
+  setTurnContext(ctx: TurnContext): void {
+    this.turnContexts.push(ctx);
+  }
   async prompt(text: string): Promise<{ replyText: string; usage: { inputTokens: number; outputTokens: number } }> {
     this.prompts.push(text);
     const err = this.errors[this.prompts.length - 1];
@@ -127,15 +141,19 @@ export class ScriptedHostedSession implements HostedAgentSession {
   }
 }
 
-/** 门控会话：prompt 阻塞直到手动 release()（时序测试：排队/并行/恢复窗口） */
+/** 门控会话：prompt 阻塞直到手动 release()（时序测试：排队/并行/恢复窗口）；记录 Turn 上下文写入 */
 export class GatedHostedSession implements HostedAgentSession {
   readonly prompts: string[] = [];
+  readonly turnContexts: TurnContext[] = [];
   private gates: Array<() => void> = [];
   constructor(
     readonly conversationId: string,
     private readonly replies: string[] = ["ok"],
     private readonly errors: Array<Error | undefined> = [],
   ) {}
+  setTurnContext(ctx: TurnContext): void {
+    this.turnContexts.push(ctx);
+  }
   /** 放行最早一个被阻塞的 prompt */
   release(): void {
     this.gates.shift()?.();

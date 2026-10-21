@@ -41,6 +41,7 @@ export class AgentHost {
       cwd: deps.cwd,
       sessionDir: deps.sessionDir,
       ...(deps.model ? { model: deps.model } : {}),
+      ...(deps.toolsFactory ? { toolsFactory: deps.toolsFactory } : {}),
       customTools: deps.customTools,
     });
     this.opener = deps.openSession ?? ((userId: string) => fallback.open(userId));
@@ -126,6 +127,7 @@ export class AgentHost {
     const agentTurnId = randomUUID();
     this.journal.markProcessing(entry.channel, entry.messageId, agentTurnId);
     const session = await this.openSession(userId);
+    session.setTurnContext?.({ userId, agentTurnId, originMessageId: entry.messageId });
     try {
       const outcome = await session.prompt(entry.text);
       this.journal.markCompleted(entry.channel, entry.messageId);
