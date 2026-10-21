@@ -33,6 +33,18 @@ export async function wechat(argv: string[]): Promise<number> {
   const budgetTokens = flag("--budget-tokens") ? Number(flag("--budget-tokens")) : undefined;
   const routingModeRaw = flag("--routing-mode");
   const routingMode = routingModeRaw === "agent" ? "agent" : "legacy"; // 缺省 legacy（§2.4 Feature Flag）
+  // --agent-limits llm,tools,ms（CSV；缺省 12,20,300000；仅 agent 模式生效，AM-11 用）
+  let agentLimits: { maxLlmRequests: number; maxToolCalls: number; maxDurationMs: number } | undefined;
+  const limitsRaw = flag("--agent-limits");
+  if (limitsRaw) {
+    const parts = limitsRaw.split(",").map((v) => Number(v.trim()));
+    if (parts.length === 3 && parts.every((v) => Number.isFinite(v) && v > 0)) {
+      agentLimits = { maxLlmRequests: parts[0]!, maxToolCalls: parts[1]!, maxDurationMs: parts[2]! };
+    } else {
+      process.stderr.write(`--agent-limits 格式非法：${limitsRaw}（应为 llm,tools,ms，如 12,20,300000）\n`);
+      return 2;
+    }
+  }
 
   const { registry, issues } = WorkflowRegistry.loadFromFile(registryFile);
   if (issues.length > 0) console.warn(`registry 问题条目：${issues.join("; ")}`);
@@ -73,6 +85,7 @@ export async function wechat(argv: string[]): Promise<number> {
     scriptsRoot,
     dataDir,
     routingMode,
+    ...(agentLimits ? { agentLimits } : {}),
     ...(model ? { defaultModel: model } : {}),
     limits: {
       ...(rateMax !== undefined && !Number.isNaN(rateMax) ? { rateMax } : {}),

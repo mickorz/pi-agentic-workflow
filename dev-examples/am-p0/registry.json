@@ -1,0 +1,42 @@
+[
+  {
+    "workflowId": "github-review",
+    "scriptPath": "wx-p1/github-review.js",
+    "name": "GitHub 仓库分析",
+    "description": "分析 GitHub 仓库并输出评审报告",
+    "argsSchema": { "type": "object", "properties": { "repoUrl": { "type": "string" } }, "required": ["repoUrl"] },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": ["分析", "评审", "review", "github", "仓库"]
+  },
+  {
+    "workflowId": "translate",
+    "scriptPath": "wx-p1/translate.js",
+    "name": "文本翻译",
+    "description": "把一段文本翻译到目标语言",
+    "argsSchema": { "type": "object", "properties": { "text": { "type": "string" }, "targetLang": { "type": "string" } }, "required": ["text", "targetLang"] },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": ["翻译", "translate"]
+  },
+  {
+    "workflowId": "long-demo",
+    "scriptPath": "wx-p2/long-demo.js",
+    "name": "长任务演示",
+    "description": "三步长任务，用于进度查询、排队与取消用例",
+    "argsSchema": { "type": "object", "properties": {}, "required": [] },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": ["长任务", "演示", "进度"]
+  },
+  {
+    "workflowId": "write-demo",
+    "scriptPath": "am-p0/write-demo.js",
+    "name": "写入演示（无害写）",
+    "description": "把一句话写入本地演示文件（唯一副作用），用于执行前授权用例",
+    "argsSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": ["写入", "保存", "落盘", "write"]
+  }
+]
