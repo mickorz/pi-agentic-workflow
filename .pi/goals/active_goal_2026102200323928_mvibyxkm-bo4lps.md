@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 515808,
-    "activeSeconds": 1252
+    "tokensUsed": 546748,
+    "activeSeconds": 1423
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T16:54:06.923Z",
+  "updatedAt": "2026-10-21T16:57:04.516Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 76,
+  "revision": 90,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -49,8 +49,10 @@
           {
             "id": "v2p1-02",
             "title": "P1-02 Worker 子进程：IPC ready/heartbeat/event/cancel/terminal + 并发限制与失联清理",
-            "status": "pending",
-            "verificationContract": "E05：Worker 崩溃→interrupted 不假成功；心跳超时回收；并发上限生效"
+            "status": "complete",
+            "verificationContract": "E05：Worker 崩溃→interrupted 不假成功；心跳超时回收；并发上限生效",
+            "completedAt": "2026-10-21T16:54:25.049Z",
+            "evidence": "commit 96ef5a8：engine 扩展（runId 预指派/eventsToDisk/manifest 采纳）+ worker-main.ts JSON-lines 协议 + worker-supervisor.ts（预写所有权/事件单写/心跳回收/取消升级/interrupted 不假成功）+ run-service executor 间接层；tests/unit/worker-sup"
           },
           {
             "id": "v2p1-03",
@@ -196,7 +198,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p1-02"
+  "currentTaskId": "v2p1-03"
 }
 
 # Goal Prompt
@@ -210,8 +212,8 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 20m52s
-- Tokens used: 516K (515,808) tokens
+- Time spent: 23m43s
+- Tokens used: 547K (546,748) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->

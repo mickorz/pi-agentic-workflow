@@ -5,3 +5,5 @@
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-01","at":"2026-10-21T16:38:38.860Z"}
 {"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-01","evidence":"fastify@5 依赖；src/server/config.ts 三级优先级解析+token 高熵+白名单绝对化；createWebApp 依赖注入+GET /api/health 无敏感信息（测试断言不含 token/路径）；CLI web 子命令注册（非法端口 fail-fast、优雅关停）；6 新单测 215 全绿；真实冒烟 `pi-workflow web --port 4599` cu","at":"2026-10-21T16:41:17.820Z"}
 {"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-02","at":"2026-10-21T16:41:31.652Z"}
+{"type":"task_complete","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-02","evidence":"commit 96ef5a8：engine 扩展（runId 预指派/eventsToDisk/manifest 采纳）+ worker-main.ts JSON-lines 协议 + worker-supervisor.ts（预写所有权/事件单写/心跳回收/取消升级/interrupted 不假成功）+ run-service executor 间接层；tests/unit/worker-sup","at":"2026-10-21T16:54:25.050Z"}
+{"type":"task_started","goalId":"mvibyxkm-bo4lps","taskId":"v2p1-03","at":"2026-10-21T16:54:34.545Z"}
