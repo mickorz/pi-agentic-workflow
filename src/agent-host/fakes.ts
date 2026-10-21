@@ -3,7 +3,10 @@
  * 供 T2~T8 模块单测与 WechatApp agent 分支测试注入（不依赖真实 LLM/Pi SDK 会话）。
  */
 
-import type { AgentToolFacade, WorkflowExecuteResult, WorkflowSearchItem } from "./types.js";
+import { randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import type { AgentToolFacade, HostedAgentSession, WorkflowExecuteResult, WorkflowSearchItem } from "./types.js";
 
 /** 脚本化会话：按预设脚本依次"决策"（调用工具或给出最终回复），记录全部调用 */
 export interface FakeTurnScript {
@@ -101,4 +104,81 @@ export class FakeAgentToolFacade implements AgentToolFacade {
   async taskResume(): Promise<{ ok: boolean; message: string }> {
     return { ok: true, message: "已恢复" };
   }
+}
+
+// ── T2：HostedAgentSession 测试替身 ──
+
+/** 自动回复会话：prompt 立即返回预设回复；可选按轮次抛错（测试失败路径） */
+export class ScriptedHostedSession implements HostedAgentSession {
+  readonly prompts: string[] = [];
+  constructor(
+    readonly conversationId: string,
+    private readonly replies: string[] = ["好的"],
+    private readonly errors: Array<Error | undefined> = [],
+  ) {}
+  async prompt(text: string): Promise<{ replyText: string; usage: { inputTokens: number; outputTokens: number } }> {
+    this.prompts.push(text);
+    const err = this.errors[this.prompts.length - 1];
+    if (err) throw err;
+    return {
+      replyText: this.replies[this.prompts.length - 1] ?? this.replies[this.replies.length - 1] ?? "",
+      usage: { inputTokens: 10, outputTokens: 5 },
+    };
+  }
+}
+
+/** 门控会话：prompt 阻塞直到手动 release()（时序测试：排队/并行/恢复窗口） */
+export class GatedHostedSession implements HostedAgentSession {
+  readonly prompts: string[] = [];
+  private gates: Array<() => void> = [];
+  constructor(
+    readonly conversationId: string,
+    private readonly replies: string[] = ["ok"],
+    private readonly errors: Array<Error | undefined> = [],
+  ) {}
+  /** 放行最早一个被阻塞的 prompt */
+  release(): void {
+    this.gates.shift()?.();
+  }
+  async prompt(text: string): Promise<{ replyText: string; usage: { inputTokens: number; outputTokens: number } }> {
+    this.prompts.push(text);
+    await new Promise<void>((resolve) => this.gates.push(resolve));
+    const err = this.errors[this.prompts.length - 1];
+    if (err) throw err;
+    return {
+      replyText: this.replies[this.prompts.length - 1] ?? "ok",
+      usage: { inputTokens: 10, outputTokens: 5 },
+    };
+  }
+}
+
+/** 文件持久会话注册表：conversationId 落盘、同 userId 复用同实例；reset() 模拟进程重启（丢内存会话对象、会话文件保留，新实例重开同文件） */
+export class FileBackedSessionRegistry {
+  readonly sessions = new Map<string, HostedAgentSession>();
+  openCalls: string[] = [];
+  constructor(
+    private readonly sessionDir: string,
+    private readonly make: (conversationId: string) => HostedAgentSession = (id) => new ScriptedHostedSession(id),
+  ) {}
+  /** 模拟进程重启：内存会话对象丢弃，conversationId 文件保留（新会话同文件重开） */
+  reset(): void {
+    this.sessions.clear();
+  }
+  readonly opener = async (userId: string): Promise<HostedAgentSession> => {
+    this.openCalls.push(userId);
+    const existing = this.sessions.get(userId);
+    if (existing) return existing;
+    fs.mkdirSync(this.sessionDir, { recursive: true });
+    const file = path.join(this.sessionDir, `conv-${userId}.json`);
+    let conversationId: string;
+    if (fs.existsSync(file)) {
+      conversationId = fs.readFileSync(file, "utf8");
+    } else {
+      conversationId = `conv-${randomUUID()}`;
+      fs.writeFileSync(file, conversationId, "utf8");
+    }
+    const session = this.make(conversationId);
+    this.sessions.set(userId, session);
+    return session;
+  };
 }

@@ -16,6 +16,39 @@ export interface TurnResult {
   usage: { inputTokens: number; outputTokens: number };
 }
 
+/**
+ * 会话抽象（T2）：per-user 持久会话的最小注入缝
+ * 真实现见 pi-session.ts（Pi SDK createAgentSession + per-user SessionManager 文件）；
+ * Fake 见 fakes.ts。P0 不使用 followUp()（§2.1 锁定语义）。
+ */
+export interface HostedAgentSession {
+  /** 会话稳定标识（Pi = sessionId；重启后不变） */
+  readonly conversationId: string;
+  /** 单轮提示；返回最终回复与本轮用量 */
+  prompt(text: string): Promise<{ replyText: string; usage: { inputTokens: number; outputTokens: number } }>;
+  /** 释放底层资源（Host 关闭时调用；缺省无操作） */
+  dispose?(): void;
+}
+
+/** 会话开启器：AgentHost 惰性创建/复用 per-user 会话（T2 注入缝） */
+export type SessionOpener = (userId: string) => Promise<HostedAgentSession>;
+
+/** 入站消息（gateway → AgentHost；§4 journal 快照来源） */
+export interface AgentMessageInput {
+  channel: string;
+  messageId: string;
+  userId: string;
+  text: string;
+  /** 缺省取当前时间 */
+  receivedAt?: string;
+}
+
+/** handleMessage 结果：processed=本轮完成（含回执）；queued=前轮进行中已持久化排队；duplicate=同消息已见过 */
+export type HandleOutcome =
+  | { status: "processed"; result: TurnResult }
+  | { status: "queued" }
+  | { status: "duplicate"; state: MessageState };
+
 /** 启动关联三阶段（§2.3）：启动前 RunLaunchAttempt → 成功后 TaskBinding（不变）→ 恢复/完成 run-links */
 export type LaunchStatus = "launched" | "linked" | "unknown";
 
@@ -134,10 +167,17 @@ export interface AgentToolFacade {
 /** AgentHost 依赖（T2 实现；FakeAgentSession 见 fakes.ts） */
 export interface AgentHostDeps {
   cwd: string;
+  /** per-user 会话文件目录（.pi-agent-host/sessions） */
   sessionDir: string;
+  /** 持久化数据目录（journal 等；.pi-wechat） */
+  dataDir: string;
   model?: string;
   customTools: ToolDefinition[];
   facade: AgentToolFacade;
   limits?: Partial<TurnLimits>;
+  /** 会话开启器注入缝（缺省 PiSessionOpener：Pi SDK 持久会话） */
+  openSession?: SessionOpener;
   onTurnCompleted?: (r: TurnResult) => void;
+  /** §4 恢复告警：processing 中断消息（不确定副作用，禁止重调 Agent；T4/T5 接入关联核查后细化） */
+  onUncertainRecovery?: (e: InboxJournalEntry) => void;
 }
