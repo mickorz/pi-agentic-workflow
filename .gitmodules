@@ -10,3 +10,6 @@
 [submodule "thirdparties/pi-wechat-assistant"]
 	path = thirdparties/pi-wechat-assistant
 	url = https://github.com/shenjiecode/pi-wechat-assistant.git
+[submodule "thirdparties/ohmygame"]
+	path = thirdparties/ohmygame
+	url = https://github.com/WhiteTowerAI/ohmygame.git
