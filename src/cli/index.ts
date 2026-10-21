@@ -14,6 +14,7 @@ import { status as statusCommand } from "./commands/status.js";
 import { stop as stopCommand } from "./commands/stop.js";
 import { validate as validateCommand } from "./commands/validate.js";
 import { wechat as wechatCommand } from "./commands/wechat.js";
+import { web as webCommand } from "./commands/web.js";
 
 const HELP = `pi-workflow — Pi 动态工作流 CLI Runtime
 
@@ -25,6 +26,7 @@ const HELP = `pi-workflow — Pi 动态工作流 CLI Runtime
   pi-workflow resume <runId> [--yes]        从 journal 恢复执行
   pi-workflow stop <runId>                  终止本机活跃运行（SIGINT→SIGTERM）
   pi-workflow route --text "..." [选项]    共享路由 Dry-run（零执行副作用）
+  pi-workflow web [--host] [--port]          本地 Web 工作台服务（仅 127.0.0.1，V2）
   pi-workflow help                          显示本帮助
 
 run 选项：
@@ -82,6 +84,8 @@ async function main(argv: string[]): Promise<number> {
       return stopCommand(rest);
     case "wechat":
       return wechatCommand(rest, { reexecTsx: true });
+    case "web":
+      return webCommand(rest);
     case "route":
       return routeCommand(rest);
     case "help":
