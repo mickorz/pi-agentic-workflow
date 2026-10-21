@@ -168,6 +168,7 @@ export class AgentHost {
       const why = budget.exceeded();
       if (why) tripLimit(why);
     }, this.budgetPollMs);
+    timer.unref?.(); // 被弃置的 Turn（如测试门控永不放行）不阻止进程退出
 
     try {
       const outcome = await session.prompt(entry.text);
