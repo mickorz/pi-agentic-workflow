@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "mock": "playwright test --project=mock",
+    "e2e:real": "playwright test --project=real"
   },
   "dependencies": {
     "@types/react": "^18.3.31",
@@ -20,6 +23,7 @@
     "vite": "^5.4.21"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "vitest": "^2.1.9"
   }
 }

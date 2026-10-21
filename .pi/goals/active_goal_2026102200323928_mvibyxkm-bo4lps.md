@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 1587027,
-    "activeSeconds": 8109
+    "tokensUsed": 1737662,
+    "activeSeconds": 9226
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T18:52:22.841Z",
+  "updatedAt": "2026-10-21T19:11:47.499Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 553,
+  "revision": 647,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -101,7 +101,7 @@
       {
         "id": "v2p2",
         "title": "V2-P2 React Web 工作台（P2-01~08，web/ 目录，Vite/React/TS）",
-        "status": "pending",
+        "status": "complete",
         "verificationContract": "G-P2 总验收：真实浏览器 New Run→实时进度→checkpoint 审批→完成→刷新重建（用例含 agent+parallel+verify+checkpoint）；浏览器关闭不终止 Worker；209+ 回归不破；V2-P2-执行报告.md 落盘",
         "lightweightSubtasks": true,
         "subtasks": [
@@ -164,10 +164,14 @@
           {
             "id": "v2p2-08",
             "title": "P2-08 响应式/空态/错误态/键盘可用性 + V2-P2-执行报告",
-            "status": "pending",
-            "verificationContract": "G-P2 全绿；报告落盘"
+            "status": "complete",
+            "verificationContract": "G-P2 全绿；报告落盘",
+            "completedAt": "2026-10-21T18:52:34.469Z",
+            "evidence": "commit aebf975：UI polish（表单 Enter/空态/键盘导航/focus-visible/移动端断点）+ G-P2 真实 Chromium 浏览器门 23/23 PASS（gp2-gate.sh+gp2-browser.mts）；修复两个 V1 预存 bug（run.cancelled 谎报+manifest 双写竞态，经验已沉淀）；主仓 253 绿+web vitest 1"
           }
-        ]
+        ],
+        "completedAt": "2026-10-21T18:52:39.788Z",
+        "evidence": "G-P2 真实 Chromium 门 23/23 PASS（gp2-gate.sh）：New Run→实时进度→checkpoint 审批（批准+拒绝）→完成→刷新重建全流程；浏览器关闭不终止 Worker（G8）；主仓 253 绿（209 基线+44 增量）；V2-P2-执行报告.md 已落 dev-docs/progress-result/；子任务 v2p2-01~08 全部 complete"
       },
       {
         "id": "v2p3",
@@ -224,7 +228,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p2-08"
+  "currentTaskId": "v2p3-01"
 }
 
 # Goal Prompt
@@ -238,13 +242,13 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 2h15m09s
-- Tokens used: 1.6M (1,587,027) tokens
+- Time spent: 2h33m46s
+- Tokens used: 1.7M (1,737,662) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->
 - [x] gate0: Gate-0 基线重验（V2-P0 已完成后的现状核对） — evidence: Gate-0 全过：环境记录（HEAD 10e694b / Node 25.6.1 / SDK 1.3.0）；npm ci+typecheck+build+test 209/209 绿；CLI 六命令冒烟（validate/run 真实模型 completed/list/status/resume 正确拒/stop 优雅）；差异盘点落盘 dev-docs/planning/2026-10-22-V
 - [x] v2p1: V2-P1 本地 Web Server + Worker Supervisor（P1-01~07） — evidence: V2-P1 全部 7 子任务完成（P1-01 f5047f3 / P1-02 96ef5a8 / P1-03 e7d3e25 / P1-04 c30a85f / P1-05 40b0c36 / P1-06 649fbe8 / P1-07 61c6924）：G-P1 门 21/21 PASS（gp1-gate.sh 真实 dist Server+Worker：幂等单创建/SSE 顺序+游标重连/ca
-- [ ] v2p2: V2-P2 React Web 工作台（P2-01~08，web/ 目录，Vite/React/TS） — contract: G-P2 总验收：真实浏览器 New Run→实时进度→checkpoint 审批→完成→刷新重建（用例含 agent+parallel+verify+checkpoint）；浏览器关闭不终止 Worker；209+ 回归不破；V2-P2-执行报告.md 落盘
+- [x] v2p2: V2-P2 React Web 工作台（P2-01~08，web/ 目录，Vite/React/TS） — evidence: G-P2 真实 Chromium 门 23/23 PASS（gp2-gate.sh）：New Run→实时进度→checkpoint 审批（批准+拒绝）→完成→刷新重建全流程；浏览器关闭不终止 Worker（G8）；主仓 253 绿（209 基线+44 增量）；V2-P2-执行报告.md 已落 dev-docs/progress-result/；子任务 v2p2-01~08 全部 complete
 - [ ] v2p3: V2-P3 端到端质量、安全与交付（P3-01~07） — contract: G-P3 总验收：全门禁通过；E01~E18 矩阵逐条 PASS/BLOCKED 附证据；不破坏 CLI；性能数据真实采集；V2-P3-执行报告.md + 进度表 V2 三行 ✅
 

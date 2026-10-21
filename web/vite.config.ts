@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
+import { configDefaults } from "vitest/config";
 
 const serverSrc = fileURLToPath(new URL("../src/server", import.meta.url));
 
@@ -31,5 +32,9 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+  },
+  // vitest 只跑 src 单测；e2e/ 是 Playwright spec（import @playwright/test，vitest 加载必炸）
+  test: {
+    exclude: [...configDefaults.exclude, "e2e/**"],
   },
 });
