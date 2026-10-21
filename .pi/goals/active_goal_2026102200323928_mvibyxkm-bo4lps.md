@@ -5,14 +5,14 @@
   "status": "active",
   "autoContinue": true,
   "usage": {
-    "tokensUsed": 1896028,
-    "activeSeconds": 10284
+    "tokensUsed": 1927436,
+    "activeSeconds": 10512
   },
   "sisyphus": false,
   "createdAt": "2026-10-21T16:32:39.286Z",
-  "updatedAt": "2026-10-21T19:29:57.601Z",
+  "updatedAt": "2026-10-21T19:34:00.395Z",
   "activePath": ".pi/goals/active_goal_2026102200323928_mvibyxkm-bo4lps.md",
-  "revision": 716,
+  "revision": 747,
   "scheduler": {
     "version": 1,
     "owner": "01a15e5d-079c-7352-a1fc-5a6367c98f9b",
@@ -191,8 +191,10 @@
           {
             "id": "v2p3-02",
             "title": "P3-02 故障注入：SIGKILL Worker/Server 重启/断网/SSE 乱序/journal 尾损/审批重复点击",
-            "status": "pending",
-            "verificationContract": "每项故障后状态正确不假成功（interrupted/可恢复/去重）"
+            "status": "complete",
+            "verificationContract": "每项故障后状态正确不假成功（interrupted/可恢复/去重）",
+            "completedAt": "2026-10-21T19:30:08.532Z",
+            "evidence": "commit 23c1613：fault-suite.sh 34/34（F1 kill-9 Worker→interrupted+回放去重；F2 Server 重启→持久+收敛+恢复；F3 journal 尾损→前缀回放不膨胀；F4 审批并发恰一生效/幂等重放 200）；浏览器 UI/API 竞争去重用例 mock 7/7；SSE 乱序去重由 runModel sequence 幂等单测覆盖；主仓"
           },
           {
             "id": "v2p3-03",
@@ -230,7 +232,7 @@
     "blockCompletion": true,
     "proposedAt": "2026-10-21T16:05:43.710Z"
   },
-  "currentTaskId": "v2p3-02"
+  "currentTaskId": "v2p3-03"
 }
 
 # Goal Prompt
@@ -244,8 +246,8 @@
 - Status: running
 - Auto-continue: on
 - Sisyphus mode: no
-- Time spent: 2h51m24s
-- Tokens used: 1.9M (1,896,028) tokens
+- Time spent: 2h55m12s
+- Tokens used: 1.9M (1,927,436) tokens
 ## Tasks
 
 <!-- blockCompletion: true -->
