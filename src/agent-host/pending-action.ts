@@ -132,6 +132,16 @@ export class PendingActionStore {
     this.serialize({ ...action, status: "rejected" });
   }
 
+  /**
+   * 确定性启动失败回退（executing → pending）：仅同步异常路径（如并发限额拒绝），
+   * 可再次确认；进程中断的不确定态不走这里（由 recoverStuck 告警 + 人工核对）。
+   */
+  unclaim(actionId: string): void {
+    const action = this.byId.get(actionId);
+    if (!action || action.status !== "executing") return;
+    this.serialize({ ...action, status: "pending" });
+  }
+
   /** 过期清理：pending/executing 超时 → expired；返回清理数 */
   expireDue(now = new Date().toISOString()): number {
     let n = 0;
