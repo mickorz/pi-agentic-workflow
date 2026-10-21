@@ -173,8 +173,11 @@ function createSharedRunContext(options: WorkflowRunOptions, runId: string): Sha
     confirm: options.confirm,
     events: createEventEmitter(runId, options.onEvent, options.eventSequenceStart ?? 0),
   };
+  // 默认并发下限 2：parallel/race 的 DSL 契约是分支重叠（P0-03 测试断言）；
+  // 3 核机器（如 CI macOS runner）的 cores-2=1 会把 parallel 串行化、race 挂死（首个分支慢时不排队不取消）。
+  // 小机器上用 headroom 逻辑兑不现 DSL 语义，改为 max(2, cores-2)，大机器仍保留余量。
   const initial = normalizeConcurrency(
-    options.concurrency ?? Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 8) - 2),
+    options.concurrency ?? Math.max(2, (globalThis.navigator?.hardwareConcurrency ?? 8) - 2),
   );
   shared.scheduler = createSharedScheduler(initial, (from, to) => {
     shared.logs.push(`并发上限调整为 ${to}（原 ${from}）`);

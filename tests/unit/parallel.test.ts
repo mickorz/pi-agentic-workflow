@@ -24,6 +24,21 @@ test("并行分支执行时间重叠（非串行）", async () => {
   assert.ok(overlapped, `分支应重叠执行：a[${a?.startedAt}-${a?.endedAt}] b[${b?.startedAt}-${b?.endedAt}]`);
 });
 
+test("默认并发下限 2：3 核机器（cores-2=1）不串行化 parallel（CI macOS runner 回归）", async () => {
+  // 回归背景：默认并发曾是 max(1, hardwareConcurrency-2)，3 核 CI runner → 1 → parallel 串行、race 挂死
+  const orig = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: { hardwareConcurrency: 3 }, configurable: true });
+  try {
+    const { runner, calls } = delayedEchoRunner("slow-answer", 200);
+    const result = await runWorkflow(script("topic"), { agent: runner });
+    assert.equal(result.result.length, 2);
+    const [a, b] = calls;
+    assert.ok(a && b && b.startedAt < a.endedAt, `3 核机器默认并发应≥2（分支重叠）：a[${a?.startedAt}-${a?.endedAt}] b[${b?.startedAt}-${b?.endedAt}]`);
+  } finally {
+    if (orig) Object.defineProperty(globalThis, "navigator", orig);
+  }
+});
+
 test("返回次序按输入索引稳定（乱序完成）", async () => {
   // 第二个分支先完成（延迟 0ms），第一个后完成（延迟 120ms）
   const { runner } = makeRunner(async (prompt) => {

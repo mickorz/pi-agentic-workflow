@@ -47,6 +47,14 @@ function send(msg: unknown): void {
   process.stdout.write(`${JSON.stringify(msg)}\n`);
 }
 
+/** send 的可靠版本：等 stdout 真正冲刷完（write 回调）再继续；Windows 管道下
+ *  process.exit 会截断未冲刷的缓冲（CI 曾丢 terminal 行 → exit(0) 无终态被误判异常退出） */
+function sendFlushed(msg: unknown): Promise<void> {
+  return new Promise((resolve) => {
+    process.stdout.write(`${JSON.stringify(msg)}\n`, () => resolve());
+  });
+}
+
 const baseDir = process.env.PI_WORKFLOW_BASE_DIR ?? process.cwd();
 const runner = process.env.PI_WORKFLOW_TEST_RUNNER === "fake" ? createFakeRunner() : undefined;
 const engine = createWorkflowEngine({ baseDir, eventsToDisk: false, ...(runner ? { runner } : {}) });
@@ -98,9 +106,11 @@ function finish(runId: string, status: string, error?: string): void {
   if (finished) return;
   finished = true;
   clearInterval(heartbeat);
-  send({ type: "terminal", runId, status, ...(error !== undefined ? { error } : {}) });
-  // 给 stdout 刷出时间后退出
-  setTimeout(() => process.exit(0), 30);
+  // 先确保 terminal 行真正冲刷到管道再退（Windows 管道下 process.exit 会截断未冲刷缓冲；
+  // CI 曾丢 terminal 行 → exit(0) 无终态被 Supervisor 误判异常退出）
+  void sendFlushed({ type: "terminal", runId, status, ...(error !== undefined ? { error } : {}) }).then(() => {
+    setTimeout(() => process.exit(0), 10);
+  });
 }
 
 /** 结算 result promise：engine 已写 manifest/result.json，Worker 只汇报终态并退出 */
@@ -187,5 +197,5 @@ rl.on("close", () => {
 // SIGTERM（Supervisor 升级处置）：走 engine.cancel 优雅路径，终态经 stdout 汇报
 process.on("SIGTERM", () => {
   if (!finished) gracefulShutdown();
-  else process.exit(0);
+  // finished 后交由 finish 的冲刷链负责退出：立即 exit 会截断 Windows 管道未冲刷的 terminal 行
 });
