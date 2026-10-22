@@ -74,7 +74,7 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/
   http://127.0.0.1:4317/api/runs/<runId>/checkpoints/<checkpointId>/decision
 ```
 
-带 UI 的完整演示脚本（真实浏览器走 New Run → 审批 → 刷新重建）：`dev-examples/v2-web/demo-web.sh`。
+带 UI 的完整演示脚本（真实浏览器走 New Run → 审批 → 刷新重建）：`dev-examples/v2-web/demo_web.py`。
 
 ## 5. 常见问题（FAQ / 故障排查）
 

@@ -40,7 +40,7 @@ jobs:
           XPLAT_PORT: "4691"
 
       # web/：类型检查 + 构建 + vitest 单测（不含 Playwright 浏览器 E2E——
-      # 浏览器门（G-P2 mock/real）与故障注入（fault-suite.sh）为 POSIX/macOS 本地门，
+      # 浏览器门（G-P2 mock/real）与故障注入（fault_suite.py）为 POSIX/macOS 本地门，
       # 信号/kill 语义测试平台特化，见 PRD P3-05 与 dev-docs/experience/windows-signal-semantics-stop.md）
       - run: npm ci
         working-directory: web

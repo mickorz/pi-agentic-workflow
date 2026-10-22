@@ -38,5 +38,5 @@
 ```bash
 npm test                                    # 含 web-security / web-security-extra / web-projects 全部安全单测
 cd web && npx playwright test --project=mock   # 浏览器 XSS / 竞争去重
-bash dev-examples/v2-web/fault-suite.sh    # 真进程故障注入（F4 审批竞争）
+python3 dev-examples/v2-web/fault_suite.py    # 真进程故障注入（F4 审批竞争）
 ```

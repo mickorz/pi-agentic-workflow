@@ -77,7 +77,7 @@
     "workflowId": "article-insert-images-meta",
     "scriptPath": "wx-article/scripts/article_insert_images_meta.js",
     "name": "文章配图插入与元数据",
-    "description": "把文章目录 imgs 下的图片按图名语义匹配章节插入 md（每章一句话记住前），并写/更新 article.yaml 元数据；改文件需批准",
+    "description": "把文章目录 imgs 下的图片按图名语义匹配章节插入 md（每章一句话记住前），封面（根 cover.* 或 imgs/ cover 前缀）自动插入头部段落末尾（首个 ## 前，幂等）；并写/更新 article.yaml 元数据；改文件需批准",
     "argsSchema": {
       "type": "object",
       "properties": {

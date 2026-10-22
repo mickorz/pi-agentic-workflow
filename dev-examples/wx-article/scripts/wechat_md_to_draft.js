@@ -14,8 +14,8 @@ export const meta = {
 // 换机器或换目录时用 args.publish_script 覆盖。
 // 公众号配置根:凭证已集成到本仓库 wx-article 目录(.aws-article/config.json + aws.env,均已 gitignore),
 // 不再从文章目录向上找;换机器传 args.config_dir 覆盖。
-const PUBLISH_SCRIPT = args.publish_script || 'scripts/references/wechat_md_to_draft/scripts/publish.ps1'
-const CONFIG_ROOT = args.config_dir || 'E:/WorkProjects/pi-agentic-workflow/dev-examples/wx-article'
+const PUBLISH_SCRIPT = args.publish_script || 'dev-examples/wx-article/scripts/references/wechat_md_to_draft/scripts/publish.py'
+const CONFIG_ROOT = args.config_dir || 'dev-examples/wx-article'
 // 发布完成后在浏览器打开的草稿箱 URL。
 // token 是公众号后台网页登录态,会过期;失效时登录 mp.weixin.qq.com 后从浏览器地址栏复制最新 token 替换。
 const DRAFT_BOX_URL = 'https://mp.weixin.qq.com/cgi-bin/appmsg?begin=0&count=10&type=77&action=list_card&token=1269319492&lang=zh_CN'
@@ -91,11 +91,11 @@ await checkpoint(
 phase('执行发布')
 const publishResult = await agent(
   '你是公众号发布执行者。请用 bash 工具执行发布脚本(一条命令):\n\n' +
-  'powershell -NoProfile -ExecutionPolicy Bypass -File "' + PUBLISH_SCRIPT + '" -ArticleDir "' + args.article_dir + '" -Cover "' + (configCheck.cover_path || args.cover) + '"\n\n' +
+  'python3 "' + PUBLISH_SCRIPT + '" --article-dir "' + args.article_dir + '" --cover "' + (configCheck.cover_path || args.cover) + '"\n\n' +
   '脚本流程: 向上找仓库根 → 找 .md 写作稿(排除 article/draft/审稿) → 解析 frontmatter(title/description) → .md 转 HTML(微信 inline 样式) → 扫描 .md 图片引用 → 读 aws.env 换 token → 上传封面到 add_material → 上传正文图到 uploadimg → 替换 HTML 图片路径为微信 URL → 调 draft/add 建草稿 → 写 publish.log + article.yaml + 复制 article.md。\n\n' +
   '脚本 stdout 含 "[5] DRAFT OK media_id=xxx" 行,解析拿到 draft media_id。stdout 末尾 "=== ALL DONE draft_media_id=xxx ===" 表示全流程成功。\n' +
   '若 stdout 含 "[FAIL]",按四分类报错(网络/鉴权/内容/配额),不重试,把 FAIL 行原文放进 error 字段。\n' +
-  '脚本含中文路径,已存为 UTF-8 with BOM,PowerShell 5.1 能正确读;curl.exe 在中文 Windows 上能处理中文文件名。\n\n' +
+  '脚本为 Python 标准库实现,跨平台(Mac/Windows)一致;中文路径用 UTF-8 读取,HTTP 上传用 urllib(不依赖 curl)。\n\n' +
   '四项门禁(全过才 publish_completed=true): a) 找到 .md  b) 封面存在  c) .md 无 placeholder  d) 拿到 draft media_id。\n\n' +
   '返回 JSON: { media_id, publish_completed, ok, error }。',
   { label: '发布', agentType: 'general', schema: {
