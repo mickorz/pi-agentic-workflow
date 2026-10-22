@@ -7,7 +7,7 @@
  * 用法：pi-workflow wechat login                                    —— 扫码登录/复用已有凭证（免记 wxid）
  *      pi-workflow wechat start --registry dev-examples/am-p0/registry.json \
  *        --scripts dev-examples [--rate-max 20] [--budget-tokens 200000] [--data .pi-wechat]
- *        [--routing-mode legacy|agent]（缺省 legacy；agent = Conversational Agent 模式，AM-P0）
+ *        [--routing-mode legacy|agent]（缺省 agent = Conversational Agent 模式，AM-P0；legacy 需显式指定）
  * 用户绑定（免记 wxid）：--allow-user 指定 > .pi-wechat/bound-user.json 已绑定 > 首条消息发送者自动绑定；
  *        --allow-all 接收所有用户（仅 AM-12 双账号用例，测完务必去掉）
  * WG-007：Ctrl-C 只停 Bot；运行中任务不取消，可 `pi-workflow resume <runId>` 续跑。
@@ -17,7 +17,8 @@ import path from "node:path";
 import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createRequire } from "node:module";
 import { WorkflowRegistry } from "../../dispatch/registry.js";
 import { WechatBotAdapter } from "../../gateway/wechat/bot-adapter.js";
 import { WechatApp } from "../../gateway/wechat-app.js";
@@ -49,9 +50,21 @@ function reexecUnderTsx(argv: string[]): number {
     process.stderr.write(`ts 源入口不存在：${entry}（需在仓库内运行）\n`);
     return 1;
   }
+  // tsx 从仓库根解析为绝对 file URL：相对包名会在 cwd（任意项目目录）下解析失败（ERR_MODULE_NOT_FOUND）
+  let tsxSpecifier: string;
+  try {
+    tsxSpecifier = pathToFileURL(
+      createRequire(path.join(repoRoot, "package.json")).resolve("tsx"),
+    ).href;
+  } catch {
+    process.stderr.write(
+      `仓库内未找到 tsx：${repoRoot}（需先 npm install，tsx 为 devDependency）\n`,
+    );
+    return 1;
+  }
   const result = spawnSync(
     process.execPath,
-    ["--import", "tsx", entry, "wechat", ...argv],
+    ["--import", tsxSpecifier, entry, "wechat", ...argv],
     { stdio: "inherit", env: { ...process.env, PI_WORKFLOW_TSX: "1" }, cwd: process.cwd() },
   );
   if (result.error) {
@@ -75,15 +88,18 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
     const i = argv.indexOf(name);
     return i >= 0 ? argv[i + 1] : undefined;
   };
-  const registryFile = flag("--registry") ?? path.join(".pi-wechat", "workflows.json");
-  const scriptsRoot = flag("--scripts") ?? path.dirname(path.resolve(registryFile));
+  // 缺省场景 = 日常手动测试：am-p0 registry + dev-examples 脚本根（无副本，随仓库走，任何机器 clone 即用）；
+  // 显式 --registry 时 scriptsRoot 缺省仍为 registry 所在目录（白名单语义不变）
+  const explicitRegistry = flag("--registry");
+  const registryFile = explicitRegistry ?? path.join("dev-examples", "am-p0", "registry.json");
+  const scriptsRoot = flag("--scripts") ?? (explicitRegistry ? path.dirname(path.resolve(registryFile)) : "dev-examples");
   const model = flag("--model");
   const allowUser = flag("--allow-user");
   const dataDir = flag("--data") ?? path.join(".pi-wechat");
   const rateMax = flag("--rate-max") ? Number(flag("--rate-max")) : undefined;
   const budgetTokens = flag("--budget-tokens") ? Number(flag("--budget-tokens")) : undefined;
   const routingModeRaw = flag("--routing-mode");
-  const routingMode = routingModeRaw === "agent" ? "agent" : "legacy"; // 缺省 legacy（§2.4 Feature Flag）
+  const routingMode = routingModeRaw === "legacy" ? "legacy" : "agent"; // 缺省 agent（AM-P0 目标模式；legacy 需显式指定）
   const allowAll = argv.includes("--allow-all"); // 接收所有用户（仅 AM-12 双账号用例；测试后务必移除）
   // --agent-limits llm,tools,ms（CSV；缺省 12,20,300000；仅 agent 模式生效，AM-11 用）
   let agentLimits: { maxLlmRequests: number; maxToolCalls: number; maxDurationMs: number } | undefined;
@@ -101,7 +117,12 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   const { registry, issues } = WorkflowRegistry.loadFromFile(registryFile);
   if (issues.length > 0) console.warn(`registry 问题条目：${issues.join("; ")}`);
   if (registry.all().length === 0) {
-    process.stderr.write(`注册表为空：${registryFile}\n`);
+    process.stderr.write(
+      [
+        `注册表不存在或为空：${registryFile}`,
+        `需显式指定，如：pi-workflow wechat start --registry dev-examples/am-p0/registry.json --scripts dev-examples [--routing-mode agent]`,
+      ].join("\n") + "\n",
+    );
     return 2;
   }
 
@@ -135,7 +156,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
     boundNotice = `已绑定用户（--allow-user）：${allowUser}`;
   } else if (allowAll) {
     botOptions = {};
-    boundNotice = "⚠️ 接收所有用户（--allow-all，仅双账号测试用，测完务必去掉）";
+    boundNotice = "[警告] 接收所有用户（--allow-all，仅双账号测试用，测完务必去掉）";
   } else if (fs.existsSync(boundFile)) {
     const bound = JSON.parse(fs.readFileSync(boundFile, "utf8")) as { userId?: string };
     if (bound.userId) {
@@ -149,7 +170,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
       onUserBound: (userId) => {
         fs.mkdirSync(dataDir, { recursive: true });
         fs.writeFileSync(boundFile, JSON.stringify({ userId, boundAt: new Date().toISOString() }, null, 2));
-        process.stdout.write(`\n🔔 已自动绑定用户：${userId}（写入 ${boundFile}；后续重启免重新绑定，换人可删除该文件）\n`);
+        process.stdout.write(`\n[绑定] 已自动绑定用户：${userId}（写入 ${boundFile}；后续重启免重新绑定，换人可删除该文件）\n`);
       },
     };
   }

@@ -13,7 +13,14 @@ pi-workflow list | head -5     # CLI 可用
 ls ~/.pi/agent/wechat-assistant/credentials.json   # 真机凭据（无则先 SOP 扫码）
 ```
 
-真机 SOP（如凭据缺失）：`npx tsx dev-examples/wx-m0/standalone-adapter.ts --qr` 扫码登录。
+真机登录（凭据缺失或失效，扫码）：
+
+```bash
+pi-workflow wechat login
+# 凭据失效（手机端退出/掉线）时：rm ~/.pi/agent/wechat-assistant/credentials.json && pi-workflow wechat login
+```
+
+终端出二维码 → 用（作为 Bot 的）微信扫码 → 手机确认，提示"登录成功"后凭据落盘，`wechat start` 免再扫码。
 
 ## Part A：脚本套件（无需真机，5 分钟）
 

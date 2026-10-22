@@ -20,6 +20,15 @@ npm test                                    # 基线：108+ 单测全绿
 2. demo Workflow 已注册（Registry 含 `github-review`(read-only) 与 `tier-demo`（quick/general/frontier 三节点）、`checkpoint-demo`(write 风险，含审批)）。
 3. `~/.pi/agent/settings.json` 默认模型可用；ModelRouter 三 tier 池已配置真实物理模型。
 4. 启动：`pi-workflow wechat start`，扫码绑定，终端出现"Gateway 就绪"。
+
+   **登录态失效重新登录**（手机端退出登录 / 凭据过期，start 反复掉线或报未授权时）：
+
+   ```bash
+   pi-workflow wechat login    # 有凭据直接复用回显账号；失效则先删凭据再重跑
+   # 凭据失效时：rm ~/.pi/agent/wechat-assistant/credentials.json && pi-workflow wechat login
+   ```
+
+   终端出二维码 → 用（作为 Bot 的）微信扫码 → 手机确认，提示"登录成功"后凭据落盘，`wechat start` 免再扫码。
 5. 产物目录：`.pi-wechat/{receipts.jsonl, tasks.jsonl, outbox.jsonl, audit.jsonl, conversation.jsonl}`。
 
 ## 1. A 组：意图路由与参数补齐（A01~A05）
@@ -105,7 +114,7 @@ grep -riE "apikey|token|secret" .pi-wechat/*.jsonl | grep -v "<REDACTED>"
 
 ## 9. 常见问题
 
-- **Gateway 启动即退出**：检查 iLink 登录态文件与 P0 报告的接入路径是否一致。
+- **Gateway 启动即退出**：检查 iLink 登录态文件与 P0 报告的接入路径是否一致；凭据过期时按前置条件第 4 条重新 `pi-workflow wechat login`。
 - **消息无响应**：先查 `receipts.jsonl`（收没收到）再查意图日志（路由到哪），区分通信层与路由层故障。
 - **审批不生效**：确认回复的是"已确认的具体待审批项"（版本号）；过期版本会被 CONFLICT 拒绝（§9.2 语义）。
 - **模型路由不生效**：先确认 P0/LK-02 选择的接入路径；显式 `agent({model})` 优先于一切（§8 优先级）。

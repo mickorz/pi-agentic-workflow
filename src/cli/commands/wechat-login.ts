@@ -42,7 +42,7 @@ export async function wechatLogin(): Promise<number> {
   if (existing) {
     process.stdout.write(
       [
-        `✅ 已有登录凭据（accountId=${existing.accountId}，userId=${existing.userId}），无需扫码`,
+        `[OK] 已有登录凭据（accountId=${existing.accountId}，userId=${existing.userId}），无需扫码`,
         `凭据位置：~/.pi/agent/wechat-assistant/credentials.json（失效可删除后重跑本命令重新扫码）`,
       ].join("\n") + "\n",
     );
@@ -81,7 +81,7 @@ export async function wechatLogin(): Promise<number> {
         await auth.saveCredentials(result.credentials);
         process.stdout.write(
           [
-            `✅ 登录成功：accountId=${result.credentials.accountId}（凭据已落盘，后续 wechat start 免扫码）`,
+            `[OK] 登录成功：accountId=${result.credentials.accountId}（凭据已落盘，后续 wechat start 免扫码）`,
             `下一步：pi-workflow wechat start …（发消息的微信无需记 wxid，首条消息自动绑定）`,
           ].join("\n") + "\n",
         );
