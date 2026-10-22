@@ -27,6 +27,7 @@ import { createRunApplicationService } from "../../application/run-service.js";
 import { PiAgentAdapter } from "../../adapters/pi/pi-agent-adapter.js";
 import type { RoutingLLM } from "../../dispatch/intent-router.js";
 import { wechatLogin } from "./wechat-login.js";
+import { acquireServiceLock, releaseServiceLock } from "../../gateway/service-lock.js";
 
 export interface WechatCommandOptions {
   /**
@@ -128,6 +129,19 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
     return 2;
   }
 
+  // F5 单实例锁：前台/后台共享 Bot 启动层互斥（同机同 data 目录）
+  const lock = acquireServiceLock(dataDir);
+  if (!lock.acquired) {
+    process.stderr.write(
+      [
+        `微信服务已在运行（pid=${lock.holder?.pid ?? "?"}，startedAt=${lock.holder?.startedAt ?? "?"}，cwd=${lock.holder?.cwd ?? "?"}）`,
+        `data 目录：${lock.lockDir}`,
+        `如需重启：停掉现有进程（前台 Ctrl-C / 后台 wechat service stop）后再启动`,
+      ].join("\n") + "\n",
+    );
+    return 2;
+  }
+
   // 真实路由 LLM（单轮 prompt → JSON）；模型走默认配置（settings.json），显式 --model 才覆盖
   const adapter = new PiAgentAdapter({ ...(model ? { defaultModel: model } : {}) });
   const llm: RoutingLLM = {
@@ -196,6 +210,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   try {
     await app.start();
   } catch (error) {
+    releaseServiceLock(dataDir);
     process.stderr.write(`微信启动失败：${error instanceof Error ? error.message : String(error)}\n（先完成真机 SOP：npx tsx dev-examples/wx-m0/standalone-adapter.ts --qr）\n`);
     return 1;
   }
@@ -215,7 +230,10 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   );
   await new Promise<void>((resolve) => {
     process.once("SIGINT", () => {
-      void app.stop().finally(resolve);
+      void app.stop().finally(() => {
+        releaseServiceLock(dataDir); // WG-007：只停 Bot 不取消任务；锁随进程生命周期释放
+        resolve();
+      });
     });
   });
   return 0;
