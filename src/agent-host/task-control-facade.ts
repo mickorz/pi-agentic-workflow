@@ -106,15 +106,24 @@ export class TaskControlFacade implements AgentToolFacade {
     }
     // 高风险：创建执行前授权项（§3）。确认必须走确定性通道（用户明确批准），
     // 本工具链路上不存在 authorized=true 的通路——LLM 无法自授权。
+    // 去重：同 userId+workflowId+argsDigest 已有 pending 项则复用（不刷新 TTL），
+    // 避免 LLM 重试/重复发起时叠加多条 pending，导致用户「批准」绑定错位（批准走最老一条）。
+    const args = (input.args ?? {}) as Record<string, unknown>;
+    const argsDigest = computeArgsDigest(args);
+    const registryDigest = computeRegistryDigest(this.deps.registry);
+    const existing = this.deps.pending
+      .pendingFor(input.userId)
+      .find((a) => a.workflowId === input.workflowId && a.argsDigest === argsDigest);
+    if (existing) return { needsApproval: true, actionId: existing.actionId };
     const action = this.deps.pending.create({
       userId: input.userId,
       workflowId: input.workflowId,
-      args: input.args ?? {},
-      argsDigest: computeArgsDigest(input.args),
+      args,
+      argsDigest,
       ...(input.agentTurnId ? { agentTurnId: input.agentTurnId } : {}),
       originMessageId: input.originMessageId,
       riskLevel: reg.riskLevel,
-      registryDigest: computeRegistryDigest(this.deps.registry),
+      registryDigest,
     });
     return { needsApproval: true, actionId: action.actionId };
   }

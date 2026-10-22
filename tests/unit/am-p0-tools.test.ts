@@ -208,6 +208,28 @@ test("T3 execute（write）：只返 needsApproval + PendingAction 快照落盘�
   assert.equal(action.originMessageId, "m1");
 });
 
+test("T3 execute（write）去重：同 userId+workflowId+args 重复发起复用同一 pending（不叠加）", async () => {
+  const f = makeFixture();
+  const input = {
+    userId: "u1",
+    workflowId: "deploy-service",
+    args: { repoUrl: "https://github.com/a/b" },
+    agentTurnId: "turn-1",
+    originMessageId: "m1",
+  };
+  const r1 = await f.facade.executeWorkflow(input);
+  // LLM 同 Turn 重试 / 用户后续重新发起同一请求
+  const r2 = await f.facade.executeWorkflow({ ...input, agentTurnId: "turn-2", originMessageId: "m2" });
+  assert.ok("needsApproval" in r1 && r1.needsApproval);
+  assert.ok("needsApproval" in r2 && r2.needsApproval);
+  assert.equal(r1.actionId, r2.actionId, "同一请求复用同一 actionId（批准不绑定错位）");
+  assert.equal(f.pending.pendingFor("u1").length, 1, "不叠加多条 pending");
+  // 不同参数仍是新请求 → 新建
+  const r3 = await f.facade.executeWorkflow({ ...input, args: { repoUrl: "https://github.com/c/d" } });
+  assert.notEqual(r3.actionId, r1.actionId);
+  assert.equal(f.pending.pendingFor("u1").length, 2);
+});
+
 // ── task_status ──
 
 test("T3 status：真实服务状态 + run-links 产物引用（结构化，不靠记忆）", async () => {
