@@ -7,15 +7,21 @@
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-# 向上找仓库根(含 .aws-article 的祖先)
-$repoRoot = $ArticleDir
-while ($repoRoot -and -not (Test-Path -LiteralPath (Join-Path $repoRoot ".aws-article"))) {
-  $parent = [System.IO.Path]::GetDirectoryName($repoRoot)
-  if (-not $parent -or $parent -eq $repoRoot) { break }
-  $repoRoot = $parent
+# 向上找公众号配置根(含 .aws-article 的祖先):优先从脚本自身位置找(凭证已集成到本仓库 wx-article 目录),
+# 找不到再从文章目录找(兼容旧工作区布局)
+function Find-ConfigRoot([string]$startDir) {
+  $dir = $startDir
+  while ($dir -and -not (Test-Path -LiteralPath (Join-Path $dir ".aws-article"))) {
+    $parent = [System.IO.Path]::GetDirectoryName($dir)
+    if (-not $parent -or $parent -eq $dir) { return $null }
+    $dir = $parent
+  }
+  return $dir
 }
-if (-not (Test-Path -LiteralPath (Join-Path $repoRoot ".aws-article"))) {
-  Write-Output "[FAIL] cannot find repo root (.aws-article) from $ArticleDir"; exit 1
+$repoRoot = Find-ConfigRoot $PSScriptRoot
+if (-not $repoRoot) { $repoRoot = Find-ConfigRoot $ArticleDir }
+if (-not $repoRoot) {
+  Write-Output "[FAIL] cannot find config root (.aws-article) near script or $ArticleDir"; exit 1
 }
 $envFile = Join-Path $repoRoot "aws.env"
 $configPath = Join-Path $repoRoot ".aws-article\config.json"

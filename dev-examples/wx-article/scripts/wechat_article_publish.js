@@ -17,7 +17,10 @@ if (!args.article_dir) {
   throw new Error('缺少必填参数 article_dir(本篇目录,含 article.html + cover.* + imgs/)')
 }
 
+// 公众号配置根:凭证已集成到本仓库 wx-article 目录(.aws-article/config.json + aws.env,均已 gitignore),
+// 不再从文章目录向上找。换机器/换位置时传 args.config_dir 覆盖(指向含 .aws-article/ 与 aws.env 的目录)。
 // skill 资料目录:默认本仓库内绝对路径(相对启动 cwd 不可靠),换机器改这一行或传 args.skill_dir。
+const CONFIG_ROOT = args.config_dir || 'E:/WorkProjects/pi-agentic-workflow/dev-examples/wx-article'
 const SKILL = args.skill_dir || 'E:/WorkProjects/pi-agentic-workflow/dev-examples/wx-article/scripts/references/wechat_article_publish'
 
 // 发布完成后在浏览器打开的草稿箱 URL。
@@ -27,9 +30,9 @@ const DRAFT_BOX_URL = 'https://mp.weixin.qq.com/cgi-bin/appmsg?begin=0&count=10&
 phase('读配置与账号选择')
 const configCheck = await agent(
   '你是公众号发布前置检查员。请读配置并列出账号(见 下方规则 第0-2步):\n\n' +
-  '1. 工作区根定位:从 ' + args.article_dir + ' 逐级向上找同时含 .aws-article/ 目录与 aws.env 文件的祖先目录(记为 workspace_root,如 E:/Obsidian/newsky/60_Workspace/写作/单篇)。\n' +
-  '2. 读 workspace_root/.aws-article/config.json 的 publish_method, wechat_accounts, wechat_publish_slot, wechat_{i}_name。\n' +
-  '3. 读 workspace_root/aws.env 的 WECHAT_N_APPID / WECHAT_N_APPSECRET(只看键是否存在,不打印值)。\n' +
+  '1. 公众号配置根(固定路径,不 article_dir 向上找): ' + CONFIG_ROOT + '\n' +
+  '2. 读 ' + CONFIG_ROOT + '/.aws-article/config.json 的 publish_method, wechat_accounts, wechat_publish_slot, wechat_{i}_name。\n' +
+  '3. 读 ' + CONFIG_ROOT + '/aws.env 的 WECHAT_N_APPID / WECHAT_N_APPSECRET(只看键是否存在,不打印值)。\n' +
   '4. 读本篇 ' + args.article_dir + '/article.yaml 的 publish_completed, title, author, digest, content_source。\n' +
   '5. 确认 ' + args.article_dir + '/article.html 存在、文章目录下有 cover.(png|jpg|jpeg|webp)(不在 imgs/)、article.md 与 article.html 均不含 placeholder。\n' +
   '6. 若 publish_method=none,立即返回说明(不调任何微信接口)。\n\n' +

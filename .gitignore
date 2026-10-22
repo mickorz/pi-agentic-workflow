@@ -25,3 +25,6 @@ dev-examples/*/.pi-wechat/
 
 # 开发过程文档（CLAUDE.md 约定：不进 git 仓库）
 dev-docs/
+# 公众号凭证（本地集成，绝不入库）
+dev-examples/wx-article/.aws-article/
+dev-examples/wx-article/aws.env

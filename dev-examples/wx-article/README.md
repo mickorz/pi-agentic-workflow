@@ -41,7 +41,8 @@ pi-workflow run scripts/wechat_md_to_draft.js --args '{"article_dir":"E:/Obsidia
 ## 依赖与注意
 
 - outline 类：无外部配置依赖（collect_images 自包含）。
-- md_to_draft：需要 `.aws-article/config.json` + `aws.env`（首次引导见脚本内注释）；
-  publish.ps1 依赖公众号 API 凭证；草稿箱 URL token 会过期（见脚本注释）。
+- 公众号凭证已集成到本仓：`dev-examples/wx-article/.aws-article/`（config.json + presets）+ `aws.env`（均已 .gitignore，换机器需手动同步两份）；两个发布类 workflow（wechat-md-to-draft / wechat-article-publish）默认读这里（`args.config_dir` 可覆盖），不再从文章目录向上找。publish.ps1 定位改为脚本位置优先、文章目录兼容回退。
+- md_to_draft：发布脚本 publish.ps1 依赖上述凭证；草稿箱 URL token 会过期（见脚本注释）。
+- article_publish：草稿/群发模式由 config 的 publish_method 决定（当前 draft）；force_publish=true 才提交群发。
 - vaultDir 路径在微信消息里正反斜杠均可；含空格中文需完整传递（路由参数抽取依赖样例）。
 - 发布类微信触发放开依赖 AM-P0 PendingAction（执行前授权协议）。

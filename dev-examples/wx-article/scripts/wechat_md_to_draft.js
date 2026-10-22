@@ -12,7 +12,10 @@ export const meta = {
 
 // 发布脚本路径:相对启动 cwd(约定从 dev-examples/wx-article 启动 wechat start / pi-workflow run);
 // 换机器或换目录时用 args.publish_script 覆盖。
+// 公众号配置根:凭证已集成到本仓库 wx-article 目录(.aws-article/config.json + aws.env,均已 gitignore),
+// 不再从文章目录向上找;换机器传 args.config_dir 覆盖。
 const PUBLISH_SCRIPT = args.publish_script || 'scripts/references/wechat_md_to_draft/scripts/publish.ps1'
+const CONFIG_ROOT = args.config_dir || 'E:/WorkProjects/pi-agentic-workflow/dev-examples/wx-article'
 // 发布完成后在浏览器打开的草稿箱 URL。
 // token 是公众号后台网页登录态,会过期;失效时登录 mp.weixin.qq.com 后从浏览器地址栏复制最新 token 替换。
 const DRAFT_BOX_URL = 'https://mp.weixin.qq.com/cgi-bin/appmsg?begin=0&count=10&type=77&action=list_card&token=1269319492&lang=zh_CN'
@@ -20,9 +23,9 @@ const DRAFT_BOX_URL = 'https://mp.weixin.qq.com/cgi-bin/appmsg?begin=0&count=10&
 phase('读配置与前置检查')
 const configCheck = await agent(
   '你是公众号发布前置检查员。请:\n\n' +
-  '1. 仓库根定位:从 ' + args.article_dir + ' 向上找含 .aws-article 的祖先目录,即为仓库根。\n' +
-  '2. 读 仓库根/aws.env 的 WECHAT_N_APPID/APPSECRET 键是否存在(只看键,不打印值)。\n' +
-  '3. 读 仓库根/.aws-article/config.json 的 publish_method, wechat_accounts, wechat_{i}_name, default_author, need_open_comment, only_fans_can_comment。\n' +
+  '1. 公众号配置根(固定路径,不从 article_dir 向上找): ' + CONFIG_ROOT + '\n' +
+  '2. 读 ' + CONFIG_ROOT + '/aws.env 的 WECHAT_N_APPID/APPSECRET 键是否存在(只看键,不打印值)。\n' +
+  '3. 读 ' + CONFIG_ROOT + '/.aws-article/config.json 的 publish_method, wechat_accounts, wechat_{i}_name, default_author, need_open_comment, only_fans_can_comment。\n' +
   '4. 在 ' + args.article_dir + ' 下找 .md 写作稿(排除 article/draft/review 开头和含"审稿"的),取文件名最长的一个。解析 frontmatter 的 title/description。author 用 config.default_author。\n' +
   '5. 确认封面 ' + args.cover + ' 文件存在。\n' +
   '6. 扫描 .md 正文里 ![alt](path) 的图片引用,确认每张图在 article_dir 下真实存在(路径相对 article_dir)。\n\n' +
