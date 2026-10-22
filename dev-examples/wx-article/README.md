@@ -10,12 +10,14 @@
 | `obsidian-outline` | scripts/obsidian_outline.js（新写，编排 collect_images + 图片分析 + 目录分析 + 大纲） | read-only | 自动执行 |
 | `wechat-md-to-draft` | scripts/wechat_md_to_draft.js（自脚本库复制，PUBLISH_SCRIPT 已改相对路径） | external-side-effect | 执行前授权（AM-P0 批准链） |
 | `article-insert-images-meta` | scripts/article_insert_images_meta.js（自 ~/.claude/workflows 引入，插图脚本路径改仓库内绝对路径；默认追加去 AI 味） | write | 执行前授权（AM-P0 批准链）；微信必传 skip_confirm:true |
-| `article-humanize` | scripts/article_humanize.js（自 ~/.claude/workflows 引入，独立去 AI 味，从 polish 的 humanizer 段抽离） | write | 执行前授权（AM-P0 批准链） |
+| `article-humanize` | scripts/article_humanize.js（自 ~/.claude/workflows 引入，独立去 AI 味，从 polish 的 humanizer 段抽离；前置检查 humanizer skill，缺失立即报错） | write | 执行前授权（AM-P0 批准链） |
+| `wechat-article-publish` | scripts/wechat_article_publish.js（自 ~/.claude/workflows 引入，API 直连发布/入草稿箱；skill 路径改仓库内，配置改为从 article_dir 向上找工作区根） | external-side-effect | 执行前授权（AM-P0 批准链）；微信必传 skip_confirm:true |
 
 子流程依赖：scripts/article_collect_images.js（被 outline 编排，自包含）。
 发布脚本：scripts/references/wechat_md_to_draft/scripts/publish.ps1（已内嵌）。
 插图脚本：scripts/references/article_insert_images_meta/scripts/insert_images.ps1（已内嵌，自检 test-fixture/run.sh）。
-去 AI 味依赖 humanizer skill：已复制到 ~/.pi/agent/skills/humanizer（换机器同步）。
+去 AI 味依赖 humanizer skill：已复制到 ~/.pi/agent/skills/humanizer（换机器同步）；workflow 定位阶段有前置检查，缺失立即失败并给出安装指引（不静默降级）。
+发布脚本：scripts/references/wechat_article_publish/（5 个 md 文档，API 直连发布用；凭证在工作区根 .aws-article/config.json + aws.env，如 E:/Obsidian/newsky/60_Workspace/写作/单篇）。
 注意：本目录 registry.json 未含 article-insert-images-meta 与 article-humanize——微信测试用仓库根聚合表（`pi-workflow wechat start --routing-mode agent` 缺省即 am-p0/registry.json + --scripts dev-examples），详见 scripts/references/article_insert_images_meta/README.md。
 
 ## 启动（从本目录启动，cwd 即数据目录）

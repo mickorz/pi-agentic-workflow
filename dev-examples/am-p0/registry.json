@@ -123,5 +123,28 @@
     "examples": [
       "把 E:/Obsidian/xxx/从零学AI-xxx 里的文章去一下 AI 味"
     ]
+  },
+  {
+    "workflowId": "wechat-article-publish",
+    "scriptPath": "wx-article/scripts/wechat_article_publish.js",
+    "name": "公众号发布",
+    "description": "公众号 API 直连发布：图文入草稿箱或群发（素材上传、发布前检查、四项门禁闭环）；draft 模式仅入草稿箱",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "article_dir": { "type": "string", "description": "本篇目录绝对路径（含 article.html + cover.* + imgs/）" },
+        "account": { "type": "string", "description": "账号槽位序号或名称（不传则从 config 列账号）" },
+        "publish_method": { "type": "string", "description": "draft 或 published 或 none；缺省读 config.json" },
+        "force_publish": { "type": "boolean", "description": "单次强制提交群发（默认 false）" },
+        "skip_confirm": { "type": "boolean", "description": "跳过内部确认；微信链路必传 true（授权由批准链承担）" }
+      },
+      "required": ["article_dir"]
+    },
+    "riskLevel": "external-side-effect",
+    "enabled": true,
+    "keywords": ["发布", "群发", "草稿箱", "公众号发布", "publish", "article_publish"],
+    "examples": [
+      "把 E:/Obsidian/xxx/文章A 这篇文章发布到公众号，跳过确认"
+    ]
   }
 ]

@@ -19,8 +19,12 @@ const locate = await agent(
   '2. 用户指定 article_dir: ' + (args.article_dir || '(未指定)') + '\n' +
   '若 md_path 已给, 用 Glob 确认存在; 若只有 article_dir, 则在其下找 .md: ' +
   '优先 article.md; 否则排除 article/draft/review/审稿/pre-humanize 后取文件名最长的一个。\n' +
-  '3. 用 Read 读该 .md 全文, 统计字符数(去掉 markdown 符号的正文长度)。\n\n' +
-  '返回 JSON: { md_path, article_dir, char_count, exists }。',
+  '3. 用 Read 读该 .md 全文, 统计字符数(去掉 markdown 符号的正文长度)。\n' +
+  '4. 前置检查 humanizer skill 是否可用: 用 bash 分别检查以下路径是否存在, 任一存在即 skill_ready=true:\n' +
+  '   - ~/.pi/agent/skills/humanizer/SKILL.md\n' +
+  '   - .pi/skills/humanizer/SKILL.md (项目级)\n' +
+  '   两个都不存在则 skill_ready=false(不猜路径, 只报告检查结果)。\n\n' +
+  '返回 JSON: { md_path, article_dir, char_count, exists, skill_ready }。',
   { label: '定位', agentType: 'general', schema: {
     type: 'object',
     properties: {
@@ -28,13 +32,24 @@ const locate = await agent(
       article_dir: { type: 'string' },
       char_count: { type: 'number' },
       exists: { type: 'boolean' },
+      skill_ready: { type: 'boolean' },
     },
-    required: ['md_path', 'exists'],
+    required: ['md_path', 'exists', 'skill_ready'],
   } }
 )
 
 if (!locate.exists) {
   return { ok: false, error: '找不到要改写的 .md: ' + (locate.md_path || args.md_path || '') }
+}
+
+// 前置门: humanizer skill 缺失则立即失败, 不静默降级(改写质量依赖 ZH1-ZH15 模式库)。
+// 被上层 article_insert_images_meta 嵌套调用时, 该失败会被父流程记录并跳过, 不影响配图结果。
+if (locate.skill_ready !== true) {
+  return {
+    ok: false,
+    error: 'humanizer skill 未安装。安装: 复制 ~/.claude/skill-vault/humanizer 整个目录到 ~/.pi/agent/skills/humanizer (Windows 为 %USERPROFILE%\.pi\agent\skills\humanizer), 重启 wechat 后重试。',
+    article_md_path: locate.md_path,
+  }
 }
 
 phase('去 AI 味改写')
