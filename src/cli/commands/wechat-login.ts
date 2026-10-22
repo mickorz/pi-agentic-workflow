@@ -23,6 +23,7 @@ interface LoginCredentials {
 interface LoginApi {
   loadCredentials(): Promise<LoginCredentials | null>;
   saveCredentials(creds: LoginCredentials): Promise<void>;
+  clearCredentials(): Promise<void>;
   getQrCode(baseUrl?: string): Promise<{ token: string; url: string }>;
   pollQrStatus(
     token: string,
@@ -30,7 +31,11 @@ interface LoginApi {
   ): Promise<{ status: string; redirectHost?: string; credentials?: LoginCredentials | null }>;
 }
 
-export async function wechatLogin(): Promise<number> {
+/**
+ * force=true（wechat rebind）：先清除已有凭据再进扫码——用于换机接管/凭据失效重登；
+ * 同一 bot 账号新登录会顶掉其他机器的旧会话。
+ */
+export async function wechatLogin(force = false): Promise<number> {
   const authPath = "../../../thirdparties/pi-wechat-assistant/src/bridge/auth.ts";
   const utilsPath = "../../../thirdparties/pi-wechat-assistant/src/shared/utils.ts";
   const auth = (await import(authPath)) as unknown as LoginApi;
@@ -39,14 +44,20 @@ export async function wechatLogin(): Promise<number> {
   };
 
   const existing = await auth.loadCredentials();
-  if (existing) {
+  if (existing && !force) {
     process.stdout.write(
       [
         `[OK] 已有登录凭据（accountId=${existing.accountId}，userId=${existing.userId}），无需扫码`,
-        `凭据位置：~/.pi/agent/wechat-assistant/credentials.json（失效可删除后重跑本命令重新扫码）`,
+        `凭据位置：~/.pi/agent/wechat-assistant/credentials.json（失效可用 wechat rebind 重新扫码）`,
       ].join("\n") + "\n",
     );
     return 0;
+  }
+  if (force && existing) {
+    await auth.clearCredentials();
+    process.stdout.write(
+      `[解绑] 已清除旧凭据（accountId=${existing.accountId}），请扫码重新登录（同账号新登录会顶掉其他机器的会话）\n`,
+    );
   }
 
   let baseUrl: string | undefined;

@@ -5,6 +5,7 @@
  *   → Outbox（完成≠送达）→ RunMonitor（审批卡/终态通知）→ AuditLog 全链路审计。
  * 前置：WX-P0 真机 SOP 已扫码（credentials.json 存在）。
  * 用法：pi-workflow wechat login                                    —— 扫码登录/复用已有凭证（免记 wxid）
+ *      pi-workflow wechat rebind                                   —— 清除旧凭据并重新扫码（换机接管/凭据失效重登）
  *      pi-workflow wechat start --registry dev-examples/am-p0/registry.json \
  *        --scripts dev-examples [--rate-max 20] [--budget-tokens 200000] [--data .pi-wechat]
  *        [--routing-mode legacy|agent]（缺省 agent = Conversational Agent 模式，AM-P0；legacy 需显式指定）
@@ -80,8 +81,9 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   if (options.reexecTsx && !underTsx()) return reexecUnderTsx(argv);
   const sub = argv[0];
   if (sub === "login") return wechatLogin();
+  if (sub === "rebind") return wechatLogin(true);
   if (sub !== "start") {
-    process.stderr.write("用法：pi-workflow wechat <login|start> […flags]\n");
+    process.stderr.write("用法：pi-workflow wechat <login|rebind|start> […flags]\n");
     return 2;
   }
   const flag = (name: string): string | undefined => {
