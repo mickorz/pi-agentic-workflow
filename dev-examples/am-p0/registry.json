@@ -64,10 +64,10 @@
       "type": "object",
       "properties": {
         "article_dir": { "type": "string", "description": "文章目录（含 1 个 .md 写作稿与正文图）" },
-        "cover": { "type": "string", "description": "封面图绝对路径" },
+        "cover": { "type": "string", "description": "封面图绝对路径（可选；不传则自动找：目录根 cover.* 或 imgs/ 下 cover 前缀图，找不到直接中断）" },
         "account": { "type": "string", "description": "账号槽位序号或名称（可选）" }
       },
-      "required": ["article_dir", "cover"]
+      "required": ["article_dir"]
     },
     "riskLevel": "external-side-effect",
     "enabled": true,

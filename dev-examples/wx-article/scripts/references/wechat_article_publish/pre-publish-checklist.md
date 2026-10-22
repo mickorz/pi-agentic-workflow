@@ -14,7 +14,7 @@
 - [ ] 目标账号槽位已由**用户选定**（不是替他挑的）—— `publish.py accounts`
 - [ ] 该槽位的 `WECHAT_{N}_APPID` / `APPSECRET` 已填 —— `publish.py check-wechat-env`
 - [ ] 服务器 IP 在公众号后台白名单里（`token` 报 errcode 多半是这条）
-- [ ] 封面在**文章目录下**（`cover.png` / `.jpg` / `.jpeg` / `.webp`），不是 `imgs/` 里
+- [ ] 封面可自动定位：文章目录根 `cover.png` / `.jpg` / `.jpeg` / `.webp`；若无，则 `imgs/` 下 **cover 前缀**的图（如 `cover-星空中的九个AI术语.png`）复制到文章目录根后使用；两处都无则 FAIL
 - [ ] 正文里没有挂未群发文章的链接（微信会拒；改用永久链接或去掉超链）
 - [ ] 需要 2.35:1 / 1:1 裁剪框时装了 Pillow，或已在 `article.yaml` 手填 `pic_crop_*`
 - [ ] 如需开启评论 / 仅粉丝可评，已确认设置

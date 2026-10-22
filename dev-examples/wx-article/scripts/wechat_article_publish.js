@@ -34,8 +34,9 @@ const configCheck = await agent(
   '2. 读 ' + CONFIG_ROOT + '/.aws-article/config.json 的 publish_method, wechat_accounts, wechat_publish_slot, wechat_{i}_name。\n' +
   '3. 读 ' + CONFIG_ROOT + '/aws.env 的 WECHAT_N_APPID / WECHAT_N_APPSECRET(只看键是否存在,不打印值)。\n' +
   '4. 读本篇 ' + args.article_dir + '/article.yaml 的 publish_completed, title, author, digest, content_source。\n' +
-  '5. 确认 ' + args.article_dir + '/article.html 存在、文章目录下有 cover.(png|jpg|jpeg|webp)(不在 imgs/)、article.md 与 article.html 均不含 placeholder。\n' +
-  '6. 若 publish_method=none,立即返回说明(不调任何微信接口)。\n\n' +
+  '5. 确认 ' + args.article_dir + '/article.html 存在、article.md 与 article.html 均不含 placeholder(任一不满足记 [FAIL])。\n' +
+  '6. 封面自动定位:依次 (a)文章目录根找 cover.(png|jpg|jpeg|webp); (b)' + args.article_dir + '/imgs/ 下找 cover 开头的图片文件(如 cover-xxx.png),找到后用 bash 复制到文章目录根为 cover.png(保持原扩展名);拿到则检查项 [OK];两处都没有则 [FAIL] 未找到封面(提示用户把 cover 前缀封面图放入文章目录或其 imgs/ 下),ready=false。\n' +
+  '7. 若 publish_method=none,立即返回说明(不调任何微信接口)。\n\n' +
   '用户指定账号: ' + (args.account || '未指定,需从 config 列账号') + '\n' +
   'publish_method: ' + (args.publish_method || '读 config') + '\n\n' +
   '返回 JSON: publish_method, 账号列表(name+序号+是否配齐凭证), 本篇产物检查结果(各 [OK]/[FAIL]), 是否就绪。',

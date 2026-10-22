@@ -6,7 +6,7 @@ export const meta = {
 // 对应 skill: references/wechat_md_to_draft
 // 输入 args:
 //   article_dir : 文章目录(必填,含 1 个 .md 写作稿 + 正文图)
-//   cover       : 封面图绝对路径(必填,用户指定)
+//   cover       : 封面图绝对路径(可选;不传则自动找:文章目录根 cover.* 优先,其次 imgs/ 下 cover 前缀图复制出来;两处都没有直接中断报错)
 //   account     : 账号槽位序号或名称。不传则列账号让用户选
 // 输出: { media_id, publish_completed, ok, error }
 
@@ -27,10 +27,10 @@ const configCheck = await agent(
   '2. 读 ' + CONFIG_ROOT + '/aws.env 的 WECHAT_N_APPID/APPSECRET 键是否存在(只看键,不打印值)。\n' +
   '3. 读 ' + CONFIG_ROOT + '/.aws-article/config.json 的 publish_method, wechat_accounts, wechat_{i}_name, default_author, need_open_comment, only_fans_can_comment。\n' +
   '4. 在 ' + args.article_dir + ' 下找 .md 写作稿(排除 article/draft/review 开头和含"审稿"的),取文件名最长的一个。解析 frontmatter 的 title/description。author 用 config.default_author。\n' +
-  '5. 确认封面 ' + args.cover + ' 文件存在。\n' +
+  '5. 封面自动定位(用户指定 cover=' + (args.cover || '未指定') + ' 时直接用它):依次 (a)文章目录根找 cover.(png|jpg|jpeg|webp); (b)imgs/ 下找 cover 开头的图片文件(如 cover-xxx.png),找到后用 bash 复制到文章目录根为 cover.png(保持原扩展名)。拿到则 cover_exists=true 且 cover_path=最终封面绝对路径;两处都没有则 cover_exists=false 且 ready=false,issues 写明缺失,不要向用户追问封面路径。\n' +
   '6. 扫描 .md 正文里 ![alt](path) 的图片引用,确认每张图在 article_dir 下真实存在(路径相对 article_dir)。\n\n' +
   '用户指定账号: ' + (args.account || '未指定,需从 config 列账号') + '\n\n' +
-  '返回 JSON: { publish_method, accounts[], ready, title, author, digest, cover_exists, img_refs[], issues }。',
+  '返回 JSON: { publish_method, accounts[], ready, title, author, digest, cover_exists, cover_path, img_refs[], issues }。',
   { label: '检查', agentType: 'general', schema: {
     type: 'object',
     properties: {
@@ -41,6 +41,7 @@ const configCheck = await agent(
       author: { type: 'string' },
       digest: { type: 'string' },
       cover_exists: { type: 'boolean' },
+      cover_path: { type: 'string' },
       img_refs: { type: 'array', items: { type: 'string' } },
       issues: { type: 'string' },
     },
@@ -48,8 +49,15 @@ const configCheck = await agent(
   } }
 )
 
-if (!configCheck.ready) {
-  return { ok: false, publish_completed: false, issues: configCheck.issues || '前置检查未通过' }
+if (!configCheck.ready || !configCheck.cover_exists) {
+  return {
+    ok: false,
+    publish_completed: false,
+    issues: configCheck.issues || '前置检查未通过',
+    ...(configCheck.cover_exists === false
+      ? { error: '未找到封面:文章目录根无 cover.*,imgs/ 下也无 cover 前缀图片。请把封面图放入文章目录或其 imgs/ 下(文件名以 cover 开头)后重试' }
+      : {}),
+  }
 }
 
 phase('确认账号')
@@ -73,7 +81,7 @@ await checkpoint(
   '标题: ' + (configCheck.title || '(待脚本解析)') + '\n' +
   '作者: ' + (configCheck.author || '') + '\n' +
   '摘要: ' + (configCheck.digest ? (configCheck.digest.slice(0, 40) + '...') : '') + '\n' +
-  '封面: ' + args.cover + '\n' +
+  '封面: ' + (configCheck.cover_path || args.cover || '(自动定位)') + '\n' +
   '正文图: ' + ((configCheck.img_refs && configCheck.img_refs.length) || 0) + ' 张\n' +
   '账号: ' + ((account && account.name) || account || '默认') + '\n\n' +
   '模式: draft (仅入草稿箱,不群发)\n' +
@@ -83,7 +91,7 @@ await checkpoint(
 phase('执行发布')
 const publishResult = await agent(
   '你是公众号发布执行者。请用 bash 工具执行发布脚本(一条命令):\n\n' +
-  'powershell -NoProfile -ExecutionPolicy Bypass -File "' + PUBLISH_SCRIPT + '" -ArticleDir "' + args.article_dir + '" -Cover "' + args.cover + '"\n\n' +
+  'powershell -NoProfile -ExecutionPolicy Bypass -File "' + PUBLISH_SCRIPT + '" -ArticleDir "' + args.article_dir + '" -Cover "' + (configCheck.cover_path || args.cover) + '"\n\n' +
   '脚本流程: 向上找仓库根 → 找 .md 写作稿(排除 article/draft/审稿) → 解析 frontmatter(title/description) → .md 转 HTML(微信 inline 样式) → 扫描 .md 图片引用 → 读 aws.env 换 token → 上传封面到 add_material → 上传正文图到 uploadimg → 替换 HTML 图片路径为微信 URL → 调 draft/add 建草稿 → 写 publish.log + article.yaml + 复制 article.md。\n\n' +
   '脚本 stdout 含 "[5] DRAFT OK media_id=xxx" 行,解析拿到 draft media_id。stdout 末尾 "=== ALL DONE draft_media_id=xxx ===" 表示全流程成功。\n' +
   '若 stdout 含 "[FAIL]",按四分类报错(网络/鉴权/内容/配额),不重试,把 FAIL 行原文放进 error 字段。\n' +
