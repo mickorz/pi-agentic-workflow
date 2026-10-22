@@ -49,6 +49,18 @@ if ($md -match '(?ms)^---\r?\n(.*?)\r?\n---') {
 }
 $cfg = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $author = $cfg.default_author; if (-not $author) { $author = 'AI奇点' }
+# 回退链: frontmatter 缺失时读 article.yaml(插图/元数据流程维护), 再回退正文首个加粗行作 title
+$yamlAuthor = ''
+$yamlPath = Join-Path $ArticleDir 'article.yaml'
+if (Test-Path -LiteralPath $yamlPath) {
+  $yam = Get-Content -LiteralPath $yamlPath -Raw -Encoding UTF8
+  if (-not $title -and $yam -match '(?m)^title\s*:\s*["'']?(.+?)["'']?\s*$') { $title = $matches[1] }
+  if (-not $description -and $yam -match '(?m)^digest\s*:\s*["'']?(.+?)["'']?\s*$') { $description = $matches[1] }
+  if ($yam -match '(?m)^author\s*:\s*["'']?(.+?)["'']?\s*$') { $yamlAuthor = $matches[1] }
+}
+if ($yamlAuthor) { $author = $yamlAuthor }
+if (-not $title -and $md -match '(?m)^\*\*([^*\n]{4,40})\*\*\s*$') { $title = $matches[1] }
+if (-not $title) { Write-Output "[FAIL] no title: frontmatter/article.yaml/首个加粗行均未取到 title"; exit 1 }
 $digest = $description; if (-not $digest) { $digest = $title }
 Write-Output "[meta] title=$title | author=$author | digestLen=$($digest.Length)"
 
@@ -104,6 +116,7 @@ function Convert-Md($text) {
 }
 
 $html = Convert-Md $md
+if ($html.Length -lt 200) { Write-Output "[FAIL] html too short ($($html.Length) chars), content likely empty"; exit 1 }
 Write-Output "[html] generated $($html.Length) chars"
 
 # 扫描 .md 图片引用
