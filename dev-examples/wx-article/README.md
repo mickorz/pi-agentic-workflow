@@ -1,17 +1,22 @@
 # wx-article — 文章工作流微信接入（需求 1/2）
 
 > 需求：《文章工作流接入需求.md》· 方案：《微信接入方案.md》
-> 范围：只集成需求相关的两个流程（大纲 / 直发草稿），未引入全部 17 个脚本。
+> 范围：需求相关两个流程（大纲 / 直发草稿）+ 自 ~/.claude/workflows 引入的插图元数据流程。
 
 ## 流程清单
 
 | workflowId | 脚本 | 风险级 | 微信触发 |
 |---|---|---|---|
-| `obsidian-outline` | scripts/obsidian_outline.js（新写，编排 collect_images + 图片分析 + 目录分析 + 大纲） | read-only | ✅ 自动执行 |
-| `wechat-md-to-draft` | scripts/wechat_md_to_draft.js（自脚本库复制，PUBLISH_SCRIPT 已改相对路径） | external-side-effect | ❌ 当前 NOT_AUTHORIZED（执行前授权属 AM-P0 T4）；CLI 可跑 |
+| `obsidian-outline` | scripts/obsidian_outline.js（新写，编排 collect_images + 图片分析 + 目录分析 + 大纲） | read-only | 自动执行 |
+| `wechat-md-to-draft` | scripts/wechat_md_to_draft.js（自脚本库复制，PUBLISH_SCRIPT 已改相对路径） | external-side-effect | 执行前授权（AM-P0 批准链） |
+| `article-insert-images-meta` | scripts/article_insert_images_meta.js（自 ~/.claude/workflows 引入，插图脚本路径改仓库内绝对路径；默认追加去 AI 味） | write | 执行前授权（AM-P0 批准链）；微信必传 skip_confirm:true |
+| `article-humanize` | scripts/article_humanize.js（自 ~/.claude/workflows 引入，独立去 AI 味，从 polish 的 humanizer 段抽离） | write | 执行前授权（AM-P0 批准链） |
 
 子流程依赖：scripts/article_collect_images.js（被 outline 编排，自包含）。
 发布脚本：scripts/references/wechat_md_to_draft/scripts/publish.ps1（已内嵌）。
+插图脚本：scripts/references/article_insert_images_meta/scripts/insert_images.ps1（已内嵌，自检 test-fixture/run.sh）。
+去 AI 味依赖 humanizer skill：已复制到 ~/.pi/agent/skills/humanizer（换机器同步）。
+注意：本目录 registry.json 未含 article-insert-images-meta 与 article-humanize——微信测试用仓库根聚合表（`pi-workflow wechat start --routing-mode agent` 缺省即 am-p0/registry.json + --scripts dev-examples），详见 scripts/references/article_insert_images_meta/README.md。
 
 ## 启动（从本目录启动，cwd 即数据目录）
 

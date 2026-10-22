@@ -1,0 +1,4 @@
+# 运行产物（run.sh 每次重建，不入库）
+sample-article.md
+mapping.json
+imgs/

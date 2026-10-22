@@ -72,5 +72,56 @@
     "riskLevel": "external-side-effect",
     "enabled": true,
     "keywords": ["发布", "草稿", "公众号", "文章发布", "draft", "publish"]
+  },
+  {
+    "workflowId": "article-insert-images-meta",
+    "scriptPath": "wx-article/scripts/article_insert_images_meta.js",
+    "name": "文章配图插入与元数据",
+    "description": "把文章目录 imgs 下的图片按图名语义匹配章节插入 md（每章一句话记住前），并写/更新 article.yaml 元数据；改文件需批准",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "article_dir": { "type": "string", "description": "文章目录绝对路径（含 1 个 .md 源文件与 imgs/ 图片目录）" },
+        "md_file": { "type": "string", "description": "指定 .md 绝对路径（可选）" },
+        "title": { "type": "string", "description": "覆盖 article.yaml 标题（可选）" },
+        "digest": { "type": "string", "description": "覆盖 article.yaml 摘要（可选）" },
+        "author": { "type": "string", "description": "覆盖作者（可选）" },
+        "skip_confirm": { "type": "boolean", "description": "跳过插图前确认；微信链路必传 true（无终端 checkpoint 通道）" },
+        "skip_humanize": { "type": "boolean", "description": "跳过插图后的去 AI 味改写（默认不跳过）" },
+        "humanize_voice": { "type": "string", "description": "去 AI 味 voice：casual/professional/technical/warm/blunt（默认 professional）" },
+        "humanize_aggressive": { "type": "boolean", "description": "去 AI 味重度改写（默认 false）" },
+        "humanize_iterate": { "type": "number", "description": "去 AI 味 detect-rewrite-detect 迭代次数 1-3（默认 2）" }
+      },
+      "required": ["article_dir"]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": ["插图", "配图", "插入图片", "文章配图", "元数据", "article.yaml", "一句话记住"],
+    "examples": [
+      "给 E:/Obsidian/xxx/从零学AI-xxx 这个文章目录插入配图并更新元数据，跳过确认"
+    ]
+  },
+  {
+    "workflowId": "article-humanize",
+    "scriptPath": "wx-article/scripts/article_humanize.js",
+    "name": "文章去 AI 味",
+    "description": "对 markdown 做 detect-rewrite-detect 去 AI 味改写（humanizer skill，ZH1-ZH15），输出改写前后 AI 味评分与问题清单；覆盖写回前自动备份 article-pre-humanize.md",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "md_path": { "type": "string", "description": "要改写的 markdown 绝对路径（与 article_dir 二选一）" },
+        "article_dir": { "type": "string", "description": "文章目录（自动找 .md；备份放这里）" },
+        "voice": { "type": "string", "description": "casual/professional/technical/warm/blunt（默认 professional）" },
+        "aggressive": { "type": "boolean", "description": "重度改写（默认 false）" },
+        "iterate": { "type": "number", "description": "迭代次数 1-3（默认 2）" },
+        "purpose": { "type": "string", "description": "写作用途（默认 essay）" }
+      }
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": ["去AI味", "去 AI 味", "人味", "机味", "改写", "humanize", "humanizer", "润色"],
+    "examples": [
+      "把 E:/Obsidian/xxx/从零学AI-xxx 里的文章去一下 AI 味"
+    ]
   }
 ]
