@@ -25,6 +25,7 @@ import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
 import { createNodeExecutor, compositeScopeStorage, type WorkflowNode } from "./node-contract.js";
 import { vaultResolve as callVaultResolver, type VaultResolveResult } from "./vault-resolver.js";
 import { createObsidianReader } from "./obsidian-reader.js";
+import { createObsidianWriter } from "./obsidian-writer.js";
 import type { AgentSessionRunner, AgentRunOptions } from "../agent/session-runner.js";
 import type { AgentRecord, AgentUsage, JournalEntry, WorkflowMeta, WorkflowRunResult } from "./types.js";
 import { buildOutputPreview, truncatePromptForJournal } from "./agent-result.js";
@@ -97,6 +98,8 @@ export interface WorkflowRunOptions {
   vaultResolver?: { scriptPath?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number };
   /** obsidian Reader 配置（P1a Phase R）：注入链 PI_VAULT_QUERY_PATH > dev 兜底，见 obsidian-reader.ts */
   obsidian?: { scriptPath?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number };
+  /** P1a Phase W（方案 §3）：运行级授权信号（服务端传入，非 args）；true 才可能注入写能力门 */
+  authorized?: boolean;
 }
 
 /** checkpoint() 的可选项（P2 实现运行时；类型先占位保持向前兼容） */
@@ -157,6 +160,8 @@ interface SharedRunContext {
   vaultResolver?: { scriptPath?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number };
   /** obsidian Reader 运行配置（透传 WorkflowRunOptions.obsidian；P1a Phase R） */
   obsidian?: { scriptPath?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number };
+  /** P1a Phase W（方案 §3）：运行级授权信号（审批链 authorized 启动才为 true；manifest 持久化供 resume） */
+  authorized?: boolean;
   /** 事件发射器（per-run sequence 单调） */
   events: EventEmitter;
 }
@@ -184,6 +189,7 @@ function createSharedRunContext(options: WorkflowRunOptions, runId: string): Sha
     confirm: options.confirm,
     vaultResolver: options.vaultResolver,
     obsidian: options.obsidian,
+    authorized: options.authorized ?? false,
     events: createEventEmitter(runId, options.onEvent, options.eventSequenceStart ?? 0),
   };
   // 默认并发下限 2：parallel/race 的 DSL 契约是分支重叠（P0-03 测试断言）；
@@ -927,6 +933,17 @@ async function executeWorkflow(
     cwd: shared.cwd,
   });
 
+  // ── obsidianWrite：写面能力门（P1a Phase W，方案 §3）──
+  // 两个条件同时满足才注入（缺一即不注入，脚本引用 obsidianWrite → ReferenceError）：
+  //  ① 脚本 meta.capabilities 声明 "obsidian-write"（能力白名单）
+  //  ② 运行经审批链 authorized 启动（SharedRunContext.authorized，服务端传入；禁 args 传参判权）
+  const wantsObsidianWrite =
+    Array.isArray(meta.capabilities) && meta.capabilities.includes("obsidian-write");
+  const obsidianWrite =
+    wantsObsidianWrite && shared.authorized === true
+      ? createObsidianWriter({ ...(shared.obsidian ?? {}), cwd: shared.cwd })
+      : undefined;
+
   // ── verify / retry（P1） ──
 
   const VERIFY_SCHEMA: Record<string, unknown> = {
@@ -1102,6 +1119,7 @@ async function executeWorkflow(
     commandSuccess,
     vaultResolve,
     obsidian,
+    ...(obsidianWrite ? { obsidianWrite } : {}),
     phase,
     log,
     args,

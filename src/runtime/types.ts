@@ -93,6 +93,8 @@ export interface WorkflowMeta {
   name: string;
   description?: string;
   phases?: Array<{ title: string }>;
+  /** P1a Phase W（方案 §3）：能力声明（如 "obsidian-write"）；声明后受运行时能力门约束 */
+  capabilities?: string[];
 }
 
 /** runWorkflow 的返回值 */

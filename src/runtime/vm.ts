@@ -171,6 +171,23 @@ function validateMeta(meta: unknown): asserts meta is WorkflowMeta {
       }
     }
   }
+  // P1a Phase W（方案 §3）：能力声明仅元数据（如 "obsidian-write"）；
+  // 写能力门在 workflow-runtime（meta.capabilities ⊕ shared.authorized）
+  if (value.capabilities !== undefined) {
+    if (!Array.isArray(value.capabilities) || value.capabilities.length === 0) {
+      throw new Error("meta.capabilities 必须是非空字符串数组");
+    }
+    const seen = new Set<string>();
+    for (const cap of value.capabilities) {
+      if (typeof cap !== "string" || !/^[a-z][a-z0-9-]*$/.test(cap)) {
+        throw new Error(`meta.capabilities 条目非法（kebab-case）：${String(cap)}`);
+      }
+      if (seen.has(cap)) {
+        throw new Error(`meta.capabilities 条目重复：${cap}`);
+      }
+      seen.add(cap);
+    }
+  }
 }
 
 /** 在 vm 沙箱中执行 workflow body，返回脚本 return 值 */

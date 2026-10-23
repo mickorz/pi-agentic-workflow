@@ -53,6 +53,8 @@ export interface StartRunOptions {
   retries?: number;
   maxAgents?: number;
   continueOnFailure?: boolean;
+  /** P1a Phase W（方案 §3）：运行级授权信号（服务端传入，非 args）；true 才允许注入写能力门 */
+  authorized?: boolean;
 }
 
 export interface ResumeOptions {
@@ -112,6 +114,7 @@ export class RunApplicationService {
       ...(input.retries !== undefined ? { retries: input.retries } : {}),
       ...(input.maxAgents ? { maxAgents: input.maxAgents } : {}),
       ...(input.continueOnFailure !== undefined ? { continueOnFailure: input.continueOnFailure } : {}),
+      ...(input.authorized !== undefined ? { authorized: input.authorized } : {}),
       });
     } catch (e) {
       if (e instanceof WorkflowScriptError) {

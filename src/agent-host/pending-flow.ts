@@ -13,7 +13,8 @@
 
 import { PendingActionStore } from "./pending-action.js";
 import { LaunchCoordinator } from "./launch-flow.js";
-import { computeArgsDigest, computeRegistryDigest } from "./digest.js";
+import { computeArgsDigest, computeRegistryDigest, sha256Hex } from "./digest.js";
+import { OBSIDIAN_OP_KIND } from "./task-control-facade.js";
 import type { PendingAction } from "./types.js";
 import type { RoutePlan } from "../contracts/wx.js";
 import type { WorkflowRegistry } from "../dispatch/registry.js";
@@ -47,10 +48,23 @@ function errMessage(e: unknown): string {
  * 不依赖 Agent 自行描述（LLM 遗漏/描述错目标都不影响用户看到真实执行对象）。
  */
 export function renderPendingActionApproval(action: PendingAction): string {
+  // P1a Phase W（方案 §2.3）：Obsidian 写操作卡片只显示操作类型 + digest 前 8 位 + 预览 ≤80 字，
+  // 不回显全文（全文仅存机内 PendingAction 快照）。
+  const obsidianLines: string[] = [];
+  const kind = OBSIDIAN_OP_KIND[action.workflowId];
+  if (kind) {
+    const args = (action.args ?? {}) as Record<string, unknown>;
+    const content = typeof args.content === "string" ? args.content : "";
+    const digest = sha256Hex(content).slice(0, 8);
+    const preview = content.replace(/\s+/g, " ").trim().slice(0, 80);
+    obsidianLines.push(`操作：${kind === "create" ? "创建笔记" : "追加内容"}（内容摘要 ${digest}）`);
+    if (preview) obsidianLines.push(`预览：${preview}`);
+  }
   return [
     "⏳ 待审批流程",
     `流程：${action.workflowId}`,
     ...(action.resolvedTarget ? [`目标：${action.resolvedTarget}`] : []),
+    ...obsidianLines,
     `编号：${action.actionId}`,
     "",
     "回复「批准」执行；回复「拒绝」取消（多项待审批可用「批准 序号」）。",

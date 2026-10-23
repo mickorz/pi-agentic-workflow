@@ -15,8 +15,10 @@
 import { PendingActionStore } from "./pending-action.js";
 import { RunLinkStore } from "./run-launch.js";
 import { LaunchCoordinator } from "./launch-flow.js";
-import { computeArgsDigest, computeRegistryDigest } from "./digest.js";
+import { computeArgsDigest, computeRegistryDigest, sha256Hex } from "./digest.js";
 import { vaultResolve } from "../runtime/vault-resolver.js";
+import { vaultQueryRead } from "../runtime/obsidian-reader.js";
+import { MAX_CONTENT_BYTES, validWriteRel } from "../runtime/obsidian-writer.js";
 import type { PendingAction } from "./types.js";
 import type {
   AgentToolFacade,
@@ -44,6 +46,8 @@ export interface TaskControlFacadeDeps {
   channel?: "wechat" | "cli";
   /** VR S4.2：vault_ref 通道审批前预检解析配置（注入链缺省：PI_VAULT_RESOLVER_PATH > dev 兜底） */
   vaultResolver?: { scriptPath?: string; cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; vaultRoot?: string };
+  /** P1a Phase W：Obsidian 写操作冲突预检用查询后端配置（注入链缺省：PI_VAULT_QUERY_PATH > dev 兜底） */
+  vaultQuery?: { scriptPath?: string; cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; vaultRoot?: string };
   /** VR #12：PendingAction 创建后回调（gateway 接确定性审批卡推送，不依赖 Agent 自行描述） */
   onPendingCreated?: (action: PendingAction) => void;
 }
@@ -56,6 +60,13 @@ const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 const VAULT_REF_CHANNELS: Record<string, "article" | "dir"> = {
   vault_ref: "article",
   vaultRef: "dir",
+};
+
+// P1a Phase W（方案 §2）：Obsidian 写操作 workflowId → 操作类型。
+// 预检（冲突/缺失）与 operationId 派生按此分派；审批卡渲染（pending-flow）同样引用。
+export const OBSIDIAN_OP_KIND: Record<string, "create" | "append"> = {
+  "obsidian-note-create": "create",
+  "obsidian-note-append": "append",
 };
 
 function errMessage(e: unknown): string {
@@ -123,10 +134,42 @@ export class TaskControlFacade implements AgentToolFacade {
     // 去重：同 userId+workflowId+argsDigest 已有 pending 项则复用（不刷新 TTL），
     // 避免 LLM 重试/重复发起时叠加多条 pending，导致用户「批准」绑定错位（批准走最老一条）。
     const args = { ...((input.args ?? {}) as Record<string, unknown>) };
+    let resolvedTarget: string | undefined;
+    // P1a Phase W（方案 §2）：Obsidian 写操作审批前预检——
+    //  ① rel/content 契约校验 ② 冲突/缺失确定性探测（用户批准前就发现写不进去）
+    //  ③ operationId 服务端派生注入（覆盖外部同名参数，§2 幂等键）——必须在 computeArgsDigest 之前
+    const obsidianKind = OBSIDIAN_OP_KIND[input.workflowId];
+    if (obsidianKind) {
+      const rel = typeof args.rel === "string" ? args.rel.trim() : "";
+      const content = typeof args.content === "string" ? args.content : "";
+      if (!validWriteRel(rel)) {
+        return { error: "rel 必须是 vault 相对 .md 路径（不允许绝对路径或 . / .. 段；需 .md 结尾）" };
+      }
+      if (!content.trim() || Buffer.byteLength(content, "utf-8") > MAX_CONTENT_BYTES) {
+        return { error: "content 必须是非空字符串（UTF-8，≤1MB）" };
+      }
+      let probe: Awaited<ReturnType<typeof vaultQueryRead>>;
+      try {
+        probe = await vaultQueryRead({ path: rel }, { ...(this.deps.vaultQuery ?? {}) });
+      } catch (e) {
+        return { error: `vault_query 不可用（未创建审批）：${errMessage(e)}` };
+      }
+      // >512KB 读超限也证明目标存在（区分「不存在」与「存在但读不动」）
+      const exists =
+        probe.ok === true || (probe.ok === false && probe.issues.some((i) => i.includes("readNote 上限")));
+      if (obsidianKind === "create" && exists) {
+        return { error: `目标笔记已存在（O_EXCL 将拒绝创建，未创建审批）：${rel}` };
+      }
+      if (obsidianKind === "append" && !exists) {
+        return { error: `目标笔记不存在（append 不创建，未创建审批）：${rel}` };
+      }
+      const contentDigest = sha256Hex(content);
+      args.operationId = sha256Hex(`${input.userId}|${input.workflowId}|${rel}|${contentDigest}`).slice(0, 16);
+      resolvedTarget = rel;
+    }
     // VR S4.2 审批前参数预检：声明 anyOfArgs 的流程，在创建 PendingAction 前校验
     // 至少一个通道有有效值——不满足直接 error 给 Agent，绝不出现
     // 「用户批准 → 执行 → 才发现缺参」的空转授权。
-    let resolvedTarget: string | undefined;
     if (Array.isArray(reg.anyOfArgs) && reg.anyOfArgs.length > 0) {
       const present = reg.anyOfArgs.filter(
         (k) => typeof args[k] === "string" && (args[k] as string).trim() !== "",

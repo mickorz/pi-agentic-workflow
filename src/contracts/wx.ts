@@ -61,6 +61,8 @@ export interface WorkflowRegistration {
   /** 跨字段「至少一」约束（VR S4.2）：声明后 facade 在创建 PendingAction 前做审批前预检，
    *  条目必须存在于 argsSchema.properties；如 ["article_dir", "vault_ref", "article_name"] */
   anyOfArgs?: string[];
+  /** P1a Phase W（方案 §3）：能力声明（如 "obsidian-write"）；注册面校验与 registryDigest 均纳入 */
+  capabilities?: string[];
 }
 
 // ── 意图路由结果 ──
