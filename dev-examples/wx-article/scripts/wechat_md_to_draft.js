@@ -5,7 +5,11 @@ export const meta = {
 
 // 对应 skill: references/wechat_md_to_draft
 // 输入 args:
-//   article_dir : 文章目录(必填,含 1 个 .md 写作稿 + 正文图)
+//   article_dir : 文章目录(定位通道之一,含 1 个 .md 写作稿 + 正文图)
+//   vault_ref   : Obsidian 逻辑引用(定位通道之二): 文章名或 vault 相对路径(如 AI提问技巧 或 公众号/AI入门/AI提问技巧),
+//                 服务端 vault_resolver 确定性解析(want=article: 目录正文唯一→目录; .md 命中且父目录正文唯一→父目录);歧义列候选不猜
+//   vault_scope : 限定搜索范围(vault 相对目录或配置别名,可选,硬约束:解析结果必须在 scope 内)
+//   vault_ref_pinned_rel : 审批锚点(vault 相对路径;由服务端审批链注入,外部传入仅作一致性比对)
 //   cover       : 封面图绝对路径(可选;不传则自动找:文章目录根 cover.* 优先,其次 imgs/ 下 cover 前缀图复制出来;两处都没有直接中断报错)
 //   account     : 账号槽位序号或名称。不传则列账号让用户选
 //   account_slot: 账号槽位数字(直接透传 publish.py --account-slot,默认 1)
@@ -26,13 +30,33 @@ const DRAFT_BOX_URL = 'https://mp.weixin.qq.com/cgi-bin/appmsg?begin=0&count=10&
 // Python 解释器真探测(Store 占位符问题,见 experience/windows-python-subprocess-gbk-and-python3-alias.md)
 const PY_PROBE = 'PY=""; for c in python3 python py; do if "$c" -c "import sys" 2>/dev/null; then PY="$c"; break; fi; done; [ -n "$PY" ] || { echo "[FAIL] no usable python on PATH"; exit 49; }'
 
+phase('文章定位')
+// 定位通道二选一: article_dir 绝对路径 / vault_ref Obsidian 逻辑引用(VR S3.2)。
+// vaultResolve 为服务端确定性解析(零 LLM);失败/歧义走 check() 中止(FAILURE),不空转。
+let articleDir = args.article_dir || ''
+if (!articleDir && args.vault_ref) {
+  const r = await vaultResolve(args.vault_ref, { scope: args.vault_scope, want: 'article' })
+  await check(
+    () => r.ok === true,
+    '文章定位失败: ' + JSON.stringify({ issues: r.issues, candidates: r.candidates }),
+  )
+  if (args.vault_ref_pinned_rel) {
+    await check(
+      () => r.resolved_rel === args.vault_ref_pinned_rel,
+      '定位结果与批准目标不一致，请重新授权',
+    )
+  }
+  articleDir = r.resolved_path
+  log('vault 定位: ' + args.vault_ref + ' -> ' + r.resolved_rel)
+}
+
 phase('读配置与前置检查')
 const configCheck = await agent(
   '你是公众号发布前置检查员。请:\n\n' +
   '1. 公众号配置根(固定路径,不从 article_dir 向上找): ' + CONFIG_ROOT + '\n' +
   '2. 读 ' + CONFIG_ROOT + '/aws.env 的 WECHAT_N_APPID/APPSECRET 键是否存在(只看键,不打印值)。\n' +
   '3. 读 ' + CONFIG_ROOT + '/.aws-article/config.json 的 publish_method, wechat_accounts, wechat_{i}_name, default_author, need_open_comment, only_fans_can_comment。\n' +
-  '4. 在 ' + args.article_dir + ' 下找 .md 写作稿(排除 article/draft/review 开头和含"审稿"的),取文件名最长的一个。解析 frontmatter 的 title/description。author 用 config.default_author。\n' +
+  '4. 在 ' + articleDir + ' 下找 .md 写作稿(排除 article/draft/review 开头和含"审稿"的),取文件名最长的一个。解析 frontmatter 的 title/description。author 用 config.default_author。\n' +
   '5. 封面自动定位(用户指定 cover=' + (args.cover || '未指定') + ' 时直接用它):依次 (a)文章目录根找 cover.(png|jpg|jpeg|webp); (b)imgs/ 下找 cover 开头的图片文件(如 cover-xxx.png),找到后用 bash 复制到文章目录根为 cover.png(保持原扩展名)。拿到则 cover_exists=true 且 cover_path=最终封面绝对路径;两处都没有则 cover_exists=false 且 ready=false,issues 写明缺失,不要向用户追问封面路径。\n' +
   '6. 扫描 .md 正文里 ![alt](path) 的图片引用,确认每张图在 article_dir 下真实存在(路径相对 article_dir)。\n\n' +
   '用户指定账号: ' + (args.account || '未指定,需从 config 列账号') + '\n\n' +
@@ -99,7 +123,7 @@ if (args.skip_confirm !== true) {
 phase('执行发布')
 const publishResult = await agent(
   '你是公众号发布执行者。请用 bash 工具执行发布脚本(一条命令):\n\n' +
-  PY_PROBE + '; "$PY" "' + PUBLISH_SCRIPT + '" --article-dir "' + args.article_dir + '" --cover "' + (configCheck.cover_path || args.cover) + '"' +
+  PY_PROBE + '; "$PY" "' + PUBLISH_SCRIPT + '" --article-dir "' + articleDir + '" --cover "' + (configCheck.cover_path || args.cover) + '"' +
   (args.account_slot ? ' --account-slot ' + args.account_slot : '') +
   (configCheck.title ? ' --title "' + configCheck.title + '"' : '') +
   (configCheck.digest ? ' --digest "' + configCheck.digest + '"' : '') +

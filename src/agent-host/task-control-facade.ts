@@ -50,6 +50,14 @@ export interface TaskControlFacadeDeps {
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
+// VR S4.3 vault 逻辑引用通道名 → 解析意图（want）：
+// vault_ref=文章目录（want=article，文章类流程用）；vaultRef=Obsidian 任意目录（want=dir，大纲流程用）。
+// 预检时按通道名确定解析语义，锚点参数统一为 vault_ref_pinned_rel。
+const VAULT_REF_CHANNELS: Record<string, "article" | "dir"> = {
+  vault_ref: "article",
+  vaultRef: "dir",
+};
+
 function errMessage(e: unknown): string {
   if (e instanceof Error) return e.message;
   return String(e);
@@ -128,13 +136,15 @@ export class TaskControlFacade implements AgentToolFacade {
           error: `缺少定位参数：${reg.anyOfArgs.join(" / ")} 至少提供一个（请向用户确认文章名或 vault 相对路径）`,
         };
       }
-      // VR S4.3 vault_ref 通道：服务端确定性解析。失败/歧义绝不创建审批项
+      // VR S4.3 vault 逻辑引用通道：服务端确定性解析。失败/歧义绝不创建审批项
       //（用户批准前就发现定位不了）；解析成功后注入服务端锚点。
-      if (present.includes("vault_ref")) {
+      // 通道名→解析意图：vault_ref=文章目录(want=article)；vaultRef=Obsidian 任意目录(want=dir，outline 用)
+      const vrChannel = present.find((k) => k in VAULT_REF_CHANNELS);
+      if (vrChannel) {
         let resolved;
         try {
-          resolved = await vaultResolve(String(args.vault_ref), {
-            want: "article",
+          resolved = await vaultResolve(String(args[vrChannel]), {
+            want: VAULT_REF_CHANNELS[vrChannel],
             ...(typeof args.vault_scope === "string" && args.vault_scope.trim() !== ""
               ? { scope: args.vault_scope }
               : {}),
@@ -146,7 +156,7 @@ export class TaskControlFacade implements AgentToolFacade {
         if (!resolved.ok || !resolved.resolved_rel) {
           return {
             error:
-              "文章定位失败（未创建审批，请向用户确认目标后重试）：" +
+              "目标定位失败（未创建审批，请向用户确认后重试）：" +
               JSON.stringify({ issues: resolved.issues ?? [], candidates: resolved.candidates ?? [] }),
           };
         }

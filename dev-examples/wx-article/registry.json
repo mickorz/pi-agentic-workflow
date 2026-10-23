@@ -3,18 +3,28 @@
     "workflowId": "obsidian-outline",
     "scriptPath": "scripts/obsidian_outline.js",
     "name": "Obsidian 目录大纲",
-    "description": "分析 Obsidian 目录并制作文章大纲:下载引用图片到 imgs、生成图片引用清单、结合目录内容产出大纲",
+    "description": "分析 Obsidian 目录并制作文章大纲:下载引用图片到 imgs、生成图片引用清单、结合目录内容产出大纲。目录定位二选一: vaultDir 绝对路径 / vaultRef(Obsidian 逻辑引用:目录名或 vault 相对路径,跨设备免绝对路径,如 vaultRef=AI生图)",
     "argsSchema": {
       "type": "object",
       "properties": {
         "vaultDir": {
           "type": "string",
-          "description": "Obsidian 目录绝对路径(正斜杠或反斜杠均可)"
+          "description": "Obsidian 目录 A 绝对路径(定位通道之一;正斜杠或反斜杠均可)"
+        },
+        "vaultRef": {
+          "type": "string",
+          "description": "Obsidian 逻辑引用:目录名或 vault 相对路径(如 AI生图 或 newsky/AI生图);服务端确定性解析(want=dir)"
+        },
+        "vault_scope": {
+          "type": "string",
+          "description": "限定搜索范围(vault 相对目录或配置别名,可选,硬约束:解析结果必须在 scope 内)"
+        },
+        "vault_ref_pinned_rel": {
+          "type": "string",
+          "description": "审批锚点(vault 相对路径;由服务端审批链注入并覆盖外部同名值,用于批准目标一致性比对)"
         }
       },
-      "required": [
-        "vaultDir"
-      ]
+      "required": []
     },
     "riskLevel": "write",
     "enabled": true,
@@ -28,21 +38,26 @@
       "笔记"
     ],
     "examples": [
+      "帮我分析 vault 里的「AI生图」目录做个大纲",
       "帮我分析 E:/Obsidian/MyVault/知识库 这个目录做个大纲",
       "分析这个 obsidian 目录并整理图片引用"
+    ],
+    "anyOfArgs": [
+      "vaultDir",
+      "vaultRef"
     ]
   },
   {
     "workflowId": "wechat-md-to-draft",
     "scriptPath": "scripts/wechat_md_to_draft.js",
     "name": "文章直发草稿箱",
-    "description": "把 Obsidian 文章目录的 md 写作稿转换为公众号草稿:转 HTML、上传图片、建草稿、打开草稿箱",
+    "description": "把 Obsidian 文章目录的 md 写作稿转换为公众号草稿:转 HTML、上传图片、建草稿、打开草稿箱。文章定位二选一: article_dir 绝对路径 / vault_ref(Obsidian 逻辑引用:文章名或 vault 相对路径,跨设备免绝对路径,如《AI提问技巧》)",
     "argsSchema": {
       "type": "object",
       "properties": {
         "article_dir": {
           "type": "string",
-          "description": "文章目录(含 1 个 .md 写作稿与正文图)"
+          "description": "文章目录绝对路径(定位通道之一)"
         },
         "cover": {
           "type": "string",
@@ -59,11 +74,21 @@
         "skip_confirm": {
           "type": "boolean",
           "description": "跳过发布前 checkpoint(仅外层已获授权时透传,如 prepare 流程)"
+        },
+        "vault_ref": {
+          "type": "string",
+          "description": "Obsidian 逻辑引用:文章名或 vault 相对路径(如 AI提问技巧 或 公众号/AI入门/AI提问技巧);服务端确定性解析(want=article),歧义返回候选不自动选"
+        },
+        "vault_scope": {
+          "type": "string",
+          "description": "限定搜索范围(vault 相对目录或配置别名,可选,硬约束:解析结果必须在 scope 内)"
+        },
+        "vault_ref_pinned_rel": {
+          "type": "string",
+          "description": "审批锚点(vault 相对路径;由服务端审批链注入并覆盖外部同名值,用于批准目标一致性比对)"
         }
       },
-      "required": [
-        "article_dir"
-      ]
+      "required": []
     },
     "riskLevel": "external-side-effect",
     "enabled": true,
@@ -76,7 +101,12 @@
       "publish"
     ],
     "examples": [
+      "把《AI提问技巧》这篇发到公众号草稿箱",
       "把 E:/Obsidian/MyVault/文章A 这篇文章发布到公众号草稿箱,封面用 E:/Obsidian/MyVault/文章A/cover.png"
+    ],
+    "anyOfArgs": [
+      "article_dir",
+      "vault_ref"
     ]
   },
   {
@@ -121,13 +151,13 @@
     "workflowId": "article-inspect",
     "scriptPath": "wx-article/scripts/article_inspect.js",
     "name": "文章只读巡检",
-    "description": "只读检查文章状态:定位目录(显式路径或名称唯一命中)、正文/yaml 元数据/配图引用/封面/已有草稿状态,输出报告与缺失清单。零写文件零微信 API;只读性由 check_state.py 脚本实现保证",
+    "description": "只读检查文章状态:定位目录(定位三选一: article_dir 绝对路径 / vault_ref(Obsidian 逻辑引用:文章名或 vault 相对路径,跨设备免绝对路径,如《AI提问技巧》或 公众号/AI入门/AI提问技巧) / article_name 工作区名称唯一命中)、正文/yaml 元数据/配图引用/封面/已有草稿状态,输出报告与缺失清单。零写文件零微信 API;只读性由 check_state.py 脚本实现保证",
     "argsSchema": {
       "type": "object",
       "properties": {
         "article_dir": {
           "type": "string",
-          "description": "文章目录绝对路径(与 article_name 二选一)"
+          "description": "文章目录绝对路径(定位通道之一)"
         },
         "article_name": {
           "type": "string",
@@ -140,6 +170,18 @@
         "account_slot": {
           "type": "number",
           "description": "账号槽位(可选,默认 1)"
+        },
+        "vault_ref": {
+          "type": "string",
+          "description": "Obsidian 逻辑引用:文章名或 vault 相对路径(如 AI提问技巧 或 公众号/AI入门/AI提问技巧);服务端确定性解析(want=article),歧义返回候选不自动选"
+        },
+        "vault_scope": {
+          "type": "string",
+          "description": "限定搜索范围(vault 相对目录或配置别名,可选,硬约束:解析结果必须在 scope 内)"
+        },
+        "vault_ref_pinned_rel": {
+          "type": "string",
+          "description": "审批锚点(vault 相对路径;由服务端审批链注入并覆盖外部同名值,用于批准目标一致性比对)"
         }
       },
       "required": []
@@ -153,20 +195,26 @@
       "文章状态"
     ],
     "examples": [
+      "检查一下《AI提问技巧》这篇公众号文章的状态",
       "检查一下第一篇的文章状态"
+    ],
+    "anyOfArgs": [
+      "article_dir",
+      "vault_ref",
+      "article_name"
     ]
   },
   {
     "workflowId": "article-prepare",
     "scriptPath": "wx-article/scripts/article_prepare.js",
     "name": "文章处理入草稿箱",
-    "description": "自动补齐文章并入草稿箱:状态检查 -> 一次授权 -> 按需插图(语义匹配,默认不改写正文) -> 建/更新草稿(同内容复用,变更更新,不产生重复草稿)。修改文件并调微信 API",
+    "description": "自动补齐文章并入草稿箱:文章定位(定位三选一: article_dir 绝对路径 / vault_ref(Obsidian 逻辑引用:文章名或 vault 相对路径,跨设备免绝对路径,如《AI提问技巧》或 公众号/AI入门/AI提问技巧) / article_name 工作区名称唯一命中) -> 一次授权 -> 按需插图(语义匹配,默认不改写正文) -> 建/更新草稿(同内容复用,变更更新,不产生重复草稿)。修改文件并调微信 API",
     "argsSchema": {
       "type": "object",
       "properties": {
         "article_dir": {
           "type": "string",
-          "description": "文章目录绝对路径(与 article_name 二选一)"
+          "description": "文章目录绝对路径(定位通道之一)"
         },
         "article_name": {
           "type": "string",
@@ -183,6 +231,18 @@
         "skip_confirm": {
           "type": "boolean",
           "description": "跳过授权 checkpoint(仅外层已获授权时透传,如微信网关批准链)"
+        },
+        "vault_ref": {
+          "type": "string",
+          "description": "Obsidian 逻辑引用:文章名或 vault 相对路径(如 AI提问技巧 或 公众号/AI入门/AI提问技巧);服务端确定性解析(want=article),歧义返回候选不自动选"
+        },
+        "vault_scope": {
+          "type": "string",
+          "description": "限定搜索范围(vault 相对目录或配置别名,可选,硬约束:解析结果必须在 scope 内)"
+        },
+        "vault_ref_pinned_rel": {
+          "type": "string",
+          "description": "审批锚点(vault 相对路径;由服务端审批链注入并覆盖外部同名值,用于批准目标一致性比对)"
         }
       },
       "required": []
@@ -197,20 +257,26 @@
       "入草稿箱"
     ],
     "examples": [
+      "帮我检查一下《AI提问技巧》这篇公众号文章，然后放到草稿箱",
       "处理第一篇并放入草稿箱"
+    ],
+    "anyOfArgs": [
+      "article_dir",
+      "vault_ref",
+      "article_name"
     ]
   },
   {
     "workflowId": "article-publish",
     "scriptPath": "scripts/article_publish.js",
     "name": "文章公开发表",
-    "description": "基于已有草稿公开发表(粉丝可见,不主动推送):确认 drafted 且内容未变 -> 独立授权 -> freepublish/submit -> freepublish/get 确认后才记 published。群发推送不在此流程",
+    "description": "基于已有草稿公开发表(粉丝可见,不主动推送):文章定位(定位三选一: article_dir 绝对路径 / vault_ref(Obsidian 逻辑引用:文章名或 vault 相对路径,跨设备免绝对路径,如《AI提问技巧》或 公众号/AI入门/AI提问技巧) / article_name 工作区名称唯一命中) -> 确认 drafted 且内容未变 -> 独立授权 -> freepublish/submit -> freepublish/get 确认后才记 published。群发推送不在此流程",
     "argsSchema": {
       "type": "object",
       "properties": {
         "article_dir": {
           "type": "string",
-          "description": "文章目录绝对路径(与 article_name 二选一)"
+          "description": "文章目录绝对路径(定位通道之一)"
         },
         "article_name": {
           "type": "string",
@@ -227,6 +293,18 @@
         "skip_confirm": {
           "type": "boolean",
           "description": "跳过授权 checkpoint(仅外层已获授权时透传)"
+        },
+        "vault_ref": {
+          "type": "string",
+          "description": "Obsidian 逻辑引用:文章名或 vault 相对路径(如 AI提问技巧 或 公众号/AI入门/AI提问技巧);服务端确定性解析(want=article),歧义返回候选不自动选"
+        },
+        "vault_scope": {
+          "type": "string",
+          "description": "限定搜索范围(vault 相对目录或配置别名,可选,硬约束:解析结果必须在 scope 内)"
+        },
+        "vault_ref_pinned_rel": {
+          "type": "string",
+          "description": "审批锚点(vault 相对路径;由服务端审批链注入并覆盖外部同名值,用于批准目标一致性比对)"
         }
       },
       "required": []
@@ -240,7 +318,13 @@
       "publish"
     ],
     "examples": [
+      "正式发表《AI提问技巧》",
       "正式发表第一篇"
+    ],
+    "anyOfArgs": [
+      "article_dir",
+      "vault_ref",
+      "article_name"
     ]
   }
 ]

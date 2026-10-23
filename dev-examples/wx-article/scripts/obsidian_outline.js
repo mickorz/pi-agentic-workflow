@@ -1,17 +1,37 @@
 export const meta = {
   name: 'obsidian_outline',
   description: 'Obsidian 目录分析并制作文章大纲:下载引用图片到 imgs,生成图片引用清单,结合目录内容产出大纲',
-  phases: [{ title: '图片收集' }, { title: '图片分析' }, { title: '目录分析' }, { title: '大纲制作' }],
+  phases: [{ title: '目录定位' }, { title: '图片收集' }, { title: '图片分析' }, { title: '目录分析' }, { title: '大纲制作' }],
 }
 
 // 需求:《文章工作流接入需求》1 / 1.1 / 1.2
 // 输入 args:
-//   vaultDir : Obsidian 目录 A 绝对路径(必填;正斜杠或反斜杠均可)
+//   vaultDir : Obsidian 目录 A 绝对路径(定位通道之一;正斜杠或反斜杠均可)
+//   vaultRef : Obsidian 逻辑引用(定位通道之二,VR S3.2): 目录名或 vault 相对路径(如 AI生图 或 newsky/AI生图),
+//              服务端 vault_resolver 确定性解析(want=dir,精确路径/唯一目录命中;歧义列候选不猜)
+//   vault_scope : 限定搜索范围(vault 相对目录或配置别名,可选,硬约束)
+//   vault_ref_pinned_rel : 审批锚点(vault 相对路径;服务端审批链注入,外部传入仅作一致性比对)
 // 输出: { outline_path, image_list_path, downloaded_count, image_count }
 
-const vaultDir = String(args.vaultDir || '').replace(/\\/g, '/')
+phase('目录定位')
+let vaultDir = String(args.vaultDir || '').replace(/\\/g, '/')
+if (!vaultDir && args.vaultRef) {
+  const r = await vaultResolve(args.vaultRef, { scope: args.vault_scope, want: 'dir' })
+  await check(
+    () => r.ok === true,
+    '目录定位失败: ' + JSON.stringify({ issues: r.issues, candidates: r.candidates }),
+  )
+  if (args.vault_ref_pinned_rel) {
+    await check(
+      () => r.resolved_rel === args.vault_ref_pinned_rel,
+      '定位结果与批准目标不一致，请重新授权',
+    )
+  }
+  vaultDir = String(r.resolved_path || '').replace(/\\/g, '/')
+  log('vault 定位: ' + args.vaultRef + ' -> ' + r.resolved_rel)
+}
 if (!vaultDir) {
-  throw new Error('缺少必填参数 vaultDir(Obsidian 目录路径)')
+  throw new Error('缺少定位参数: vaultDir(绝对路径)或 vaultRef(Obsidian 逻辑引用)至少一个')
 }
 const imgsDir = vaultDir + '/imgs'
 

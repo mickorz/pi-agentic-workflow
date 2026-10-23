@@ -4,8 +4,12 @@ export const meta = {
 }
 
 // 输入 args:
-//   article_dir    : 文章目录绝对路径(与 article_name 二选一)
-//   article_name   : 按名称在工作区定位(唯一命中才继续)
+//   article_dir    : 文章目录绝对路径(定位通道之一)
+//   vault_ref      : Obsidian 逻辑引用(定位通道之二): 文章名或 vault 相对路径(如 AI提问技巧 或 公众号/AI入门/AI提问技巧),
+//                    服务端 vault_resolver 确定性解析(want=article);歧义列候选不猜(VR S3.2)
+//   vault_scope    : 限定搜索范围(vault 相对目录或配置别名,可选,硬约束)
+//   vault_ref_pinned_rel : 审批锚点(vault 相对路径;服务端审批链注入,外部传入仅作一致性比对)
+//   article_name   : 按名称在工作区定位(定位通道之三,唯一命中才继续)
 //   workspace_dir  : 工作区根(可选)
 //   account_slot   : 账号槽位(默认 1)
 //   skip_confirm   : 跳过授权 checkpoint(仅在外层已获有效授权时透传,如微信网关批准链;
@@ -19,13 +23,33 @@ const PUBLISH_SCRIPT = 'dev-examples/wx-article/scripts/draft_manager/publish.py
 // Python 解释器真探测(Store 占位符问题,见 experience/windows-python-subprocess-gbk-and-python3-alias.md)
 const PY_PROBE = 'PY=""; for c in python3 python py; do if "$c" -c "import sys" 2>/dev/null; then PY="$c"; break; fi; done; [ -n "$PY" ] || { echo "[FAIL] no usable python on PATH"; exit 49; }'
 
-const checkArgs = (args.article_dir
-  ? '--article-dir "' + args.article_dir + '"'
+phase('文章定位')
+// 定位通道三选一: article_dir / vault_ref / article_name(VR S3.2)。
+// vaultResolve 为服务端确定性解析(零 LLM);失败/歧义走 check() 中止,不空转。
+let articleDir = args.article_dir || ''
+if (!articleDir && args.vault_ref) {
+  const r = await vaultResolve(args.vault_ref, { scope: args.vault_scope, want: 'article' })
+  await check(
+    () => r.ok === true,
+    '文章定位失败: ' + JSON.stringify({ issues: r.issues, candidates: r.candidates }),
+  )
+  if (args.vault_ref_pinned_rel) {
+    await check(
+      () => r.resolved_rel === args.vault_ref_pinned_rel,
+      '定位结果与批准目标不一致，请重新授权',
+    )
+  }
+  articleDir = r.resolved_path
+  log('vault 定位: ' + args.vault_ref + ' -> ' + r.resolved_rel)
+}
+
+const checkArgs = (articleDir
+  ? '--article-dir "' + articleDir + '"'
   : '--locate "' + (args.article_name || '') + '"' + (args.workspace_dir ? ' --workspace "' + args.workspace_dir + '"' : ''))
   + (args.account_slot ? ' --account-slot ' + args.account_slot : '')
 
 phase('状态检查')
-const check = await agent(
+const inspectResult = await agent(
   '你是只读检查执行器。用 bash 工具执行恰好一条命令, 把 stdout 原样解析为 JSON 返回, 不做任何其他操作:\n\n' +
   PY_PROBE + '; "$PY" "' + CHECK_SCRIPT + '" ' + checkArgs + '\n\n' +
   '禁止: 写/改/删任何文件, 调任何网络接口, 执行上述命令之外的任何命令。\n' +
@@ -44,15 +68,15 @@ const check = await agent(
   } }
 )
 
-if (!check.ok) {
+if (!inspectResult.ok) {
   return {
     ok: false, article_dir: '', publish_id: '', status: 'rejected',
-    report: '定位失败: ' + (check.issues || []).join('; '), issues: check.issues || [],
+    report: '定位失败: ' + (inspectResult.issues || []).join('; '), issues: inspectResult.issues || [],
   }
 }
 
-const articleDir = check.article_dir
-const accs = check.state_accounts || {}
+articleDir = inspectResult.article_dir || articleDir
+const accs = inspectResult.state_accounts || {}
 const slotKey = 'slot' + (args.account_slot || 1)
 // check_state 的 accounts 键是真实 appid,无法在此预知;任一账号 pending 都阻断
 const pendingAccs = Object.keys(accs).filter(k => accs[k].hasPending)
@@ -91,7 +115,7 @@ const mockArgs = (args.mock ? ' --mock' : '') +
 
 const cmd = PY_PROBE + '; "$PY" "' + PUBLISH_SCRIPT + '"' +
   ' --article-dir "' + articleDir + '"' +
-  ' --cover "' + (check.cover_path || 'cover.png') + '"' +
+  ' --cover "' + (inspectResult.cover_path || 'cover.png') + '"' +
   ' --account-slot ' + (args.account_slot || 1) +
   ' --freepublish' + mockArgs
 

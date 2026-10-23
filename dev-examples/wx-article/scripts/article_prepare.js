@@ -4,8 +4,12 @@ export const meta = {
 }
 
 // 输入 args:
-//   article_dir    : 文章目录绝对路径(与 article_name 二选一)
-//   article_name   : 按名称在工作区定位(唯一命中才继续)
+//   article_dir    : 文章目录绝对路径(定位通道之一)
+//   vault_ref      : Obsidian 逻辑引用(定位通道之二): 文章名或 vault 相对路径(如 AI提问技巧 或 公众号/AI入门/AI提问技巧),
+//                    服务端 vault_resolver 确定性解析(want=article);歧义列候选不猜(VR S3.2)
+//   vault_scope    : 限定搜索范围(vault 相对目录或配置别名,可选,硬约束)
+//   vault_ref_pinned_rel : 审批锚点(vault 相对路径;服务端审批链注入,外部传入仅作一致性比对)
+//   article_name   : 按名称在工作区定位(定位通道之三,唯一命中才继续)
 //   workspace_dir  : 工作区根(缺省读 config.json 的 article_workspace)
 //   account_slot   : 账号槽位(默认 1)
 //   skip_confirm   : 跳过授权 checkpoint(仅在外层已获有效授权时透传,如微信网关批准链)
@@ -27,17 +31,37 @@ const notify = (kind, text) => {
     ' || python3 "' + NOTIFY_SCRIPT + '" --kind ' + kind + ' --text "' + clean + '"', 20000).catch(() => false)
 }
 
-const checkArgs = (args.article_dir
-  ? '--article-dir "' + args.article_dir + '"'
+// 中断兑底:任何未捕获异常(agent 失败/网络错误等)先推微信通知再重抛,保证"中断告知原因"
+try {
+phase('文章定位')
+// 定位通道三选一: article_dir / vault_ref / article_name(VR S3.2)。
+// vaultResolve 为服务端确定性解析(零 LLM);失败/歧义走 check() 中止,不空转。
+let articleDir = args.article_dir || ''
+if (!articleDir && args.vault_ref) {
+  const r = await vaultResolve(args.vault_ref, { scope: args.vault_scope, want: 'article' })
+  await check(
+    () => r.ok === true,
+    '文章定位失败: ' + JSON.stringify({ issues: r.issues, candidates: r.candidates }),
+  )
+  if (args.vault_ref_pinned_rel) {
+    await check(
+      () => r.resolved_rel === args.vault_ref_pinned_rel,
+      '定位结果与批准目标不一致，请重新授权',
+    )
+  }
+  articleDir = r.resolved_path
+  log('vault 定位: ' + args.vault_ref + ' -> ' + r.resolved_rel)
+}
+
+const checkArgs = (articleDir
+  ? '--article-dir "' + articleDir + '"'
   : '--locate "' + (args.article_name || '') + '"' + (args.workspace_dir ? ' --workspace "' + args.workspace_dir + '"' : ''))
   + (args.account_slot ? ' --account-slot ' + args.account_slot : '')
 
 const runCheckCmd = PY_PROBE + '; "$PY" "' + CHECK_SCRIPT + '" ' + checkArgs
 
-// 中断兑底:任何未捕获异常(agent 失败/网络错误等)先推微信通知再重抛,保证"中断告知原因"
-try {
 phase('状态检查')
-const check = await agent(
+const inspectResult = await agent(
   '你是只读检查执行器。用 bash 工具执行恰好一条命令, 把 stdout 原样解析为 JSON 返回, 不做任何其他操作:\n\n' +
   runCheckCmd + '\n\n' +
   '禁止: 写/改/删任何文件, 调任何网络接口, 执行上述命令之外的任何命令。\n' +
@@ -62,20 +86,20 @@ const check = await agent(
   } }
 )
 
-if (!check.ok) {
-  await notify('failed', '文章处理失败(定位阶段):' + (check.issues || []).join(';'))
-  const cand = (() => { try { return JSON.parse(check.raw).candidates || [] } catch { return [] } })()
+if (!inspectResult.ok) {
+  await notify('failed', '文章处理失败(定位阶段):' + (inspectResult.issues || []).join(';'))
+  const cand = (() => { try { return JSON.parse(inspectResult.raw).candidates || [] } catch { return [] } })()
   return {
     ok: false, article_dir: '', inserted: 0, media_id: '', draft_mode: '', reused: false,
-    report: '定位失败: ' + (check.issues || []).join('; '),
-    issues: check.issues || [], candidates: cand,
+    report: '定位失败: ' + (inspectResult.issues || []).join('; '),
+    issues: inspectResult.issues || [], candidates: cand,
   }
 }
 
-const articleDir = check.article_dir
-const accs = check.state_accounts || {}
-await notify('info', '检查完成:《' + (check.md && check.md.name ? check.md.name : articleDir) + '》' +
-  (check.needs_insert ? '有未引用配图待插入' : '配图已就绪') + '，即将' + (check.needs_insert ? '插图并' : '') + '入草稿箱')
+articleDir = inspectResult.article_dir || articleDir
+const accs = inspectResult.state_accounts || {}
+await notify('info', '检查完成:《' + (inspectResult.md && inspectResult.md.name ? inspectResult.md.name : articleDir) + '》' +
+  (inspectResult.needs_insert ? '有未引用配图待插入' : '配图已就绪') + '，即将' + (inspectResult.needs_insert ? '插图并' : '') + '入草稿箱')
 const pendingAcc = Object.keys(accs).filter(k => accs[k].hasPending)
 
 // ---------- 一次授权（网关批准链生效时可 skip_confirm 透传） ----------
@@ -84,7 +108,7 @@ if (args.skip_confirm !== true) {
     '即将处理文章: ' + articleDir + '\n' +
     '账号槽位: ' + (args.account_slot || 1) + '\n' +
     '计划步骤:\n' +
-    (check.needs_insert ? '  1. 插图: imgs 有未引用配图,按章节语义匹配插入(不改写正文)\n' : '  1. 插图: 跳过(无未引用配图)\n') +
+    (inspectResult.needs_insert ? '  1. 插图: imgs 有未引用配图,按章节语义匹配插入(不改写正文)\n' : '  1. 插图: 跳过(无未引用配图)\n') +
     '  2. 草稿: 调 publish.py 建/更新草稿' +
       (pendingAcc.length ? '(注意: 账号 ' + pendingAcc.join(',') + ' 有未决操作,将先人工核对再继续)\n' : '\n') +
     '说明: 会修改文章目录内文件(插图标记/article.yaml/publish-state.json),并调用微信 API。\n' +
@@ -94,7 +118,7 @@ if (args.skip_confirm !== true) {
 
 // ---------- 按需插图（复用既有插图流程: 语义匹配必须靠 AI; 默认不改写正文） ----------
 let inserted = 0
-if (check.needs_insert) {
+if (inspectResult.needs_insert) {
   phase('按需插图')
   const ins = await workflow('article_insert_images_meta.js', {
     article_dir: articleDir,
@@ -112,7 +136,7 @@ if (check.needs_insert) {
 
 // ---------- 插图后重查状态（yaml/cover 已更新; 快照式两段检查） ----------
 phase('草稿准备')
-const check2 = await agent(
+const inspectResult2 = await agent(
   '你是只读检查执行器。用 bash 工具执行恰好一条命令, 把 stdout 原样解析为 JSON 返回, 不做任何其他操作:\n\n' +
   runCheckCmd + '\n\n' +
   '禁止: 写/改/删任何文件, 调任何网络接口。\n' +
@@ -135,22 +159,22 @@ const check2 = await agent(
   } }
 )
 
-if (!check2.prepare_ready) {
-  await notify('failed', '文章处理失败(就绪检查):' + (check2.issues || []).join(';'))
+if (!inspectResult2.prepare_ready) {
+  await notify('failed', '文章处理失败(就绪检查):' + (inspectResult2.issues || []).join(';'))
   return {
     ok: false, article_dir: articleDir, inserted,
     media_id: '', draft_mode: '', reused: false,
-    report: 'prepare 就绪检查未通过: ' + (check2.issues || []).join('; '),
-    issues: check2.issues || [],
+    report: 'prepare 就绪检查未通过: ' + (inspectResult2.issues || []).join('; '),
+    issues: inspectResult2.issues || [],
   }
 }
 
 // ---------- 建或更新草稿（显式参数,发布脚本不猜——V1.2 5.2） ----------
-const yamlTitle = (check2.yaml && check2.yaml.title) || ''
-const yamlDigest = (check2.yaml && check2.yaml.digest) || ''
-const yamlAuthor = (check2.yaml && check2.yaml.author) || ''
-const mdPath = (check2.md && check2.md.path) || ''
-const coverPath = check2.cover_path || ''
+const yamlTitle = (inspectResult2.yaml && inspectResult2.yaml.title) || ''
+const yamlDigest = (inspectResult2.yaml && inspectResult2.yaml.digest) || ''
+const yamlAuthor = (inspectResult2.yaml && inspectResult2.yaml.author) || ''
+const mdPath = (inspectResult2.md && inspectResult2.md.path) || ''
+const coverPath = inspectResult2.cover_path || ''
 
 const mockArgs = (args.mock ? ' --mock' : '') +
   (args.mock_store ? ' --mock-store "' + args.mock_store + '"' : '') +
