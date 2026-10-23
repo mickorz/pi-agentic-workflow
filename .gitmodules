@@ -19,3 +19,6 @@
 [submodule "thirdparties/pi-jev"]
 	path = thirdparties/pi-jev
 	url = https://github.com/TheoOliveira/pi-jev.git
+[submodule "thirdparties/xiaohongshu-mcp"]
+	path = thirdparties/xiaohongshu-mcp
+	url = https://github.com/xpzouying/xiaohongshu-mcp
