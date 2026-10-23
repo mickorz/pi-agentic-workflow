@@ -13,6 +13,34 @@
 const QR_POLL_MS = 2000;
 const QR_MAX_REFRESH = 5;
 
+/** rebind 后：服务形态自动优雅重启（旧进程仍持旧凭据）；前台形态提示手动重启 */
+async function restartServiceAfterRebind(): Promise<void> {
+  const { findPm2App, createShellPm2Runner } = await import("./wechat-service.js");
+  const { readServiceLock } = await import("../../gateway/service-lock.js");
+  const runner = createShellPm2Runner();
+  const app = findPm2App(runner);
+  if (app) {
+    const r = runner(["restart", "wechat-bot"]);
+    process.stdout.write(
+      r.ok
+        ? "[OK] 已自动重启后台服务（rebind 新凭据生效；状态：pi-workflow wechat service status）\n"
+        : `[警告] 自动重启失败（${(r.stderr || r.stdout).slice(0, 120)}）；请手动 pi-workflow wechat service restart\n`,
+    );
+    return;
+  }
+  const lock = readServiceLock(".pi-wechat");
+  if (lock) {
+    try {
+      process.kill(lock.pid, 0);
+      process.stdout.write(
+        `[提示] 检测到前台 Bot 实例（pid=${lock.pid}）仍持旧凭据：请在其终端 Ctrl-C 后重新 wechat start\n`,
+      );
+    } catch {
+      // 持有者已死（陈锁）：无需动作
+    }
+  }
+}
+
 interface LoginCredentials {
   token: string;
   baseUrl: string;
@@ -96,6 +124,11 @@ export async function wechatLogin(force = false): Promise<number> {
             `下一步：pi-workflow wechat start …（发消息的微信无需记 wxid，首条消息自动绑定）`,
           ].join("\n") + "\n",
         );
+        // 换绑后运行中的 Bot 进程仍持旧凭据（rebind 典型场景 login_required 已停止重试）：
+        // 服务形态自动优雅重启加载新凭据；前台形态提示手动重启（不能替用户杀前台终端进程）
+        if (force) {
+          await restartServiceAfterRebind();
+        }
         return 0;
       }
       if (result.status === "expired") {
