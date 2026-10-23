@@ -238,11 +238,14 @@ async function serviceStart(flags: string[], runner: Pm2Runner): Promise<number>
   // 1) 混跑互斥（锁在共享启动层；前台在跑也要拦——设计 §7 门禁「前台+后台混跑」）
   const lock = readServiceLock(dataDir);
   if (lock && pidAlive(lock.pid)) {
+    const viaService = findPm2App(runner) !== null; // 服务形态→一步 restart；前台形态→两步指引
     process.stderr.write(
       [
         `微信服务已在运行（pid=${lock.pid}，startedAt=${lock.startedAt}，cwd=${lock.cwd}）`,
         `data 目录：${dataDir}`,
-        `如需重启：pi-workflow wechat service stop 后再 service start（或前台 Ctrl-C）`,
+        viaService
+          ? `如需重启：pi-workflow wechat service restart；查看状态：pi-workflow wechat service status`
+          : `如需重启：停掉现有进程（前台 Ctrl-C / 后台 wechat service stop）后再启动`,
       ].join("\n") + "\n",
     );
     return 2;
