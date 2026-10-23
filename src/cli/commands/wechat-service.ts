@@ -265,6 +265,7 @@ async function serviceStart(flags: string[], runner: Pm2Runner): Promise<number>
     process.stderr.write(`pm2 start 失败：${start.stderr || start.stdout}\n`);
     return 1;
   }
+  runner(["save"]); // 同步自启快照（F6：resurrect 恢复的是 save 时刻进程表；不刷则登录时旧状态复活/新启动丢失）
   process.stdout.write(
     [
       `服务已提交 PM2 托管（app=${PM2_APP_NAME}，data=${dataDir}）`,
@@ -289,6 +290,7 @@ async function serviceStop(runner: Pm2Runner): Promise<number> {
     return 1;
   }
   runner(["delete", PM2_APP_NAME]); // 清条目：下次 start 不撞「已存在」
+  runner(["save"]); // 同步自启快照：停止意图也落盘，登录时不会把你停掉的服务又拉起来
   process.stdout.write(
     `已停止并注销 ${PM2_APP_NAME}（优雅停止完成；如仍有前台实例，Ctrl-C 退出）。\n`,
   );
