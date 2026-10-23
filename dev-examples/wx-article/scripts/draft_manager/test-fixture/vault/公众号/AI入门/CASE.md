@@ -1,0 +1,1 @@
+fixture 正文 CASE（大小写陷阱）
