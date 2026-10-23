@@ -4,40 +4,96 @@
     "scriptPath": "wx-p1/github-review.js",
     "name": "GitHub 仓库分析",
     "description": "分析 GitHub 仓库并输出评审报告",
-    "argsSchema": { "type": "object", "properties": { "repoUrl": { "type": "string" } }, "required": ["repoUrl"] },
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "repoUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repoUrl"
+      ]
+    },
     "riskLevel": "read-only",
     "enabled": true,
-    "keywords": ["分析", "评审", "review", "github", "仓库"]
+    "keywords": [
+      "分析",
+      "评审",
+      "review",
+      "github",
+      "仓库"
+    ]
   },
   {
     "workflowId": "translate",
     "scriptPath": "wx-p1/translate.js",
     "name": "文本翻译",
     "description": "把一段文本翻译到目标语言",
-    "argsSchema": { "type": "object", "properties": { "text": { "type": "string" }, "targetLang": { "type": "string" } }, "required": ["text", "targetLang"] },
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "targetLang": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "targetLang"
+      ]
+    },
     "riskLevel": "read-only",
     "enabled": true,
-    "keywords": ["翻译", "translate"]
+    "keywords": [
+      "翻译",
+      "translate"
+    ]
   },
   {
     "workflowId": "long-demo",
     "scriptPath": "wx-p2/long-demo.js",
     "name": "长任务演示",
     "description": "三步长任务，用于进度查询、排队与取消用例",
-    "argsSchema": { "type": "object", "properties": {}, "required": [] },
+    "argsSchema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
     "riskLevel": "read-only",
     "enabled": true,
-    "keywords": ["长任务", "演示", "进度"]
+    "keywords": [
+      "长任务",
+      "演示",
+      "进度"
+    ]
   },
   {
     "workflowId": "write-demo",
     "scriptPath": "am-p0/write-demo.js",
     "name": "写入演示（无害写）",
     "description": "把一句话写入本地演示文件（唯一副作用），用于执行前授权用例",
-    "argsSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] },
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
     "riskLevel": "write",
     "enabled": true,
-    "keywords": ["写入", "保存", "落盘", "write"]
+    "keywords": [
+      "写入",
+      "保存",
+      "落盘",
+      "write"
+    ]
   },
   {
     "workflowId": "obsidian-outline",
@@ -47,13 +103,26 @@
     "argsSchema": {
       "type": "object",
       "properties": {
-        "vaultDir": { "type": "string", "description": "Obsidian 目录绝对路径（正斜杠或反斜杠均可）" }
+        "vaultDir": {
+          "type": "string",
+          "description": "Obsidian 目录绝对路径（正斜杠或反斜杠均可）"
+        }
       },
-      "required": ["vaultDir"]
+      "required": [
+        "vaultDir"
+      ]
     },
-    "riskLevel": "read-only",
+    "riskLevel": "write",
     "enabled": true,
-    "keywords": ["obsidian", "目录", "大纲", "引用图片", "图片清单", "outline", "笔记"]
+    "keywords": [
+      "obsidian",
+      "目录",
+      "大纲",
+      "引用图片",
+      "图片清单",
+      "outline",
+      "笔记"
+    ]
   },
   {
     "workflowId": "wechat-md-to-draft",
@@ -63,15 +132,41 @@
     "argsSchema": {
       "type": "object",
       "properties": {
-        "article_dir": { "type": "string", "description": "文章目录（含 1 个 .md 写作稿与正文图）" },
-        "cover": { "type": "string", "description": "封面图绝对路径（可选；不传则自动找：目录根 cover.* 或 imgs/ 下 cover 前缀图，找不到直接中断）" },
-        "account": { "type": "string", "description": "账号槽位序号或名称（可选）" }
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录（含 1 个 .md 写作稿与正文图）"
+        },
+        "cover": {
+          "type": "string",
+          "description": "封面图绝对路径（可选；不传则自动找：目录根 cover.* 或 imgs/ 下 cover 前缀图，找不到直接中断）"
+        },
+        "account": {
+          "type": "string",
+          "description": "账号槽位序号或名称（可选）"
+        },
+        "account_slot": {
+          "type": "number",
+          "description": "账号槽位数字,直接透传发布脚本(可选,默认 1)"
+        },
+        "skip_confirm": {
+          "type": "boolean",
+          "description": "跳过发布前 checkpoint(仅外层已获授权时透传,如 prepare 流程)"
+        }
       },
-      "required": ["article_dir"]
+      "required": [
+        "article_dir"
+      ]
     },
     "riskLevel": "external-side-effect",
     "enabled": true,
-    "keywords": ["发布", "草稿", "公众号", "文章发布", "draft", "publish"]
+    "keywords": [
+      "发布",
+      "草稿",
+      "公众号",
+      "文章发布",
+      "draft",
+      "publish"
+    ]
   },
   {
     "workflowId": "article-insert-images-meta",
@@ -81,22 +176,62 @@
     "argsSchema": {
       "type": "object",
       "properties": {
-        "article_dir": { "type": "string", "description": "文章目录绝对路径（含 1 个 .md 源文件与 imgs/ 图片目录）" },
-        "md_file": { "type": "string", "description": "指定 .md 绝对路径（可选）" },
-        "title": { "type": "string", "description": "覆盖 article.yaml 标题（可选）" },
-        "digest": { "type": "string", "description": "覆盖 article.yaml 摘要（可选）" },
-        "author": { "type": "string", "description": "覆盖作者（可选）" },
-        "skip_confirm": { "type": "boolean", "description": "跳过插图前确认；微信链路必传 true（无终端 checkpoint 通道）" },
-        "skip_humanize": { "type": "boolean", "description": "跳过插图后的去 AI 味改写（默认不跳过）" },
-        "humanize_voice": { "type": "string", "description": "去 AI 味 voice：casual/professional/technical/warm/blunt（默认 professional）" },
-        "humanize_aggressive": { "type": "boolean", "description": "去 AI 味重度改写（默认 false）" },
-        "humanize_iterate": { "type": "number", "description": "去 AI 味 detect-rewrite-detect 迭代次数 1-3（默认 2）" }
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录绝对路径（含 1 个 .md 源文件与 imgs/ 图片目录）"
+        },
+        "md_file": {
+          "type": "string",
+          "description": "指定 .md 绝对路径（可选）"
+        },
+        "title": {
+          "type": "string",
+          "description": "覆盖 article.yaml 标题（可选）"
+        },
+        "digest": {
+          "type": "string",
+          "description": "覆盖 article.yaml 摘要（可选）"
+        },
+        "author": {
+          "type": "string",
+          "description": "覆盖作者（可选）"
+        },
+        "skip_confirm": {
+          "type": "boolean",
+          "description": "跳过插图前确认；微信链路必传 true（无终端 checkpoint 通道）"
+        },
+        "skip_humanize": {
+          "type": "boolean",
+          "description": "跳过插图后的去 AI 味改写（默认不跳过）"
+        },
+        "humanize_voice": {
+          "type": "string",
+          "description": "去 AI 味 voice：casual/professional/technical/warm/blunt（默认 professional）"
+        },
+        "humanize_aggressive": {
+          "type": "boolean",
+          "description": "去 AI 味重度改写（默认 false）"
+        },
+        "humanize_iterate": {
+          "type": "number",
+          "description": "去 AI 味 detect-rewrite-detect 迭代次数 1-3（默认 2）"
+        }
       },
-      "required": ["article_dir"]
+      "required": [
+        "article_dir"
+      ]
     },
     "riskLevel": "write",
     "enabled": true,
-    "keywords": ["插图", "配图", "插入图片", "文章配图", "元数据", "article.yaml", "一句话记住"],
+    "keywords": [
+      "插图",
+      "配图",
+      "插入图片",
+      "文章配图",
+      "元数据",
+      "article.yaml",
+      "一句话记住"
+    ],
     "examples": [
       "给 E:/Obsidian/xxx/从零学AI-xxx 这个文章目录插入配图并更新元数据，跳过确认"
     ]
@@ -109,42 +244,172 @@
     "argsSchema": {
       "type": "object",
       "properties": {
-        "md_path": { "type": "string", "description": "要改写的 markdown 绝对路径（与 article_dir 二选一）" },
-        "article_dir": { "type": "string", "description": "文章目录（自动找 .md；备份放这里）" },
-        "voice": { "type": "string", "description": "casual/professional/technical/warm/blunt（默认 professional）" },
-        "aggressive": { "type": "boolean", "description": "重度改写（默认 false）" },
-        "iterate": { "type": "number", "description": "迭代次数 1-3（默认 2）" },
-        "purpose": { "type": "string", "description": "写作用途（默认 essay）" }
+        "md_path": {
+          "type": "string",
+          "description": "要改写的 markdown 绝对路径（与 article_dir 二选一）"
+        },
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录（自动找 .md；备份放这里）"
+        },
+        "voice": {
+          "type": "string",
+          "description": "casual/professional/technical/warm/blunt（默认 professional）"
+        },
+        "aggressive": {
+          "type": "boolean",
+          "description": "重度改写（默认 false）"
+        },
+        "iterate": {
+          "type": "number",
+          "description": "迭代次数 1-3（默认 2）"
+        },
+        "purpose": {
+          "type": "string",
+          "description": "写作用途（默认 essay）"
+        }
       }
     },
     "riskLevel": "write",
     "enabled": true,
-    "keywords": ["去AI味", "去 AI 味", "人味", "机味", "改写", "humanize", "humanizer", "润色"],
+    "keywords": [
+      "去AI味",
+      "去 AI 味",
+      "人味",
+      "机味",
+      "改写",
+      "humanize",
+      "humanizer",
+      "润色"
+    ],
     "examples": [
       "把 E:/Obsidian/xxx/从零学AI-xxx 里的文章去一下 AI 味"
     ]
   },
   {
-    "workflowId": "wechat-article-publish",
-    "scriptPath": "wx-article/scripts/wechat_article_publish.js",
-    "name": "公众号发布",
-    "description": "公众号 API 直连发布：图文入草稿箱或群发（素材上传、发布前检查、四项门禁闭环）；draft 模式仅入草稿箱",
+    "workflowId": "article-inspect",
+    "scriptPath": "wx-article/scripts/article_inspect.js",
+    "name": "文章只读巡检",
+    "description": "只读检查文章状态:定位目录(显式路径或名称唯一命中)、正文/yaml 元数据/配图引用/封面/已有草稿状态,输出报告与缺失清单。零写文件零微信 API;只读性由 check_state.py 脚本实现保证",
     "argsSchema": {
       "type": "object",
       "properties": {
-        "article_dir": { "type": "string", "description": "本篇目录绝对路径（含 article.html + cover.* + imgs/）" },
-        "account": { "type": "string", "description": "账号槽位序号或名称（不传则从 config 列账号）" },
-        "publish_method": { "type": "string", "description": "draft 或 published 或 none；缺省读 config.json" },
-        "force_publish": { "type": "boolean", "description": "单次强制提交群发（默认 false）" },
-        "skip_confirm": { "type": "boolean", "description": "跳过内部确认；微信链路必传 true（授权由批准链承担）" }
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录绝对路径(与 article_name 二选一)"
+        },
+        "article_name": {
+          "type": "string",
+          "description": "按名称在工作区定位(唯一命中才检查,多候选返回列表)"
+        },
+        "workspace_dir": {
+          "type": "string",
+          "description": "工作区根(可选,缺省读 config.json 的 article_workspace)"
+        },
+        "account_slot": {
+          "type": "number",
+          "description": "账号槽位(可选,默认 1)"
+        }
       },
-      "required": ["article_dir"]
+      "required": []
+    },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": [
+      "检查文章",
+      "巡检",
+      "inspect",
+      "文章状态"
+    ],
+    "examples": [
+      "检查一下第一篇的文章状态"
+    ]
+  },
+  {
+    "workflowId": "article-prepare",
+    "scriptPath": "wx-article/scripts/article_prepare.js",
+    "name": "文章处理入草稿箱",
+    "description": "自动补齐文章并入草稿箱:状态检查 -> 一次授权 -> 按需插图(语义匹配,默认不改写正文) -> 建/更新草稿(同内容复用,变更更新,不产生重复草稿)。修改文件并调微信 API",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录绝对路径(与 article_name 二选一)"
+        },
+        "article_name": {
+          "type": "string",
+          "description": "按名称在工作区定位(唯一命中才继续)"
+        },
+        "workspace_dir": {
+          "type": "string",
+          "description": "工作区根(可选)"
+        },
+        "account_slot": {
+          "type": "number",
+          "description": "账号槽位(可选,默认 1)"
+        },
+        "skip_confirm": {
+          "type": "boolean",
+          "description": "跳过授权 checkpoint(仅外层已获授权时透传,如微信网关批准链)"
+        }
+      },
+      "required": []
     },
     "riskLevel": "external-side-effect",
     "enabled": true,
-    "keywords": ["发布", "群发", "草稿箱", "公众号发布", "publish", "article_publish"],
+    "keywords": [
+      "处理文章",
+      "准备草稿",
+      "插图",
+      "prepare",
+      "入草稿箱"
+    ],
     "examples": [
-      "把 E:/Obsidian/xxx/文章A 这篇文章发布到公众号，跳过确认"
+      "处理第一篇并放入草稿箱"
+    ]
+  },
+  {
+    "workflowId": "article-publish",
+    "scriptPath": "wx-article/scripts/article_publish.js",
+    "name": "文章公开发表",
+    "description": "基于已有草稿公开发表(粉丝可见,不主动推送):确认 drafted 且内容未变 -> 独立授权 -> freepublish/submit -> freepublish/get 确认后才记 published。群发推送不在此流程",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录绝对路径(与 article_name 二选一)"
+        },
+        "article_name": {
+          "type": "string",
+          "description": "按名称在工作区定位(唯一命中才继续)"
+        },
+        "workspace_dir": {
+          "type": "string",
+          "description": "工作区根(可选)"
+        },
+        "account_slot": {
+          "type": "number",
+          "description": "账号槽位(可选,默认 1)"
+        },
+        "skip_confirm": {
+          "type": "boolean",
+          "description": "跳过授权 checkpoint(仅外层已获授权时透传)"
+        }
+      },
+      "required": []
+    },
+    "riskLevel": "external-side-effect",
+    "enabled": true,
+    "keywords": [
+      "发表",
+      "公开发表",
+      "发布文章",
+      "publish"
+    ],
+    "examples": [
+      "正式发表第一篇"
     ]
   }
 ]

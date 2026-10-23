@@ -8,17 +8,23 @@ export const meta = {
 //   article_dir : 文章目录(必填,含 1 个 .md 写作稿 + 正文图)
 //   cover       : 封面图绝对路径(可选;不传则自动找:文章目录根 cover.* 优先,其次 imgs/ 下 cover 前缀图复制出来;两处都没有直接中断报错)
 //   account     : 账号槽位序号或名称。不传则列账号让用户选
+//   account_slot: 账号槽位数字(直接透传 publish.py --account-slot,默认 1)
+//   skip_confirm: 跳过两个 checkpoint(仅在外层已获有效授权时透传,如 prepare 流程/微信网关批准链;不是通用绕过开关)
+//   mock / mock_store / inject: 测试透传给 draft_manager/publish.py(生产不传)
 // 输出: { media_id, publish_completed, ok, error }
 
-// 发布脚本路径:相对启动 cwd(约定从 dev-examples/wx-article 启动 wechat start / pi-workflow run);
-// 换机器或换目录时用 args.publish_script 覆盖。
+// 发布脚本路径(P1 重接):draft_manager/publish.py——状态机+原子锁+账号透传+同内容复用,
+// 不再写 article.yaml;旧脚本(references/.../publish.py)保留但不再被本流程调用。
+// 相对启动 cwd(约定从仓库根启动 wechat start / pi-workflow run);换布局时用 args.publish_script 覆盖。
 // 公众号配置根:凭证已集成到本仓库 wx-article 目录(.aws-article/config.json + aws.env,均已 gitignore),
 // 不再从文章目录向上找;换机器传 args.config_dir 覆盖。
-const PUBLISH_SCRIPT = args.publish_script || 'dev-examples/wx-article/scripts/references/wechat_md_to_draft/scripts/publish.py'
+const PUBLISH_SCRIPT = args.publish_script || 'dev-examples/wx-article/scripts/draft_manager/publish.py'
 const CONFIG_ROOT = args.config_dir || 'dev-examples/wx-article'
 // 发布完成后在浏览器打开的草稿箱 URL。
 // token 是公众号后台网页登录态,会过期;失效时登录 mp.weixin.qq.com 后从浏览器地址栏复制最新 token 替换。
 const DRAFT_BOX_URL = 'https://mp.weixin.qq.com/cgi-bin/appmsg?begin=0&count=10&type=77&action=list_card&token=1269319492&lang=zh_CN'
+// Python 解释器真探测(Store 占位符问题,见 experience/windows-python-subprocess-gbk-and-python3-alias.md)
+const PY_PROBE = 'PY=""; for c in python3 python py; do if "$c" -c "import sys" 2>/dev/null; then PY="$c"; break; fi; done; [ -n "$PY" ] || { echo "[FAIL] no usable python on PATH"; exit 49; }'
 
 phase('读配置与前置检查')
 const configCheck = await agent(
@@ -76,28 +82,37 @@ if (!account && configCheck.accounts && configCheck.accounts.length === 1) {
 }
 
 phase('确认发布')
-await checkpoint(
-  '即将发布到微信公众号草稿箱:\n' +
-  '标题: ' + (configCheck.title || '(待脚本解析)') + '\n' +
-  '作者: ' + (configCheck.author || '') + '\n' +
-  '摘要: ' + (configCheck.digest ? (configCheck.digest.slice(0, 40) + '...') : '') + '\n' +
-  '封面: ' + (configCheck.cover_path || args.cover || '(自动定位)') + '\n' +
-  '正文图: ' + ((configCheck.img_refs && configCheck.img_refs.length) || 0) + ' 张\n' +
-  '账号: ' + ((account && account.name) || account || '默认') + '\n\n' +
-  '模式: draft (仅入草稿箱,不群发)\n' +
-  '允许=执行发布;拒绝=终止。'
-)
+if (args.skip_confirm !== true) {
+  await checkpoint(
+    '即将发布到微信公众号草稿箱:\n' +
+    '标题: ' + (configCheck.title || '(待脚本解析)') + '\n' +
+    '作者: ' + (configCheck.author || '') + '\n' +
+    '摘要: ' + (configCheck.digest ? (configCheck.digest.slice(0, 40) + '...') : '') + '\n' +
+    '封面: ' + (configCheck.cover_path || args.cover || '(自动定位)') + '\n' +
+    '正文图: ' + ((configCheck.img_refs && configCheck.img_refs.length) || 0) + ' 张\n' +
+    '账号: ' + ((account && account.name) || account || '默认') + '\n\n' +
+    '模式: draft (仅入草稿箱,不群发)\n' +
+    '允许=执行发布;拒绝=终止。'
+  )
+}
 
 phase('执行发布')
 const publishResult = await agent(
   '你是公众号发布执行者。请用 bash 工具执行发布脚本(一条命令):\n\n' +
-  'PY=$(command -v python3 || command -v python); "$PY" "' + PUBLISH_SCRIPT + '" --article-dir "' + args.article_dir + '" --cover "' + (configCheck.cover_path || args.cover) + '"\n\n' +
-  '脚本流程: 向上找仓库根 → 找 .md 写作稿(排除 article/draft/审稿) → 解析 frontmatter(title/description) → .md 转 HTML(微信 inline 样式) → 扫描 .md 图片引用 → 读 aws.env 换 token → 上传封面到 add_material → 上传正文图到 uploadimg → 替换 HTML 图片路径为微信 URL → 调 draft/add 建草稿 → 写 publish.log + article.yaml + 复制 article.md。\n\n' +
-  '脚本 stdout 含 "[5] DRAFT OK media_id=xxx" 行,解析拿到 draft media_id。stdout 末尾 "=== ALL DONE draft_media_id=xxx ===" 表示全流程成功。\n' +
-  '若 stdout 含 "[FAIL]",按四分类报错(网络/鉴权/内容/配额),不重试,把 FAIL 行原文放进 error 字段。\n' +
-  '脚本为 Python 标准库实现,跨平台(Mac/Windows)一致;中文路径用 UTF-8 读取,HTTP 上传用 urllib(不依赖 curl)。\n\n' +
+  PY_PROBE + '; "$PY" "' + PUBLISH_SCRIPT + '" --article-dir "' + args.article_dir + '" --cover "' + (configCheck.cover_path || args.cover) + '"' +
+  (args.account_slot ? ' --account-slot ' + args.account_slot : '') +
+  (configCheck.title ? ' --title "' + configCheck.title + '"' : '') +
+  (configCheck.digest ? ' --digest "' + configCheck.digest + '"' : '') +
+  (configCheck.author ? ' --author "' + configCheck.author + '"' : '') +
+  (args.mock ? ' --mock' : '') +
+  (args.mock_store ? ' --mock-store "' + args.mock_store + '"' : '') +
+  (args.inject ? ' --inject "' + args.inject + '"' : '') + '\n\n' +
+  '脚本流程(v2,状态机): 找 .md 写作稿(唯一合法才自动,多候选需 --md-file) -> 解析 frontmatter -> 转 HTML(微信 inline 样式) -> 扫描图片引用 -> 内容快照与 Hash -> 同内容复用(draft/get 核对)或变更走 draft/update,否则 draft/add -> 写 publish-state.json 与 publish.log(不写 article.yaml)。\n\n' +
+  'stdout 契约: "[5] DRAFT OK media_id=xxx"(可能带 "(reuse,...)" 或 "(updated)" 后缀)为成功行; 末尾 "=== ALL DONE draft_media_id=xxx ===" 表示全流程成功。\n' +
+  '失败语义(按进程退出码与行前缀,不重试): 退出码 1 + "[FAIL] ..." 为明确失败(四分类:网络/鉴权/内容/配额),FAIL 行原文放 error; 退出码 2 + "[UNKNOWN] ..." 为结果不确定(需人工核对草稿箱后用 --resolve-media-id 恢复,publish_completed=false, error 注明需人工核对); 退出码 3 + "[LOCKED] ..." 为文章正被其他任务处理(稍后重试)。\n' +
+  '脚本为 Python 标准库实现,跨平台(Mac/Windows)一致。\n\n' +
   '四项门禁(全过才 publish_completed=true): a) 找到 .md  b) 封面存在  c) .md 无 placeholder  d) 拿到 draft media_id。\n\n' +
-  '返回 JSON: { media_id, publish_completed, ok, error }。',
+  '返回 JSON: { media_id, publish_completed, ok, error, mode(reuse|updated|add,取自 [5] 行后缀,无则空) }。',
   { label: '发布', agentType: 'general', schema: {
     type: 'object',
     properties: {
@@ -105,6 +120,7 @@ const publishResult = await agent(
       publish_completed: { type: 'boolean' },
       ok: { type: 'boolean' },
       error: { type: 'string' },
+      mode: { type: 'string' },
     },
     required: ['ok', 'publish_completed'],
   } }

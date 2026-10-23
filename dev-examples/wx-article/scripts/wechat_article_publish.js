@@ -1,7 +1,18 @@
 export const meta = {
   name: 'wechat_article_publish',
-  description: '公众号 API 直连发布:图文入草稿箱或群发,素材上传与发布前检查。对应 skill: wechat_article_publish',
+  description: '[已弃用] 公众号 API 直连发布:图文入草稿箱或群发,素材上传与发布前检查。对应 skill: wechat_article_publish',
 }
+
+// ============================================================
+// 弃用说明（V1.2 需求 P2，2026-10-23）:
+// 本脚本已从 registry 下线(被 article-publish 取代),不再被任何流程调用。
+// 原因: ①重新上传整篇建新草稿,违反"基于已有草稿 media_id 发表"的收敛原则;
+//       ②内含 E:/WorkProjects 绝对路径与写死草稿箱 token,换机器脆弱。
+// 替代路径:
+//   草稿创建 -> draft_manager/publish.py (wechat-md-to-draft / article-prepare 调用)
+//   公开发表 -> draft_manager/publish.py --freepublish (article-publish 工作流调用)
+// 本文件仅作历史参考保留,勿再新增调用。
+// ============================================================
 
 // 对应 skill: references/wechat_article_publish(已复制入本仓库)
 // 输入 args:
