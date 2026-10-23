@@ -32,3 +32,7 @@ dev-examples/wx-article/aws.env
 
 # Python 运行产物
 __pycache__/
+
+# image-gen-p0 沙盒运行产物（真实生图证据/心跳标记/运行日志）
+dev-examples/image-gen-p0/out/
+dev-examples/image-gen-p0/.pi-workflows/
