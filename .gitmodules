@@ -25,3 +25,9 @@
 [submodule "thirdparties/vibe-kanban"]
 	path = thirdparties/vibe-kanban
 	url = https://github.com/mickorz/vibe-kanban
+[submodule "thirdparties/wewrite"]
+	path = thirdparties/wewrite
+	url = https://github.com/imraywang/wewrite
+[submodule "thirdparties/wx-layout"]
+	path = thirdparties/wx-layout
+	url = https://github.com/fengdu2077/wx-layout
