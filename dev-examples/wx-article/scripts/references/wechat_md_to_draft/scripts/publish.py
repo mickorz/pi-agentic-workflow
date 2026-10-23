@@ -118,11 +118,40 @@ def inline(p: str) -> str:
     return p
 
 
+def _normalize_prompt_blocks(text: str) -> str:
+    """把漏网的 blockquote（> 引用）块归一为 :::prompt 容器（微信对 <blockquote> 渲染异常）。"""
+    lines = text.split("\r\n" if "\r\n" in text else "\n")
+    out: list[str] = []
+    i, n = 0, len(lines)
+    while i < n:
+        if re.match(r"^>\s?", lines[i]):
+            block: list[str] = []
+            while i < n and re.match(r"^>\s?", lines[i]):
+                block.append(re.sub(r"^>\s?", "", lines[i], count=1))
+                i += 1
+            body = "\n".join(block).strip("\n")
+            body = re.sub(r"\n{3,}", "\n\n", body)
+            out.extend(["", ":::prompt", body, ":::", ""])
+        else:
+            out.append(lines[i])
+            i += 1
+    return "\n".join(out)
+
+
 def convert_md(text: str) -> str:
     text = re.sub(r"\A---\r?\n.*?\r?\n---\r?\n", "", text, flags=re.S)
+    text = _normalize_prompt_blocks(text)
     out: list[str] = [SECTION_OPEN]
     in_list = False
     table_rows: list[str] = []
+    # :::prompt 提示块（微信渲染友好，替代 blockquote）
+    in_prompt = False
+    prompt_paras: list[str] = []
+    PROMPT_OPEN = (
+        '<section style="margin:0 0 20px;padding:14px 16px;background:#F7F8FA;'
+        'border-left:3px solid #07C160;border-radius:6px;">'
+    )
+    PROMPT_P = '<p style="margin:0 0 10px;line-height:1.9;font-size:15px;color:#3F3F3F;">{}</p>'
 
     def flush() -> None:
         nonlocal in_list
@@ -133,8 +162,31 @@ def convert_md(text: str) -> str:
             render_table(out, table_rows)
             table_rows.clear()
 
+    def flush_prompt() -> None:
+        nonlocal in_prompt
+        if in_prompt:
+            out.append(PROMPT_OPEN)
+            out.extend(PROMPT_P.format(p) for p in prompt_paras)
+            out.append("</section>")
+            in_prompt = False
+            prompt_paras.clear()
+
     for raw in text.split("\r\n" if "\r\n" in text else "\n"):
         t = raw.strip()
+        if in_prompt and re.match(r"^:::\s*$", t):
+            flush_prompt()
+            continue
+        if in_prompt:
+            if t == "":
+                continue
+            prompt_paras.append(inline(t))
+            continue
+        if re.match(r"^:::prompt\s*$", t):
+            flush()
+            in_prompt = True
+            continue
+        if re.match(r"^:::\s*$", t):
+            continue
         if t == "":
             flush()
             continue
@@ -178,6 +230,7 @@ def convert_md(text: str) -> str:
         flush()
         out.append(f'<p style="margin:0 0 20px;text-align:justify;line-height:1.95;">{inline(t)}</p>')
     flush()
+    flush_prompt()
     out.append("</section>")
     return "\n".join(out) + "\n"
 
