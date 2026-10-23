@@ -22,3 +22,6 @@
 [submodule "thirdparties/xiaohongshu-mcp"]
 	path = thirdparties/xiaohongshu-mcp
 	url = https://github.com/xpzouying/xiaohongshu-mcp
+[submodule "thirdparties/vibe-kanban"]
+	path = thirdparties/vibe-kanban
+	url = https://github.com/mickorz/vibe-kanban
