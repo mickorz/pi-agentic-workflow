@@ -29,10 +29,14 @@ function writeScript(base: string, name: string, body: string): string {
 }
 
 /** 等待条件成立（轮询），超时抛错 */
-async function waitFor(predicate: () => boolean, timeoutMs: number, what: string): Promise<void> {
+async function waitFor(
+  predicate: () => boolean | Promise<boolean>,
+  timeoutMs: number,
+  what: string,
+): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (predicate()) return;
+    if (await predicate()) return;
     await new Promise((r) => setTimeout(r, 50));
   }
   throw new Error(`waitFor 超时：${what}`);
@@ -210,8 +214,13 @@ test("checkpoint 为最后节点：approve 后终态 completed 不被 Server 回
   }
   const final = readManifest(base, runId);
   assert.equal(final?.status, "completed", "checkpoint 为最后节点时 approve 后应收敛 completed（不被回翻）");
-  const events = await sup.readEventsSince(runId, 0);
-  assert.ok(events.some((e) => e.type === "run.completed"), "事件流应含 run.completed");
+  // 事件经 Server IPC 异步落盘（单写），manifest 终态后仍在途——有界等待而非立即读
+  // （macOS CI 实踩：立即读间歇性漏 run.completed，非产品缺陷而是读取时机）
+  await waitFor(
+    async () => (await sup.readEventsSince(runId, 0)).some((e) => e.type === "run.completed"),
+    5000,
+    "事件流应含 run.completed（等 IPC 落盘）",
+  );
 });
 
 test("取消升级：cancel → Worker 优雅取消 → cancelled 终态", async () => {
