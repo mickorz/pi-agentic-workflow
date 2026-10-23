@@ -34,7 +34,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
 IMG_PREFIX_EXCLUDE = re.compile(r"^(article|draft|review)")
-NAME_ILLEGAL = ("审稿", "图片引用清单", "大纲")
+NAME_ILLEGAL = ("审稿", "图片引用清单", "大纲", "配图建议")
 IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 
 
