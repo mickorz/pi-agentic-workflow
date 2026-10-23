@@ -29,3 +29,6 @@ dev-docs/
 dev-examples/wx-article/.aws-article/
 dev-examples/wx-article/aws.env
 .pi/tasks/
+
+# Python 运行产物
+__pycache__/
