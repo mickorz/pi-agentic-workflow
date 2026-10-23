@@ -75,12 +75,24 @@ export function hashArgs(args: unknown): string | null {
   return createHash("sha256").update(JSON.stringify(args)).digest("hex");
 }
 
-/** 原子写：tmp + rename（manifest/result 共用） */
+/** 原子写：tmp + rename（manifest/result 共用）。Windows 下 rename 可能耗尽重试 EPERM/EBUSY（AV 扫描/并发读者短暂占用目标）——短退避重试 */
 export function atomicWriteJson(file: string, value: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
   fs.writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
-  fs.renameSync(tmp, file);
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      fs.renameSync(tmp, file);
+      return;
+    } catch (err) {
+      lastErr = err;
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES") throw err;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20 * (attempt + 1)); // 20/40/60/80ms
+    }
+  }
+  throw lastErr;
 }
 
 export function createManifest(baseDir: string, manifest: RunManifest): void {
