@@ -42,6 +42,21 @@ function errMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/**
+ * 审批提示卡（VR #12）：服务端确定性生成——workflowId + 解析目标 + actionId 三要素，
+ * 不依赖 Agent 自行描述（LLM 遗漏/描述错目标都不影响用户看到真实执行对象）。
+ */
+export function renderPendingActionApproval(action: PendingAction): string {
+  return [
+    "⏳ 待审批流程",
+    `流程：${action.workflowId}`,
+    ...(action.resolvedTarget ? [`目标：${action.resolvedTarget}`] : []),
+    `编号：${action.actionId}`,
+    "",
+    "回复「批准」执行；回复「拒绝」取消（多项待审批可用「批准 序号」）。",
+  ].join("\n");
+}
+
 export class PendingActionService {
   private readonly channel: "wechat" | "cli";
 

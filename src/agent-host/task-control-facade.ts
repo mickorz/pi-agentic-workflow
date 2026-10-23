@@ -16,6 +16,8 @@ import { PendingActionStore } from "./pending-action.js";
 import { RunLinkStore } from "./run-launch.js";
 import { LaunchCoordinator } from "./launch-flow.js";
 import { computeArgsDigest, computeRegistryDigest } from "./digest.js";
+import { vaultResolve } from "../runtime/vault-resolver.js";
+import type { PendingAction } from "./types.js";
 import type {
   AgentToolFacade,
   TaskStatusResult,
@@ -40,6 +42,10 @@ export interface TaskControlFacadeDeps {
   runLinks: RunLinkStore;
   /** 入口渠道（TaskBinding.channel；P0 agent 模式仅微信） */
   channel?: "wechat" | "cli";
+  /** VR S4.2：vault_ref 通道审批前预检解析配置（注入链缺省：PI_VAULT_RESOLVER_PATH > dev 兜底） */
+  vaultResolver?: { scriptPath?: string; cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; vaultRoot?: string };
+  /** VR #12：PendingAction 创建后回调（gateway 接确定性审批卡推送，不依赖 Agent 自行描述） */
+  onPendingCreated?: (action: PendingAction) => void;
 }
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
@@ -108,13 +114,57 @@ export class TaskControlFacade implements AgentToolFacade {
     // 本工具链路上不存在 authorized=true 的通路——LLM 无法自授权。
     // 去重：同 userId+workflowId+argsDigest 已有 pending 项则复用（不刷新 TTL），
     // 避免 LLM 重试/重复发起时叠加多条 pending，导致用户「批准」绑定错位（批准走最老一条）。
-    const args = (input.args ?? {}) as Record<string, unknown>;
+    const args = { ...((input.args ?? {}) as Record<string, unknown>) };
+    // VR S4.2 审批前参数预检：声明 anyOfArgs 的流程，在创建 PendingAction 前校验
+    // 至少一个通道有有效值——不满足直接 error 给 Agent，绝不出现
+    // 「用户批准 → 执行 → 才发现缺参」的空转授权。
+    let resolvedTarget: string | undefined;
+    if (Array.isArray(reg.anyOfArgs) && reg.anyOfArgs.length > 0) {
+      const present = reg.anyOfArgs.filter(
+        (k) => typeof args[k] === "string" && (args[k] as string).trim() !== "",
+      );
+      if (present.length === 0) {
+        return {
+          error: `缺少定位参数：${reg.anyOfArgs.join(" / ")} 至少提供一个（请向用户确认文章名或 vault 相对路径）`,
+        };
+      }
+      // VR S4.3 vault_ref 通道：服务端确定性解析。失败/歧义绝不创建审批项
+      //（用户批准前就发现定位不了）；解析成功后注入服务端锚点。
+      if (present.includes("vault_ref")) {
+        let resolved;
+        try {
+          resolved = await vaultResolve(String(args.vault_ref), {
+            want: "article",
+            ...(typeof args.vault_scope === "string" && args.vault_scope.trim() !== ""
+              ? { scope: args.vault_scope }
+              : {}),
+            ...(this.deps.vaultResolver ?? {}),
+          });
+        } catch (e) {
+          return { error: `vault_resolver 不可用（未创建审批）：${errMessage(e)}` };
+        }
+        if (!resolved.ok || !resolved.resolved_rel) {
+          return {
+            error:
+              "文章定位失败（未创建审批，请向用户确认目标后重试）：" +
+              JSON.stringify({ issues: resolved.issues ?? [], candidates: resolved.candidates ?? [] }),
+          };
+        }
+        // #12/#13 服务端锚点：覆盖外部同名参数（不信任 LLM 传入的锚点），
+        // 且必须在 computeArgsDigest 之前注入——保证审批快照与执行参数一致。
+        args.vault_ref_pinned_rel = resolved.resolved_rel;
+        resolvedTarget = resolved.resolved_rel;
+      }
+    }
     const argsDigest = computeArgsDigest(args);
     const registryDigest = computeRegistryDigest(this.deps.registry);
     const existing = this.deps.pending
       .pendingFor(input.userId)
       .find((a) => a.workflowId === input.workflowId && a.argsDigest === argsDigest);
-    if (existing) return { needsApproval: true, actionId: existing.actionId };
+    if (existing)
+      return existing.resolvedTarget
+        ? { needsApproval: true, actionId: existing.actionId, resolvedTarget: existing.resolvedTarget }
+        : { needsApproval: true, actionId: existing.actionId };
     const action = this.deps.pending.create({
       userId: input.userId,
       workflowId: input.workflowId,
@@ -124,8 +174,12 @@ export class TaskControlFacade implements AgentToolFacade {
       originMessageId: input.originMessageId,
       riskLevel: reg.riskLevel,
       registryDigest,
+      ...(resolvedTarget ? { resolvedTarget } : {}),
     });
-    return { needsApproval: true, actionId: action.actionId };
+    this.deps.onPendingCreated?.(action);
+    return resolvedTarget
+      ? { needsApproval: true, actionId: action.actionId, resolvedTarget }
+      : { needsApproval: true, actionId: action.actionId };
   }
 
   async taskStatus(

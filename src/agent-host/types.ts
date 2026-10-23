@@ -121,6 +121,8 @@ export interface PendingAction {
   riskLevel: string;
   /** Registry 无版本字段的替代：注册元数据稳定哈希（确认时重校验一致性） */
   registryDigest: string;
+  /** VR S4.2/S4.3：审批前预检解析出的目标（vault 相对路径，审批卡展示与用户确认用） */
+  resolvedTarget?: string;
   createdAt: string;
   expiresAt: string;
   status: PendingActionStatus;
@@ -167,7 +169,7 @@ export interface WorkflowSearchItem {
 
 export type WorkflowExecuteResult =
   | { accepted: true; runId: string; taskBindingId: string; status: string }
-  | { needsApproval: true; actionId: string }
+  | { needsApproval: true; actionId: string; resolvedTarget?: string }
   | { error: string };
 
 export interface TaskStatusResult {

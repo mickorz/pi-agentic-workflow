@@ -32,7 +32,7 @@ import type { BotAdapter } from "./wechat/bot-adapter.js";
 import { AgentHost } from "../agent-host/agent-host.js";
 import type { RoutingMode, SessionOpener } from "../agent-host/types.js";
 import { TaskControlFacade } from "../agent-host/task-control-facade.js";
-import { PendingActionService } from "../agent-host/pending-flow.js";
+import { PendingActionService, renderPendingActionApproval } from "../agent-host/pending-flow.js";
 import { LaunchCoordinator } from "../agent-host/launch-flow.js";
 import { PendingActionStore } from "../agent-host/pending-action.js";
 import { RunLaunchStore, RunLinkStore } from "../agent-host/run-launch.js";
@@ -168,6 +168,10 @@ export class WechatApp {
         service: deps.service,
         pending: pendingStore,
         runLinks,
+        // VR #12：审批卡由服务端确定性生成（三要素），创建即推送，不依赖 Agent 自行描述
+        onPendingCreated: (a) => {
+          this.enqueueReply(a.userId, renderPendingActionApproval(a));
+        },
       });
       const modelSpec = deps.agentModel ?? deps.defaultModel;
       const cumulative: CumulativeBudget = {
@@ -266,6 +270,10 @@ export class WechatApp {
           a.userId,
           `⚠️ 你此前发起的「${a.workflowId}」启动结果不确定（进程中断），已转人工核对，请勿重复发起。`,
         );
+      }
+      // VR #12 + CV-004 同款重通知：重启后存量待审批重发审批卡（服务端确定性文案）
+      for (const a of this.pendingStore!.listByStatus("pending")) {
+        this.enqueueReply(a.userId, renderPendingActionApproval(a));
       }
       void rec;
       void stuck;

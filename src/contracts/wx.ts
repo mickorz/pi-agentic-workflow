@@ -58,6 +58,9 @@ export interface WorkflowRegistration {
   enabled: boolean;
   /** 检索关键词（IR-002 候选匹配用，不含源码） */
   keywords: string[];
+  /** 跨字段「至少一」约束（VR S4.2）：声明后 facade 在创建 PendingAction 前做审批前预检，
+   *  条目必须存在于 argsSchema.properties；如 ["article_dir", "vault_ref", "article_name"] */
+  anyOfArgs?: string[];
 }
 
 // ── 意图路由结果 ──

@@ -37,6 +37,8 @@ export function computeRegistryDigest(registry: WorkflowRegistry): string {
       argsSchema: r.argsSchema,
       riskLevel: r.riskLevel,
       keywords: [...r.keywords].sort(),
+      // VR S4.4：规则变更（anyOfArgs）可让旧审批失效（registryDigest 重校验捕获）
+      anyOfArgs: r.anyOfArgs ? [...r.anyOfArgs].sort() : null,
     }))
     .sort((a, b) => (a.workflowId < b.workflowId ? -1 : 1));
   return sha256Hex(stableStringify(rows)).slice(0, 16);

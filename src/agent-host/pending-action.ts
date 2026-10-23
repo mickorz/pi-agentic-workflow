@@ -26,6 +26,8 @@ export interface CreatePendingActionInput {
   originMessageId: string;
   riskLevel: string;
   registryDigest: string;
+  /** VR S4.2：审批前预检解析目标（审批卡展示；未声明 anyOfArgs 的流程无此字段） */
+  resolvedTarget?: string;
   ttlMs?: number;
 }
 
@@ -77,6 +79,7 @@ export class PendingActionStore {
       originMessageId: input.originMessageId,
       riskLevel: input.riskLevel,
       registryDigest: input.registryDigest,
+      ...(input.resolvedTarget ? { resolvedTarget: input.resolvedTarget } : {}),
       createdAt: now,
       expiresAt: new Date(Date.parse(now) + (input.ttlMs ?? 10 * 60_000)).toISOString(),
       status: "pending",

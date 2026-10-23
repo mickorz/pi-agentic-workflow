@@ -27,6 +27,24 @@ export class WorkflowRegistry {
     if (!["read-only", "write", "external-side-effect"].includes(reg.riskLevel)) {
       return { ok: false, error: `riskLevel 非法：${String(reg.riskLevel)}` };
     }
+    // VR S4.4：anyOfArgs 声明式跨字段约束合法性（非空字符串数组，条目必须在 argsSchema.properties）
+    if (reg.anyOfArgs !== undefined) {
+      if (!Array.isArray(reg.anyOfArgs) || reg.anyOfArgs.length === 0) {
+        return { ok: false, error: `anyOfArgs 需为非空字符串数组：${reg.workflowId}` };
+      }
+      const props = (reg.argsSchema as { properties?: Record<string, unknown> }).properties;
+      for (const key of reg.anyOfArgs) {
+        if (typeof key !== "string" || key.trim() === "") {
+          return { ok: false, error: `anyOfArgs 条目必须是非空字符串：${reg.workflowId}` };
+        }
+        if (!props || typeof props !== "object" || !(key in props)) {
+          return {
+            ok: false,
+            error: `anyOfArgs 条目 ${key} 必须存在于 argsSchema.properties：${reg.workflowId}`,
+          };
+        }
+      }
+    }
     this.byId.set(reg.workflowId, { ...reg, keywords: reg.keywords ?? [] });
     return { ok: true };
   }
