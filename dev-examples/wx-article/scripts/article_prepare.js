@@ -18,6 +18,15 @@ const PUBLISH_SCRIPT = 'dev-examples/wx-article/scripts/draft_manager/publish.py
 // Python 解释器真探测(Store 占位符问题,见 experience/windows-python-subprocess-gbk-and-python3-alias.md)
 const PY_PROBE = 'PY=""; for c in python3 python py; do if "$c" -c "import sys" 2>/dev/null; then PY="$c"; break; fi; done; [ -n "$PY" ] || { echo "[FAIL] no usable python on PATH"; exit 49; }'
 
+// 微信 Bot 步骤通知:向 .pi-wechat/outbox.jsonl 追加 pending,常驻服务 5s flush 投递。
+// 尽力而为:commandSuccess 直接执行(零 LLM),失败静默,绝不阻塞发布流程。
+const NOTIFY_SCRIPT = 'dev-examples/wx-article/scripts/draft_manager/notify_bot.py'
+const notify = (kind, text) => {
+  const clean = String(text).replace(/["%&|<>^]/g, ' ').replace(/\r?\n/g, ' ').slice(0, 1200)
+  return commandSuccess('python "' + NOTIFY_SCRIPT + '" --kind ' + kind + ' --text "' + clean + '"' +
+    ' || python3 "' + NOTIFY_SCRIPT + '" --kind ' + kind + ' --text "' + clean + '"', 20000).catch(() => false)
+}
+
 const checkArgs = (args.article_dir
   ? '--article-dir "' + args.article_dir + '"'
   : '--locate "' + (args.article_name || '') + '"' + (args.workspace_dir ? ' --workspace "' + args.workspace_dir + '"' : ''))
@@ -25,6 +34,8 @@ const checkArgs = (args.article_dir
 
 const runCheckCmd = PY_PROBE + '; "$PY" "' + CHECK_SCRIPT + '" ' + checkArgs
 
+// 中断兑底:任何未捕获异常(agent 失败/网络错误等)先推微信通知再重抛,保证"中断告知原因"
+try {
 phase('状态检查')
 const check = await agent(
   '你是只读检查执行器。用 bash 工具执行恰好一条命令, 把 stdout 原样解析为 JSON 返回, 不做任何其他操作:\n\n' +
@@ -52,6 +63,7 @@ const check = await agent(
 )
 
 if (!check.ok) {
+  await notify('failed', '文章处理失败(定位阶段):' + (check.issues || []).join(';'))
   const cand = (() => { try { return JSON.parse(check.raw).candidates || [] } catch { return [] } })()
   return {
     ok: false, article_dir: '', inserted: 0, media_id: '', draft_mode: '', reused: false,
@@ -62,6 +74,8 @@ if (!check.ok) {
 
 const articleDir = check.article_dir
 const accs = check.state_accounts || {}
+await notify('info', '检查完成:《' + (check.md && check.md.name ? check.md.name : articleDir) + '》' +
+  (check.needs_insert ? '有未引用配图待插入' : '配图已就绪') + '，即将' + (check.needs_insert ? '插图并' : '') + '入草稿箱')
 const pendingAcc = Object.keys(accs).filter(k => accs[k].hasPending)
 
 // ---------- 一次授权（网关批准链生效时可 skip_confirm 透传） ----------
@@ -90,6 +104,7 @@ if (check.needs_insert) {
   if (ins && ins.ok) {
     inserted = ins.inserted || 0
     log('插图完成: ' + inserted + ' 张, cover=' + (ins.cover || '(无)'))
+    await notify('info', '插图完成:' + inserted + ' 张已按章节语义匹配插入,封面已定位')
   } else {
     log('插图未成功: ' + ((ins && ins.error) || '未知原因') + '；继续尝试草稿(若封面/元数据已就绪)')
   }
@@ -121,6 +136,7 @@ const check2 = await agent(
 )
 
 if (!check2.prepare_ready) {
+  await notify('failed', '文章处理失败(就绪检查):' + (check2.issues || []).join(';'))
   return {
     ok: false, article_dir: articleDir, inserted,
     media_id: '', draft_mode: '', reused: false,
@@ -175,6 +191,18 @@ const pub = await agent(
 
 const draftMode = pub.mode === 'reuse' ? 'reuse' : pub.mode === 'updated' ? 'update' : pub.mode === 'add' ? 'add' : ''
 const okResult = pub.exit_code === 0 && !!pub.media_id
+const shortName = String(articleDir).replace(/\\/g, '/').split('/').pop()
+if (okResult) {
+  await notify('completed', '完成了！《' + shortName + '》草稿已入草稿箱(' +
+    (draftMode === 'reuse' ? '同内容复用' : draftMode === 'update' ? '内容变更已更新' : '新建') +
+    ',插图 ' + inserted + ' 张,media_id=' + String(pub.media_id).slice(-12) + '),可到公众号后台预览')
+} else if (pub.unknown) {
+  await notify('interrupted', '文章处理中断(结果不确定): 需人工核对草稿箱后用 --resolve-media-id 恢复。文章: ' + shortName)
+} else if (pub.locked) {
+  await notify('interrupted', '文章处理中断: 正被其他任务处理,稍后重试。文章: ' + shortName)
+} else {
+  await notify('failed', '文章处理失败: ' + (pub.fail_line || '未知') + '(草稿保留)。文章: ' + shortName)
+}
 const report =
   (okResult
     ? '草稿就绪: media_id=' + pub.media_id + ' (' + (draftMode === 'reuse' ? '同内容复用' : draftMode === 'update' ? '内容变更已更新' : '新建') + ')'
@@ -196,4 +224,8 @@ return {
   locked: pub.locked === true,
   report,
   issues: okResult ? [] : [pub.fail_line || (pub.unknown ? '[UNKNOWN] 人工核对' : '[LOCKED] 稍后重试')],
+}
+} catch (e) {
+  await notify('interrupted', '文章处理中断: ' + (e && e.message ? e.message : String(e)).slice(0, 600))
+  throw e
 }
