@@ -16,6 +16,7 @@ module.exports = {
     {
       name: "wechat-bot",
       script: "src/cli/index.ts", // 入口（TS，经 node_args 的 tsx loader 加载）
+      interpreter: "node", // 关键：PM2 7 对 .ts 默认选 bun，无 bun 机器会静默起不来
       args: "wechat start",
       node_args: "--import tsx",
       cwd: path.resolve(__dirname, "../.."), // 仓库根：registry/scripts/data 缺省路径锚点

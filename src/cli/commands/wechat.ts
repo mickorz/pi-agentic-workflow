@@ -94,6 +94,14 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
     const i = argv.indexOf(name);
     return i >= 0 ? argv[i + 1] : undefined;
   };
+  // 服务模式下 PM2 fork 的 IPC channel 会吊住事件循环：早退路径 return 后进程不退出，
+  // PM2 误判 online（假健康）。服务模式冲刷后硬退出；前台模式保持自然退出语义。
+  const finish = (rc: number): number => {
+    if (process.env.PI_WECHAT_SERVICE === "1") {
+      process.stdout.write("", () => process.exit(rc));
+    }
+    return rc;
+  };
   // 缺省场景 = 日常手动测试：am-p0 registry + dev-examples 脚本根（无副本，随仓库走，任何机器 clone 即用）；
   // 显式 --registry 时 scriptsRoot 缺省仍为 registry 所在目录（白名单语义不变）
   const explicitRegistry = flag("--registry");
@@ -116,7 +124,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
       agentLimits = { maxLlmRequests: parts[0]!, maxToolCalls: parts[1]!, maxDurationMs: parts[2]! };
     } else {
       process.stderr.write(`--agent-limits 格式非法：${limitsRaw}（应为 llm,tools,ms，如 12,20,300000）\n`);
-      return 2;
+      return finish(2);
     }
   }
 
@@ -129,7 +137,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
         `需显式指定，如：pi-workflow wechat start --registry dev-examples/am-p0/registry.json --scripts dev-examples [--routing-mode agent]`,
       ].join("\n") + "\n",
     );
-    return 2;
+    return finish(2);
   }
 
   // F5 单实例锁：前台/后台共享 Bot 启动层互斥（同机同 data 目录）
@@ -142,7 +150,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
         `如需重启：停掉现有进程（前台 Ctrl-C / 后台 wechat service stop）后再启动`,
       ].join("\n") + "\n",
     );
-    return 2;
+    return finish(2);
   }
 
   // 真实路由 LLM（单轮 prompt → JSON）；模型走默认配置（settings.json），显式 --model 才覆盖
@@ -215,7 +223,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   } catch (error) {
     releaseServiceLock(dataDir);
     process.stderr.write(`微信启动失败：${error instanceof Error ? error.message : String(error)}\n（先完成真机 SOP：npx tsx dev-examples/wx-m0/standalone-adapter.ts --qr）\n`);
-    return 1;
+    return finish(1);
   }
   const serviceMode = process.env.PI_WECHAT_SERVICE === "1";
   process.stdout.write(

@@ -162,6 +162,7 @@ module.exports = {
     {
       name: ${JSON.stringify(PM2_APP_NAME)},
       script: ${JSON.stringify(entry)},
+      interpreter: "node", // PM2 7 对 .ts 默认选 bun（无 bun 时静默起不来，online 假象零日志），强制 node
       node_args: "--import " + ${JSON.stringify(tsx)},
       args: ${JSON.stringify(args.join(" "))},
       cwd: ${JSON.stringify(rootAbs)},
