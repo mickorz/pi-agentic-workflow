@@ -30,6 +30,7 @@ import { wechatLogin } from "./wechat-login.js";
 import { acquireServiceLock, releaseServiceLock } from "../../gateway/service-lock.js";
 import { createGracefulShutdown } from "../../gateway/service-shutdown.js";
 import { BotStatusMonitor } from "../../gateway/bot-status.js";
+import { BotStatsRecorder } from "../../gateway/bot-stats.js";
 import { wechatService } from "./wechat-service.js";
 
 export interface WechatCommandOptions {
@@ -203,6 +204,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
     };
   }
   const botStatusMonitor = new BotStatusMonitor(dataDir, process.pid);
+  const botStats = new BotStatsRecorder(dataDir);
   const bot = new WechatBotAdapter({
     ...botOptions,
     onStatus: (status, attempt) => botStatusMonitor.handleAdapterStatus(status, attempt),
@@ -216,6 +218,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
     scriptsRoot,
     dataDir,
     routingMode,
+    stats: botStats,
     ...(agentLimits ? { agentLimits } : {}),
     ...(model ? { defaultModel: model } : {}),
     limits: {

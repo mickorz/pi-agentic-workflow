@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { readServiceLock } from "../../gateway/service-lock.js";
 import { readBotStatus, aggregateServiceStatus, type BotStatusFile } from "../../gateway/bot-status.js";
+import { readBotStats } from "../../gateway/bot-stats.js";
 
 const PM2_APP_NAME = "wechat-bot";
 
@@ -314,6 +315,29 @@ async function serviceStatus(runner: Pm2Runner): Promise<number> {
     bot
       ? `Bot 连接：${agg.bot}（attempt=${bot.attempt}，updatedAt=${bot.updatedAt}，lastPollOkAt=${bot.lastPollOkAt || "无"}）`
       : `Bot 连接：无状态文件`,
+    (() => {
+      const dataDir = path.resolve(".pi-wechat");
+      const s = readBotStats(dataDir);
+      if (!s || s.pid !== holderPid) return `运营统计：无（本代未记录）`;
+      const fmt = (iso: string) => (iso ? new Date(iso).toLocaleString() : "无");
+      return `运营统计：最近收 ${fmt(s.lastInboundAt)} / 发 ${fmt(s.lastOutboundAt)}；累计 ${s.turnsCount} 轮 / ${s.totalTokens} tokens`;
+    })(),
+    (() => {
+      // 最近崩溃线索：restarts>0 时取 err 日志尾行（非权威 crash 栈，定位起点用）
+      if (!app || app.restarts <= 0) return `崩溃：无重启记录`;
+      const errLog = path.resolve(".pi-wechat", "logs", "wechat-bot-err.log");
+      try {
+        const tail = fs
+          .readFileSync(errLog, "utf8")
+          .trim()
+          .split(/\r?\n/)
+          .slice(-2)
+          .join(" | ");
+        return `崩溃：restarts=${app.restarts}，err 尾行：${tail.slice(-160)}`;
+      } catch {
+        return `崩溃：restarts=${app.restarts}（err 日志不可读）`;
+      }
+    })(),
     `日志：<data>/logs/（pm2-logrotate 按天滚动）`,
   ];
   process.stdout.write(lines.join("\n") + "\n");

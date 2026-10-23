@@ -58,6 +58,13 @@ export interface WechatAppDeps {
   limits?: WechatAppLimits;
   /** 模型路由（决策经钩子进审计与路由日志） */
   modelRouter?: ModelRouter;
+  /** 运营统计（F8 status 增强：最近收发/累计 token；缺省不采集） */
+  stats?: {
+    recordInbound(): void;
+    recordOutbound(): void;
+    recordTurn(tokens: number): void;
+    flushSync(): void;
+  };
   outbox?: OutboxOptions;
   pollMs?: number;
   /** Outbox 投递间隔（缺省 5s） */
@@ -186,6 +193,7 @@ export class WechatApp {
           // 所有 Turn（含排队 drain）统一出口：入账 + 审计 + 回执。
           // 注意：回执仅在此处入队一次——processed 分支不得重复 enqueueReply（曾致真机双发）
           this.budget.record(r.userId, r.usage.inputTokens + r.usage.outputTokens);
+          this.deps.stats?.recordTurn(r.usage.inputTokens + r.usage.outputTokens); // F8 累计 token
           this.audit.record({
             actor: r.userId,
             action: "am.turn.completed",
@@ -231,17 +239,22 @@ export class WechatApp {
   /** 启动：Bot 接收 + 监控/投递循环 + 重启补扫（CV-004：待审批重通知、Outbox 补投） */
   async start(): Promise<void> {
     this.deps.bot.onMessage(async (message) => {
+      this.deps.stats?.recordInbound();
       await this.handleInbound(message);
     });
     await this.deps.bot.start();
     this.monitor.start();
     const flushMs = this.deps.flushMs ?? 5000;
+    const sendAndRecord = async (userId: string, text: string): Promise<void> => {
+      await this.deps.bot.send(userId, text);
+      this.deps.stats?.recordOutbound(); // 发送成功才计（完成≠送达原则的反面：送达才计）
+    };
     this.flushTimer = setInterval(() => {
-      void this.outbox.flush((userId, text) => this.deps.bot.send(userId, text));
+      void this.outbox.flush(sendAndRecord);
     }, flushMs);
     this.flushTimer.unref?.();
     // 重启补扫：先补投存量待发通知，再扫一轮待审批
-    await this.outbox.flush((userId, text) => this.deps.bot.send(userId, text));
+    await this.outbox.flush(sendAndRecord);
     await this.monitor.pollOnce();
     // agent 模式恢复（§4/§3.3/§2.3）：journal 未完成 → attempts 补链/unknown → 悬置授权告警
     if (this.agentHost) {
@@ -261,6 +274,7 @@ export class WechatApp {
 
   /** WG-007：只停 Bot 与循环；运行中 Run 一律不动（可 CLI resume） */
   async stop(): Promise<void> {
+    this.deps.stats?.flushSync(); // F8：优雅停止冲刷统计（未调则最多丢 5s 增量）
     this.monitor.stop();
     if (this.flushTimer) clearInterval(this.flushTimer);
     this.flushTimer = undefined;
@@ -321,6 +335,7 @@ export class WechatApp {
         });
         this.conversation.setLastTask(message.userId, out.executeResult.taskBindingId);
         this.budget.record(message.userId, out.plan.tokens ?? 0);
+        this.deps.stats?.recordTurn(out.plan.tokens ?? 0); // F8 累计 token（legacy 路由）
       }
       this.enqueueReply(message.userId, out.reply, out.executeResult?.runId, out.executeResult?.taskBindingId);
       return { duplicate: false, reply: out.reply, plan: out.plan };
@@ -453,7 +468,10 @@ export class WechatApp {
   async flushOutbox(): Promise<{ sent: number; failed: number; deferred: number }> {
     const totals = { sent: 0, failed: 0, deferred: 0 };
     for (let round = 0; round < 10; round += 1) {
-      const pass = await this.outbox.flush((userId, text) => this.deps.bot.send(userId, text));
+      const pass = await this.outbox.flush(async (userId, text) => {
+        await this.deps.bot.send(userId, text);
+        this.deps.stats?.recordOutbound();
+      });
       totals.sent += pass.sent;
       totals.failed += pass.failed;
       totals.deferred += pass.deferred;
@@ -487,7 +505,10 @@ export class WechatApp {
       ...(taskBindingId ? { taskBindingId } : {}),
     });
     // 回复尽力即时投递（失败由 Outbox 循环重试）
-    void this.outbox.flush((uid, text) => this.deps.bot.send(uid, text));
+    void this.outbox.flush(async (uid, text) => {
+      await this.deps.bot.send(uid, text);
+      this.deps.stats?.recordOutbound();
+    });
   }
 }
 
