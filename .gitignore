@@ -32,3 +32,7 @@ dev-examples/wx-article/aws.env
 
 # Python 运行产物
 __pycache__/
+
+# P1a Obsidian vault 本地配置与写台账（方案 §5，不入库）
+obsidian.config.json
+.obsidian-ops/

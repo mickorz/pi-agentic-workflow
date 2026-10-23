@@ -24,6 +24,7 @@ import { parseWorkflowScript, runScriptInVm } from "./vm.js";
 import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
 import { createNodeExecutor, compositeScopeStorage, type WorkflowNode } from "./node-contract.js";
 import { vaultResolve as callVaultResolver, type VaultResolveResult } from "./vault-resolver.js";
+import { createObsidianReader } from "./obsidian-reader.js";
 import type { AgentSessionRunner, AgentRunOptions } from "../agent/session-runner.js";
 import type { AgentRecord, AgentUsage, JournalEntry, WorkflowMeta, WorkflowRunResult } from "./types.js";
 import { buildOutputPreview, truncatePromptForJournal } from "./agent-result.js";
@@ -94,6 +95,8 @@ export interface WorkflowRunOptions {
   /** vaultResolve() 配置（VR 阶段 B，方案 S3.1/#14）：scriptPath 测试注入 / env 覆盖（缺省透传 process.env）/ timeoutMs。
    *  正式部署通道是环境变量 PI_VAULT_RESOLVER_PATH，由 vault-resolver.ts 注入链统一处理 */
   vaultResolver?: { scriptPath?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number };
+  /** obsidian Reader 配置（P1a Phase R）：注入链 PI_VAULT_QUERY_PATH > dev 兜底，见 obsidian-reader.ts */
+  obsidian?: { scriptPath?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number };
 }
 
 /** checkpoint() 的可选项（P2 实现运行时；类型先占位保持向前兼容） */
@@ -152,6 +155,8 @@ interface SharedRunContext {
   confirm?: (promptText: string) => Promise<unknown>;
   /** vaultResolve() 运行配置（透传 WorkflowRunOptions.vaultResolver） */
   vaultResolver?: { scriptPath?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number };
+  /** obsidian Reader 运行配置（透传 WorkflowRunOptions.obsidian；P1a Phase R） */
+  obsidian?: { scriptPath?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number };
   /** 事件发射器（per-run sequence 单调） */
   events: EventEmitter;
 }
@@ -178,6 +183,7 @@ function createSharedRunContext(options: WorkflowRunOptions, runId: string): Sha
     onAgentJournal: options.onAgentJournal,
     confirm: options.confirm,
     vaultResolver: options.vaultResolver,
+    obsidian: options.obsidian,
     events: createEventEmitter(runId, options.onEvent, options.eventSequenceStart ?? 0),
   };
   // 默认并发下限 2：parallel/race 的 DSL 契约是分支重叠（P0-03 测试断言）；
@@ -913,6 +919,14 @@ async function executeWorkflow(
     });
   };
 
+  // ── obsidian：ObsidianReader 只读面（P1a Phase R，方案 §1/§3）──
+  // 全 workflow 可用（读面无 capability 门）；语义失败返回 { ok:false, issues } 由脚本侧
+  // await check(() => r.ok, ...) 转为可恢复 FAILURE（与 vaultResolve 同款 #11 约定）
+  const obsidian = createObsidianReader({
+    ...(shared.obsidian ?? {}),
+    cwd: shared.cwd,
+  });
+
   // ── verify / retry（P1） ──
 
   const VERIFY_SCHEMA: Record<string, unknown> = {
@@ -1087,6 +1101,7 @@ async function executeWorkflow(
     fileExists,
     commandSuccess,
     vaultResolve,
+    obsidian,
     phase,
     log,
     args,
