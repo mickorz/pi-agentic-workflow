@@ -70,5 +70,43 @@
     "examples": [
       "把 E:/Obsidian/MyVault/文章A 这篇文章发布到公众号草稿箱,封面用 E:/Obsidian/MyVault/文章A/cover.png"
     ]
+  },
+  {
+    "workflowId": "article-insert-images",
+    "scriptPath": "scripts/article_insert_images_meta.js",
+    "name": "文章批量插图",
+    "description": "给文章按章节批量插入 imgs/ 配图并生成/更新 article.yaml 元数据:扫描章节与图片文件名语义匹配、插到每章一句话记住前(无则章末)、封面插头部、可选去 AI 味、插图与元数据检查",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录(必填,含 1 个 .md 源文件 + imgs/ 图片目录)"
+        },
+        "skip_humanize": {
+          "type": "boolean",
+          "description": "跳过去 AI 味(可选,默认 false)"
+        },
+        "skip_confirm": {
+          "type": "boolean",
+          "description": "跳过插图中的人工确认(可选,默认 false)"
+        }
+      },
+      "required": [
+        "article_dir"
+      ]
+    },
+    "riskLevel": "file-write",
+    "enabled": true,
+    "keywords": [
+      "插图",
+      "配图",
+      "插入图片",
+      "article.yaml",
+      "images"
+    ],
+    "examples": [
+      "给 E:/Obsidian/MyVault/文章A 按章节插入 imgs 里的配图"
+    ]
   }
 ]
