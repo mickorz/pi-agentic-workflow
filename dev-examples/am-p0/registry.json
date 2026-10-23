@@ -499,5 +499,148 @@
       "vault_ref",
       "article_name"
     ]
+  },
+  {
+    "workflowId": "obsidian-note-create",
+    "scriptPath": "wx-article/scripts/obsidian_note_create.js",
+    "name": "创建 Obsidian 笔记",
+    "description": "在 Obsidian vault 创建新笔记(保存灵感/记录想法/新建文章草稿)。O_EXCL 语义:目标已存在即拒绝,绝不覆盖;需用户审批后写入。用法示例:帮我保存一条灵感「AI 自动化测试」到笔记",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "rel": {
+          "type": "string",
+          "description": "vault 相对 .md 路径(如 灵感/AI 自动化测试.md;不允许绝对路径/../段/隐藏段/特殊字符)"
+        },
+        "content": {
+          "type": "string",
+          "description": "笔记全文(创建)或追加内容(追加),UTF-8 ≤1MB;经审批链授权后写入"
+        },
+        "operationId": {
+          "type": "string",
+          "description": "幂等键(服务端审批链注入并覆盖外部同名值;同键同内容重试幂等成功)"
+        },
+        "vault_scope": {
+          "type": "string",
+          "description": "限定范围(vault 相对目录或配置别名,可选)"
+        }
+      },
+      "required": [
+        "rel",
+        "content"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "obsidian",
+      "保存灵感",
+      "记笔记",
+      "新建笔记",
+      "创建笔记",
+      "灵感",
+      "note",
+      "create"
+    ],
+    "examples": [
+      "保存一条灵感到 Obsidian",
+      "帮我记笔记:今天想到一个自动化测试的点子",
+      "在灵感目录新建笔记"
+    ],
+    "capabilities": [
+      "obsidian-write"
+    ]
+  },
+  {
+    "workflowId": "obsidian-note-append",
+    "scriptPath": "wx-article/scripts/obsidian_note_append.js",
+    "name": "追加 Obsidian 笔记",
+    "description": "向已有 Obsidian 笔记追加内容(补充想法/续写)。O_APPEND 语义:目标不存在即拒绝,不创建新文件;需用户审批后写入。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "rel": {
+          "type": "string",
+          "description": "vault 相对 .md 路径(如 灵感/AI 自动化测试.md;不允许绝对路径/../段/隐藏段/特殊字符)"
+        },
+        "content": {
+          "type": "string",
+          "description": "笔记全文(创建)或追加内容(追加),UTF-8 ≤1MB;经审批链授权后写入"
+        },
+        "operationId": {
+          "type": "string",
+          "description": "幂等键(服务端审批链注入并覆盖外部同名值;同键同内容重试幂等成功)"
+        },
+        "vault_scope": {
+          "type": "string",
+          "description": "限定范围(vault 相对目录或配置别名,可选)"
+        }
+      },
+      "required": [
+        "rel",
+        "content"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "obsidian",
+      "追加笔记",
+      "补充内容",
+      "续写",
+      "append"
+    ],
+    "examples": [
+      "把这段补充到昨天的灵感笔记里",
+      "在笔记后面追加一段"
+    ],
+    "capabilities": [
+      "obsidian-write"
+    ]
+  },
+  {
+    "workflowId": "obsidian-note-search",
+    "scriptPath": "wx-article/scripts/obsidian_note_search.js",
+    "name": "检索 Obsidian 笔记",
+    "description": "在 Obsidian vault 按名称/内容检索笔记(大小写不敏感,只读)。用法示例:帮我搜一下笔记里关于「AI 自动化测试」的内容",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "检索词(名称或内容子串,大小写不敏感)"
+        },
+        "scope": {
+          "type": "string",
+          "description": "限定范围(vault 相对目录或配置别名,可选)"
+        },
+        "mode": {
+          "type": "string",
+          "description": "name|content|both(缺省 both)"
+        },
+        "limit": {
+          "type": "number",
+          "description": "返回条数上限(缺省 20,最大 200)"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": [
+      "obsidian",
+      "搜笔记",
+      "检索",
+      "查找笔记",
+      "搜索",
+      "search",
+      "笔记"
+    ],
+    "examples": [
+      "帮我搜一下笔记里关于 AI 自动化测试的内容",
+      "找找上次记的那条灵感"
+    ]
   }
 ]
