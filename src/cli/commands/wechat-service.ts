@@ -21,6 +21,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { readServiceLock } from "../../gateway/service-lock.js";
+import { readBotStatus, aggregateServiceStatus, type BotStatusFile } from "../../gateway/bot-status.js";
 
 const PM2_APP_NAME = "wechat-bot";
 
@@ -292,28 +293,30 @@ async function serviceStop(runner: Pm2Runner): Promise<number> {
 }
 
 async function serviceStatus(runner: Pm2Runner): Promise<number> {
-  const lines: string[] = [];
   const app = findPm2App(runner);
-  if (app) {
-    lines.push(
-      `PM2 进程：${app.status}（pid=${app.pid}，restarts=${app.restarts}，unstable=${app.unstableRestarts}，startedAt=${app.startedAt}）`,
-      `日志目录：见 service start 输出（<data>/logs/）`,
-    );
-  } else {
-    lines.push(`PM2 进程：未注册（服务未以 service 形态运行）`);
-  }
-  // 锁维度（前台/后台通用）
-  for (const dataDir of [path.resolve(".pi-wechat")]) {
-    const lock = readServiceLock(dataDir);
-    if (lock) {
-      lines.push(
-        `单实例锁：持有 pid=${lock.pid}（${pidAlive(lock.pid) ? "存活" : "已死（陈锁，下次启动自愈）"}，startedAt=${lock.startedAt}）@ ${dataDir}`,
-      );
-    }
-  }
-  lines.push(`Bot 连接状态：P0-C 接入（connected/reconnecting/login_required/unhealthy）`);
+  const processStatus = app?.status ?? "unregistered";
+  const lock = readServiceLock(path.resolve(".pi-wechat"));
+  const holderPid = lock && pidAlive(lock.pid) ? lock.pid : 0;
+  const bot = readBotStatus(path.resolve(".pi-wechat"));
+  const agg = aggregateServiceStatus({
+    processStatus: processStatus === "online" ? "online" : processStatus === "stopped" ? "stopped" : processStatus === "errored" ? "errored" : "unregistered",
+    holderPid,
+    botStatus: bot as BotStatusFile | null,
+  });
+  const lines: string[] = [
+    `综合状态：${agg.overall}（${agg.detail}）`,
+    app
+      ? `PM2 进程：${app.status}（pid=${app.pid}，restarts=${app.restarts}，unstable=${app.unstableRestarts}，startedAt=${app.startedAt}）`
+      : `PM2 进程：未注册（服务未以 service 形态运行）`,
+    `单实例锁：${lock ? `pid=${lock.pid}（${pidAlive(lock.pid) ? "存活" : "已死（陈锁，下次启动自愈）"}，startedAt=${lock.startedAt}）` : "无锁（服务未运行）"}`,
+    bot
+      ? `Bot 连接：${agg.bot}（attempt=${bot.attempt}，updatedAt=${bot.updatedAt}，lastPollOkAt=${bot.lastPollOkAt || "无"}）`
+      : `Bot 连接：无状态文件`,
+    `日志：<data>/logs/（pm2-logrotate 按天滚动）`,
+  ];
   process.stdout.write(lines.join("\n") + "\n");
-  return 0;
+  // 退出码：查询本身总成功；仅异常健康态（凭据失效/心跳超时/进程 errored）非零，供脚本/巡检用
+  return agg.overall === "unhealthy" || agg.overall === "login_required" || agg.overall === "errored" ? 1 : 0;
 }
 
 async function serviceRestart(runner: Pm2Runner): Promise<number> {

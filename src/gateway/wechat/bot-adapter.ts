@@ -45,6 +45,8 @@ export interface WechatBotAdapterOptions {
   reconnect?: ReconnectOptions;
   /** 状态回调（审计/观测用） */
   onStatus?: (status: "connected" | "reconnecting" | "stopped", attempt?: number) => void;
+  /** 每轮成功拉取后的心跳回调（F11 健康判定用；长轮询阻塞时不频笛） */
+  onPollOk?: () => void;
   /** 轮询空批时的节流间隔（缺省 200ms；真实长轮询 40s 一次，fake 立返防 busy-loop） */
   pollIdleMs?: number;
 }
@@ -139,6 +141,7 @@ export class WechatBotAdapter implements BotAdapter {
           await new Promise((r) => setTimeout(r, 1000));
           continue;
         }
+        this.options.onPollOk?.();
         for (const incoming of messages) {
           if (!this.handler) continue;
           // 免记 wxid：无白名单且开启自动绑定 → 首个发消息用户成为唯一授权用户

@@ -29,6 +29,7 @@ import type { RoutingLLM } from "../../dispatch/intent-router.js";
 import { wechatLogin } from "./wechat-login.js";
 import { acquireServiceLock, releaseServiceLock } from "../../gateway/service-lock.js";
 import { createGracefulShutdown } from "../../gateway/service-shutdown.js";
+import { BotStatusMonitor } from "../../gateway/bot-status.js";
 import { wechatService } from "./wechat-service.js";
 
 export interface WechatCommandOptions {
@@ -201,7 +202,12 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
       },
     };
   }
-  const bot = new WechatBotAdapter(botOptions);
+  const botStatusMonitor = new BotStatusMonitor(dataDir, process.pid);
+  const bot = new WechatBotAdapter({
+    ...botOptions,
+    onStatus: (status, attempt) => botStatusMonitor.handleAdapterStatus(status, attempt),
+    onPollOk: () => botStatusMonitor.handlePollOk(),
+  });
   const app = new WechatApp({
     bot,
     registry,
