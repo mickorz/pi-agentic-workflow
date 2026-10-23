@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""vault_resolver.py 门禁套件（执行方案 V1.2 §S5 用例 1–17）。
+"""vault_resolver.py 门禁套件（执行方案 V1.2 §S5 用例 1–19）。
 
 用法：python3 run_resolver_suite.py
 输出契约：逐用例 [PASS]/[FAIL]/[SKIP]，结尾汇总 + `=== ALL DONE === PASS=x FAIL=y SKIP=z`；
@@ -32,6 +32,9 @@ FIXTURE_FILES = {
 }
 ESCAPE_LINK = FIXTURE / "公众号" / "escape"
 REAL_MAC_ROOT = Path.home() / "Downloads" / "同步空间" / "Obsidian"
+
+
+WX_ARTICLE_CONFIG = HERE.parent.parent / ".aws-article" / "config.json"  # 脚本位置兑底会发现的真实配置
 
 
 class Skip(Exception):
@@ -185,10 +188,26 @@ def case_15():
 
 
 def case_16():
+    if WX_ARTICLE_CONFIG.is_file():
+        raise Skip("本机存在真实 wx-article 配置（脚本位置兑底会命中），『未配置』前置不成立")
     with tempfile.TemporaryDirectory() as td:
         res = flag_ok(run_resolver(["--ref", "AI提问技巧"], cwd=Path(td)))
     expect(not res["ok"] and any("OBSIDIAN_VAULT_ROOT" in i for i in res["issues"])
             and any("--print-vaults" in i for i in res["issues"]), f"期望配置指引: {res}")
+
+
+def case_19():
+    # 脚本位置兑底发现（对齐 check_state.py 的 Path(__file__).parent 约定）：
+    # cwd 无配置时，自脚本所在目录向上找 wx-article 配置根；本机无真实配置则 SKIP
+    if not WX_ARTICLE_CONFIG.is_file():
+        raise Skip("本机无 wx-article/.aws-article/config.json，无法验证脚本位置兑底")
+    cfg = json.loads(WX_ARTICLE_CONFIG.read_text(encoding="utf-8-sig"))
+    with tempfile.TemporaryDirectory() as td:
+        res = flag_ok(run_resolver(["--ref", "AI提问技巧"], cwd=Path(td)))
+    # 只验证『配置被发现』：vault_root 命中 config 值且无『未配置』指引（不依赖真实库内容）
+    expect(res["vault_root"] == str(Path(cfg["vault_root"]).resolve())
+           and not any("未配置" in i for i in res["issues"]),
+           f"期望脚本位置兑底发现 config: {res}")
 
 
 def case_17():
@@ -209,7 +228,7 @@ def case_18():
 
 
 CASES = [case_01, case_02, case_03, case_04, case_05, case_06, case_07, case_08, case_09,
-         case_10, case_11, case_12, case_13, case_14, case_15, case_16, case_17, case_18]
+         case_10, case_11, case_12, case_13, case_14, case_15, case_16, case_17, case_18, case_19]
 
 
 def main() -> int:

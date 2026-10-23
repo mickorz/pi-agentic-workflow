@@ -70,17 +70,25 @@ def find_config_root(start: Path) -> Path | None:
 
 
 def load_config() -> dict:
-    root = find_config_root(Path.cwd())
-    if not root:
-        return {}
-    cfg = root / ".aws-article" / "config.json"
-    if not cfg.is_file():
-        return {}
-    try:
-        data = json.loads(cfg.read_text(encoding="utf-8-sig"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    """发现 .aws-article/config.json：cwd 向上找优先，脚本位置向上找兑底。
+
+    兑底对齐 check_state.py 约定（find_config_root(Path(__file__).parent)）：
+    网关 cwd=仓库根时，wx-article 配置根（dev-examples/wx-article/.aws-article/）
+    在 cwd 的子目录里，仅向上找会漏；脚本自身位置向上找必中。
+    """
+    for start in (Path.cwd(), Path(__file__).resolve().parent):
+        root = find_config_root(start)
+        if root:
+            cfg = root / ".aws-article" / "config.json"
+            if not cfg.is_file():
+                continue
+            try:
+                data = json.loads(cfg.read_text(encoding="utf-8-sig"))
+                if isinstance(data, dict):
+                    return data
+            except (OSError, ValueError):
+                continue
+    return {}
 
 
 def resolve_vault_root(arg_root: str | None) -> tuple[Path | None, dict, list[str]]:
