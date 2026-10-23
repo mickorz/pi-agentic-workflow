@@ -96,7 +96,7 @@
         "article_dir"
       ]
     },
-    "riskLevel": "file-write",
+    "riskLevel": "write",
     "enabled": true,
     "keywords": [
       "插图",
