@@ -28,6 +28,8 @@ import { PiAgentAdapter } from "../../adapters/pi/pi-agent-adapter.js";
 import type { RoutingLLM } from "../../dispatch/intent-router.js";
 import { wechatLogin } from "./wechat-login.js";
 import { acquireServiceLock, releaseServiceLock } from "../../gateway/service-lock.js";
+import { createGracefulShutdown } from "../../gateway/service-shutdown.js";
+import { wechatService } from "./wechat-service.js";
 
 export interface WechatCommandOptions {
   /**
@@ -83,8 +85,9 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   const sub = argv[0];
   if (sub === "login") return wechatLogin();
   if (sub === "rebind") return wechatLogin(true);
+  if (sub === "service") return wechatService(argv.slice(1)); // PM2 封装，不触 thirdparties，无需 tsx 重执行
   if (sub !== "start") {
-    process.stderr.write("用法：pi-workflow wechat <login|rebind|start> […flags]\n");
+    process.stderr.write("用法：pi-workflow wechat <login|rebind|start|service> […flags]\n");
     return 2;
   }
   const flag = (name: string): string | undefined => {
@@ -214,6 +217,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
     process.stderr.write(`微信启动失败：${error instanceof Error ? error.message : String(error)}\n（先完成真机 SOP：npx tsx dev-examples/wx-m0/standalone-adapter.ts --qr）\n`);
     return 1;
   }
+  const serviceMode = process.env.PI_WECHAT_SERVICE === "1";
   process.stdout.write(
     [
       `wechat-dispatch 已启动（routing-mode=${routingMode}，registry=${registry.all().length} 个流程，scripts=${scriptsRoot}，data=${dataDir}）`,
@@ -225,15 +229,23 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
         : []),
       `用户绑定：${boundNotice}`,
       `任务指令：任务列表 / 进度如何 / 取消任务 / 恢复任务 / 批准 / 拒绝`,
-      `Ctrl-C 仅停止 Bot（运行中任务不受影响，可用 pi-workflow resume <runId> 恢复）`,
+      serviceMode
+        ? `服务模式（PM2 托管）：停止用 pi-workflow wechat service stop（shutdown message 优雅停止）`
+        : `Ctrl-C 仅停止 Bot（运行中任务不受影响，可用 pi-workflow resume <runId> 恢复）`,
     ].join("\n") + "\n",
   );
+  // 优雅停止（P0-B T1）：SIGINT（前台）与 PM2 shutdown message（后台）共用一条路径；
+  // 防重复、stop 失败也释放锁；服务模式停完即 exit(0)（PM2 等的是进程退出）
   await new Promise<void>((resolve) => {
-    process.once("SIGINT", () => {
-      void app.stop().finally(() => {
-        releaseServiceLock(dataDir); // WG-007：只停 Bot 不取消任务；锁随进程生命周期释放
-        resolve();
-      });
+    const shutdown = createGracefulShutdown({
+      stop: () => app.stop(),
+      releaseLock: () => releaseServiceLock(dataDir),
+      onStopped: () => resolve(),
+      serviceMode,
+    });
+    process.once("SIGINT", () => shutdown("SIGINT（Ctrl-C）"));
+    process.on("message", (msg: unknown) => {
+      if (msg === "shutdown") shutdown("PM2 shutdown message");
     });
   });
   return 0;
