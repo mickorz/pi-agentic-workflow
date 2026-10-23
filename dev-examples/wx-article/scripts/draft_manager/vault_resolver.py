@@ -143,9 +143,15 @@ def rel_of(root: Path, p: Path) -> str:
 
 
 def resolve_exact_path(root: Path, rel: str) -> tuple[Path | None, list[str]]:
-    """精确路径解析：逐段与实际目录项做大小写敏感比对。不退化名称搜索。"""
+    """精确路径解析：逐段与实际目录项做大小写敏感比对。不退化名称搜索。
+
+    末段确定性补全：Obsidian「复制路径」不带 .md 扩展名，末段字面未命中时
+    仅对最后一段尝试 seg+".md"（唯一确定形式，非模糊猜测；want=article 时
+    由 apply_article 语义提升为父目录）。其余任何不命中都不退化。
+    """
     cur = root
-    for seg in rel.split("/"):
+    segs = rel.split("/")
+    for i, seg in enumerate(segs):
         if not seg or seg in (".", ".."):
             return None, [f"路径含非法段（拒越界）: {seg!r}"]
         try:
@@ -158,6 +164,9 @@ def resolve_exact_path(root: Path, rel: str) -> tuple[Path | None, list[str]]:
         case_hits = sorted(n for n in entries if n.lower() == seg.lower())
         if case_hits:
             return None, [f"路径段大小写不一致: '{seg}'，实际存在 '{case_hits[0]}'（引用大小写须与实际一致）"]
+        if i == len(segs) - 1 and f"{seg}.md" in entries:
+            cur = cur / (seg + ".md")
+            continue
         return None, [f"路径不存在: {rel}（含 / 的引用只做精确匹配，不退化名称搜索）"]
     return cur, []
 

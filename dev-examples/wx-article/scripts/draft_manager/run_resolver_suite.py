@@ -198,8 +198,18 @@ def case_17():
     expect(res["ok"] and res["match"] in ("exact_name", "unique_partial"), f"期望真实 vault 唯一定位: {res}")
 
 
+def case_18():
+    # 末段 md stem 补全（Obsidian 复制路径不带扩展名）: want=article → 提升为父目录
+    res = flag_ok(run_resolver(["--ref", "公众号/AI入门/单篇/唯一", "--want", "article", "--vault-root", str(FIXTURE)]))
+    expect(res["ok"] and res["path_type"] == "dir" and res["resolved_rel"] == "公众号/AI入门/单篇"
+            and res["md"] == "唯一.md", f"期望末段 .md 补全后返回父目录: {res}")
+    # 补全仅限末段且仅 .md：无任何命中仍字面量失败
+    res2 = flag_ok(run_resolver(["--ref", "公众号/AI入门/单篇/不存在", "--vault-root", str(FIXTURE)]))
+    expect(not res2["ok"] and not res2.get("resolved_path"), f"无命中必须失败不退化: {res2}")
+
+
 CASES = [case_01, case_02, case_03, case_04, case_05, case_06, case_07, case_08, case_09,
-         case_10, case_11, case_12, case_13, case_14, case_15, case_16, case_17]
+         case_10, case_11, case_12, case_13, case_14, case_15, case_16, case_17, case_18]
 
 
 def main() -> int:
