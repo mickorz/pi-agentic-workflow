@@ -40,7 +40,9 @@ export function createShellPm2Runner(): Pm2Runner {
   return (args: string[]) => {
     // cmd.exe 下含空格参数需手工加引号；unix shell 对简单引号也兼容
     const quoted = args.map((a) => (a.includes(" ") ? `"${a}"` : a));
-    const r = spawnSync("pm2", quoted, {
+    // shell 模式传整条命令字符串（DEP0190：args 数组与 shell:true 组合已废弃）
+    const line = ["pm2", ...quoted].join(" ");
+    const r = spawnSync(line, {
       shell: true,
       encoding: "utf8",
       timeout: 120_000,
