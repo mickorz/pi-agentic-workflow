@@ -23,6 +23,7 @@ import { createLimiter } from "./semaphore.js";
 import { parseWorkflowScript, runScriptInVm } from "./vm.js";
 import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
 import { createNodeExecutor, compositeScopeStorage, type WorkflowNode } from "./node-contract.js";
+import { vaultResolve as callVaultResolver, type VaultResolveResult } from "./vault-resolver.js";
 import type { AgentSessionRunner, AgentRunOptions } from "../agent/session-runner.js";
 import type { AgentRecord, AgentUsage, JournalEntry, WorkflowMeta, WorkflowRunResult } from "./types.js";
 import { buildOutputPreview, truncatePromptForJournal } from "./agent-result.js";
@@ -90,6 +91,9 @@ export interface WorkflowRunOptions {
   onEvent?: WorkflowEventSink;
   /** resume 续接序号（同 runId 的事件序列连续；缺省 0） */
   eventSequenceStart?: number;
+  /** vaultResolve() 配置（VR 阶段 B，方案 S3.1/#14）：scriptPath 测试注入 / env 覆盖（缺省透传 process.env）/ timeoutMs。
+   *  正式部署通道是环境变量 PI_VAULT_RESOLVER_PATH，由 vault-resolver.ts 注入链统一处理 */
+  vaultResolver?: { scriptPath?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number };
 }
 
 /** checkpoint() 的可选项（P2 实现运行时；类型先占位保持向前兼容） */
@@ -146,6 +150,8 @@ interface SharedRunContext {
   resumeJournal?: Map<string, JournalEntry>;
   onAgentJournal?: (entry: JournalEntry & { key: string }) => void;
   confirm?: (promptText: string) => Promise<unknown>;
+  /** vaultResolve() 运行配置（透传 WorkflowRunOptions.vaultResolver） */
+  vaultResolver?: { scriptPath?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number };
   /** 事件发射器（per-run sequence 单调） */
   events: EventEmitter;
 }
@@ -171,6 +177,7 @@ function createSharedRunContext(options: WorkflowRunOptions, runId: string): Sha
     resumeJournal: options.resumeJournal,
     onAgentJournal: options.onAgentJournal,
     confirm: options.confirm,
+    vaultResolver: options.vaultResolver,
     events: createEventEmitter(runId, options.onEvent, options.eventSequenceStart ?? 0),
   };
   // 默认并发下限 2：parallel/race 的 DSL 契约是分支重叠（P0-03 测试断言）；
@@ -889,6 +896,23 @@ async function executeWorkflow(
     });
   };
 
+  // ── vaultResolve：Obsidian vault 逻辑引用确定性解析（VR，方案 S3.1/#14）──
+  // execFile + argv 直调 vault_resolver.py（零 LLM / 零 shell 拼接）；语义失败返回 { ok:false, issues }
+  // 由脚本侧 await check(() => r.ok, ...) 转为可恢复 FAILURE（#11）；脚本路径注入链三级见 vault-resolver.ts
+  const vaultResolve = (
+    ref: string,
+    opts: { scope?: string; want?: "dir" | "file" | "article" | "any" } = {},
+  ): Promise<VaultResolveResult> => {
+    if (opts !== null && typeof opts !== "object") {
+      return Promise.resolve({ ok: false, issues: ["vaultResolve(ref, options?) 第二参需为对象 { scope?, want? }"] });
+    }
+    return callVaultResolver(ref, {
+      ...opts,
+      cwd: shared.cwd,
+      ...(shared.vaultResolver ?? {}),
+    });
+  };
+
   // ── verify / retry（P1） ──
 
   const VERIFY_SCHEMA: Record<string, unknown> = {
@@ -1062,6 +1086,7 @@ async function executeWorkflow(
     check,
     fileExists,
     commandSuccess,
+    vaultResolve,
     phase,
     log,
     args,
