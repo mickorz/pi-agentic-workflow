@@ -1,0 +1,16 @@
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+*.log
+.DS_Store
+
+# 外部参考仓库（独立 git，不纳入本库）
+thirdparties/
+
+# 开发过程目录（不进 git）
+dev-docs/
+dev-examples/
+
+# Claude Code 本地配置（不进 git）
+.claude/settings.local.json

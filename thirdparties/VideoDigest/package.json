@@ -1,0 +1,29 @@
+{
+  "name": "vcli",
+  "version": "0.0.1",
+  "description": "Vcli 命令行工具",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "vcli": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@clibase/core": "file:E:/OtherProjects/CLIBase/packages/core",
+    "@moonr/abogus": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
