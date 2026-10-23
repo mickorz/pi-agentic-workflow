@@ -84,7 +84,9 @@ if (args.skip_confirm !== true) {
 
 phase('插入图片')
 const mappingPath = args.article_dir + '/_insert_mapping.json'
-const insertCmd = 'python3 "' + INSERT_SCRIPT + '" --article-dir "' + args.article_dir + '" --md-file "' + (scan.md_path || (args.article_dir + '/article.md')) + '" --mapping-path "' + mappingPath + '"' + (scan.cover ? ' --cover-image "' + scan.cover + '"' : '')
+// 解释器解析:Windows 装 python.org 版时 python3 是 Store 占位符(必败),macOS 只有 python3——先探测再用
+const PY = args.python_bin || 'PY=$(command -v python3 || command -v python); "$PY"'
+const insertCmd = PY + ' "' + INSERT_SCRIPT + '" --article-dir "' + args.article_dir + '" --md-file "' + (scan.md_path || (args.article_dir + '/article.md')) + '" --mapping-path "' + mappingPath + '"' + (scan.cover ? ' --cover-image "' + scan.cover + '"' : '')
 const insert = await agent(
   '你是配图插入执行者。请按以下顺序操作:\n\n' +
   '1. 用 Write 工具把下面的 JSON 数组原样写入文件 ' + mappingPath + ' (UTF-8):\n' +

@@ -91,7 +91,7 @@ await checkpoint(
 phase('执行发布')
 const publishResult = await agent(
   '你是公众号发布执行者。请用 bash 工具执行发布脚本(一条命令):\n\n' +
-  'python3 "' + PUBLISH_SCRIPT + '" --article-dir "' + args.article_dir + '" --cover "' + (configCheck.cover_path || args.cover) + '"\n\n' +
+  'PY=$(command -v python3 || command -v python); "$PY" "' + PUBLISH_SCRIPT + '" --article-dir "' + args.article_dir + '" --cover "' + (configCheck.cover_path || args.cover) + '"\n\n' +
   '脚本流程: 向上找仓库根 → 找 .md 写作稿(排除 article/draft/审稿) → 解析 frontmatter(title/description) → .md 转 HTML(微信 inline 样式) → 扫描 .md 图片引用 → 读 aws.env 换 token → 上传封面到 add_material → 上传正文图到 uploadimg → 替换 HTML 图片路径为微信 URL → 调 draft/add 建草稿 → 写 publish.log + article.yaml + 复制 article.md。\n\n' +
   '脚本 stdout 含 "[5] DRAFT OK media_id=xxx" 行,解析拿到 draft media_id。stdout 末尾 "=== ALL DONE draft_media_id=xxx ===" 表示全流程成功。\n' +
   '若 stdout 含 "[FAIL]",按四分类报错(网络/鉴权/内容/配额),不重试,把 FAIL 行原文放进 error 字段。\n' +

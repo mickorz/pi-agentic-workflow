@@ -61,6 +61,23 @@ PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
 
+
+def make_png(width: int, height: int) -> bytes:
+    """纯标准库生成纯色 PNG（微信封面要求真实尺寸，1px 会被 53402 裁剪失败拒绝）"""
+    import struct
+    import zlib
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data))
+
+    raw = b"".join(b"\x00" + b"\x5B\x5B\x95" * width for _ in range(height))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+
 SAMPLE_MD = """---
 title: "从零学AI：publish.py 端到端测试文章"
 description: "verify fixture：用于 publish.py 草稿箱端到端自检的测试文章，可随时删除。"
@@ -96,8 +113,8 @@ def build_fixture() -> None:
     if ARTICLE_DIR.exists():
         shutil.rmtree(ARTICLE_DIR)
     (ARTICLE_DIR / "imgs").mkdir(parents=True)
-    (ARTICLE_DIR / "imgs" / "sample.png").write_bytes(PNG_1PX)
-    (ARTICLE_DIR / "cover.png").write_bytes(PNG_1PX)
+    (ARTICLE_DIR / "imgs" / "sample.png").write_bytes(make_png(600, 300))
+    (ARTICLE_DIR / "cover.png").write_bytes(make_png(900, 383))
     (ARTICLE_DIR / "sample-post.md").write_text(SAMPLE_MD, encoding="utf-8")
 
 
@@ -136,6 +153,8 @@ def main() -> int:
             [sys.executable, str(PUBLISH), "--article-dir", str(ARTICLE_DIR), "--cover", "cover.png"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         out = (p.stdout or "") + (p.stderr or "")
         rc = p.returncode

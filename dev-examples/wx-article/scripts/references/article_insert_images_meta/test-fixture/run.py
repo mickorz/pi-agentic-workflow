@@ -8,6 +8,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 HERE = Path(__file__).resolve().parent
 PY_SCRIPT = (HERE / ".." / "scripts" / "insert_images.py").resolve()
 MD = HERE / "sample-article.md"
@@ -53,7 +56,7 @@ MAP.write_text(
 
 proc = subprocess.run(
     [sys.executable, str(PY_SCRIPT), "--article-dir", str(HERE), "--mapping-path", str(MAP)],
-    capture_output=True, text=True,
+    capture_output=True, text=True, encoding="utf-8", errors="replace",
 )
 out = proc.stdout + proc.stderr
 rc = proc.returncode

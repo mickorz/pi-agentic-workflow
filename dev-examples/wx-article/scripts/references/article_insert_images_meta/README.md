@@ -25,7 +25,7 @@
 | `humanize_voice` | 否 | 去 AI 味 voice：casual/professional/technical/warm/blunt（默认 professional） |
 | `humanize_aggressive` | 否 | 去 AI 味重度改写，默认 false |
 | `humanize_iterate` | 否 | 去 AI 味 detect-rewrite-detect 迭代次数 1-3，默认 2 |
-| `insert_script` | 否 | 插图 ps1 路径覆盖（换机器/换盘符时用，默认仓库内脚本） |
+| `insert_script` | 否 | 插图脚本路径覆盖（换机器时用，默认仓库内 insert_images.py） |
 
 ## CLI 直跑
 
@@ -39,17 +39,17 @@ pi-workflow run dev-examples/wx-article/scripts/article_insert_images_meta.js \
 
 1. **扫描与匹配**：读 `.md` 章节标题 + 列 `imgs/` 文件名，按语义匹配，返回 `images[{image,heading,alt}]` 与 title/digest 建议。
 2. **确认**（可跳过）：checkpoint 展示「图 -> 章节」映射。
-3. **插入**：把映射写成临时 JSON，调 `scripts/insert_images.ps1` 在每章「一句话记住」前插图。
+3. **插入**：把映射写成临时 JSON，调 `scripts/insert_images.py` 在每章「一句话记住」前插图。
 4. **更新元数据**：写回 `article.yaml`。
 5. **去 AI 味**（`skip_humanize: true` 跳过）：嵌套调 `article_humanize.js`（同目录，humanizer skill），改写评分与问题清单回填到输出的 `humanize{}`。
 6. **检查**：核对图标记数、路径存在、章节覆盖、yaml 关键字段。
 
 ## 脚本
 
-`scripts/insert_images.ps1`（参数化，UTF-8 BOM，PowerShell 5.1）：
+`scripts/insert_images.py`（参数化，Python 3 标准库，跨平台）：
 
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File insert_images.ps1 -ArticleDir "<dir>" [-MdFile "<md>"] -MappingPath "<json>"
+python3 insert_images.py --article-dir <dir> [--md-file <md>] --mapping-path <json> [--cover-image <cover>]
 ```
 
 Mapping JSON 格式：
@@ -63,7 +63,7 @@ Mapping JSON 格式：
 ### 自检
 
 ```bash
-bash dev-examples/wx-article/scripts/references/article_insert_images_meta/test-fixture/run.sh
+python3 dev-examples/wx-article/scripts/references/article_insert_images_meta/test-fixture/run.py
 ```
 
 覆盖：一句话记住前插入 / 无记住行插章节末尾 / 未匹配章节 FAIL 路径（退出码 2）/ 未匹配图不写入。
