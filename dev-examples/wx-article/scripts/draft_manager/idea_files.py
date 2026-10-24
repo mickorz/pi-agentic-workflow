@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -132,6 +133,7 @@ STATE_SETTABLE = {
     "status": STATUS_VALUES,
     "currentStage": str,
     "approval.topic": {"pending", "approved", "rejected", "not_required"},
+    "approval.brief": {"pending", "approved", "rejected", "not_required"},
     "approval.outline": {"pending", "approved", "rejected", "not_required"},
     "approval.publish": {"not_requested", "pending", "approved", "rejected"},
     "lastRunId": str,
@@ -189,6 +191,29 @@ def read_stdin() -> tuple[bytes | None, list[str]]:
     if len(data) > MAX_CONTENT_BYTES:
         return None, [f"内容超限: {len(data)} > {MAX_CONTENT_BYTES} 字节"]
     return data, []
+
+
+def decode_b64_arg(raw: str | None, what: str) -> tuple[str | None, list[str]]:
+    """workflow 层防注入通道：文本经 base64 传入 CLI，绕开 shell 引号/元字符语境。"""
+    if raw is None:
+        return None, []
+    try:
+        data = base64.b64decode(raw, validate=True)
+    except (ValueError, TypeError) as e:
+        return None, [f"{what} base64 解码失败: {e}"]
+    if len(data) > MAX_CONTENT_BYTES:
+        return None, [f"{what} 解码后超限: {len(data)} > {MAX_CONTENT_BYTES} 字节"]
+    try:
+        return data.decode("utf-8", errors="strict"), []
+    except UnicodeDecodeError as e:
+        return None, [f"{what} 非 UTF-8: {e}"]
+
+
+def content_bytes_or_stdin(args) -> tuple[bytes | None, list[str]]:
+    c = getattr(args, "content_decoded", None)
+    if c is not None:
+        return c.encode("utf-8"), []
+    return read_stdin()
 
 
 def content_text(data: bytes) -> str:
@@ -287,7 +312,7 @@ def default_state(title: str, article_id: str, channel: str, message_id: str, us
         "workflow": {"name": "idea_to_article", "version": 1},
         "status": "idea_captured",
         "currentStage": "idea",
-        "approval": {"topic": "pending", "outline": "not_required", "publish": "not_requested"},
+        "approval": {"topic": "pending", "brief": "not_required", "outline": "not_required", "publish": "not_requested"},
         "files": {k: v for k, v in STAGE_KEY_TO_FILE.items()},
         "stale": {},
         "revision": 1,
@@ -349,7 +374,7 @@ def do_init(args, root: Path) -> dict:
     issues: list[str] = []
     title_norm = normalize_title(args.title)
     issues += validate_title_segment(title_norm)
-    data, size_issues = read_stdin()
+    data, size_issues = content_bytes_or_stdin(args)
     issues += size_issues
     if data is None and not issues:
         issues.append("缺少 stdin 内容")
@@ -526,7 +551,7 @@ def do_write(args, root: Path) -> dict:
         return fail("invalid", ["article.yaml 由 state/stale 子命令维护，禁止直接 write"])
     if name not in WRITABLE_STAGE_FILES:
         return fail("invalid", [f"文件不在可写白名单内: {name}"])
-    data, size_issues = read_stdin()
+    data, size_issues = content_bytes_or_stdin(args)
     if size_issues:
         return fail("too_large", size_issues)
     if not data:
@@ -558,10 +583,10 @@ def do_append(args, root: Path) -> dict:
     if issues:
         return fail("invalid", issues)
     name = args.file
-    data, size_issues = read_stdin()
+    data, size_issues = content_bytes_or_stdin(args)
     if size_issues:
         return fail("too_large", size_issues)
-    if data is None:
+    if not data:
         return fail("invalid", ["缺少 stdin 内容"])
 
     if name == MESSAGES_NAME:
@@ -694,12 +719,16 @@ def main() -> int:
     p_init.add_argument("--source-channel", default="wechat")
     p_init.add_argument("--message-id", required=True)
     p_init.add_argument("--user-id", default="")
+    p_init.add_argument("--title-b64", dest="title_b64", default=None)
+    p_init.add_argument("--content-b64", dest="content_b64", default=None)
 
     p_adopt = sub.add_parser("adopt-check")
     p_adopt.add_argument("--title", required=True)
+    p_adopt.add_argument("--title-b64", dest="title_b64", default=None)
 
     p_locate = sub.add_parser("locate")
     p_locate.add_argument("--title", required=True)
+    p_locate.add_argument("--title-b64", dest="title_b64", default=None)
 
     sub.add_parser("list")
 
@@ -711,6 +740,7 @@ def main() -> int:
     p_write.add_argument("--dir", required=True)
     p_write.add_argument("--file", required=True)
     p_write.add_argument("--reason", default="")
+    p_write.add_argument("--content-b64", dest="content_b64", default=None)
 
     p_append = sub.add_parser("append")
     p_append.add_argument("--dir", required=True)
@@ -718,6 +748,7 @@ def main() -> int:
     p_append.add_argument("--role", default="user")
     p_append.add_argument("--turn", type=int, default=None)
     p_append.add_argument("--message-id", default="")
+    p_append.add_argument("--content-b64", dest="content_b64", default=None)
 
     p_stale = sub.add_parser("stale")
     p_stale.add_argument("--dir", required=True)
@@ -731,6 +762,21 @@ def main() -> int:
     if not args.action:
         out(fail("invalid", ["缺少子命令（init/adopt-check/locate/list/read/write/append/stale/state）"]))
         return 0
+
+    # base64 防注入通道：--title-b64 优先于 --title；--content-b64 优先于 stdin
+    args.content_decoded = None
+    if getattr(args, "title_b64", None):
+        t, t_issues = decode_b64_arg(args.title_b64, "--title-b64")
+        if t_issues:
+            out(fail("invalid", t_issues))
+            return 0
+        args.title = t
+    if getattr(args, "content_b64", None):
+        c, c_issues = decode_b64_arg(args.content_b64, "--content-b64")
+        if c_issues:
+            out(fail("invalid", c_issues))
+            return 0
+        args.content_decoded = c
 
     vault_root, _cfg_root, _config, root_issues = resolve_vault_root(args.vault_root)
     if root_issues:

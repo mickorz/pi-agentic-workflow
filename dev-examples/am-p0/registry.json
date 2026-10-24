@@ -782,5 +782,92 @@
     "anyOfArgs": [
       "url"
     ]
+  },
+  {
+    "workflowId": "idea-article-start",
+    "scriptPath": "wx-article/scripts/idea_article_start.js",
+    "name": "灵感成文-任务启动",
+    "description": "灵感成文任务启动: 原文逐字存为 60_Workspace/写作/灵感/<标题>/1-idea.md + 三个实质不同的选题候选(A/B/C, 含标题/目标读者/核心观点/读者收益/写作角度)。话术:「<灵感内容> 做成文章」「帮我记录一个灵感: …」。args: content=灵感原文(必填,逐字保存), title=简短标题(可选,缺省自动提取), message_id=消息标识(幂等)。同标题→冲突引导; 同消息重投→幂等重播候选。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "灵感原文(必填; 逐字保存为 1-idea.md, 不改写)"
+        },
+        "title": {
+          "type": "string",
+          "description": "从内容提取的简短标题(≤20字, 无路径/特殊字符; 缺省由流程自动提取)"
+        },
+        "message_id": {
+          "type": "string",
+          "description": "触发消息标识(幂等键, 重复投递幂等重播; 服务端注入优先)"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "做成文章",
+      "记灵感",
+      "记录一个灵感",
+      "灵感成文",
+      "选题分析",
+      "新文章任务",
+      "选题候选",
+      "文章选题"
+    ],
+    "examples": [
+      "为什么你学了那么多AI框架还是做不出产品？做成文章",
+      "帮我记录一个灵感: 小白学AI最大的坑是收藏从未停止学习从未开始"
+    ]
+  },
+  {
+    "workflowId": "idea-article-turn",
+    "scriptPath": "wx-article/scripts/idea_article_turn.js",
+    "name": "灵感成文-讨论轮",
+    "description": "文章任务讨论轮(须先用 idea-article-start 创建任务): 按消息确定性分流——「A/B/C/选A」→确认该方向生成 Brief(3-brief.md, 九段模板+确认记录);「确认方向/按建议来」→按建议生成 Brief;「换方向/重新选题/不满意」→三批新候选;「先暂停/先这样」→paused+恢复话术; 其他→修改/补充讨论(记录到 2-topic 讨论段并回应)。args: title=任务标题(仅标题,绝不带路径), message=本轮消息原文(必填)。含糊标题命中多任务→列编号澄清。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "任务标题(仅标题字符串, 由路由从任务名/上下文提取; 绝不含路径)"
+        },
+        "message": {
+          "type": "string",
+          "description": "用户本轮消息原文(意图判定唯一依据)"
+        }
+      },
+      "required": [
+        "title",
+        "message"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "选A",
+      "选B",
+      "选C",
+      "确认方向",
+      "按建议来",
+      "换方向",
+      "重新选题",
+      "先暂停",
+      "修改读者",
+      "换个角度",
+      "继续讨论",
+      "文章方向"
+    ],
+    "examples": [
+      "选B",
+      "换方向，都太泛了",
+      "修改读者为转行做AI产品的人",
+      "先暂停"
+    ]
   }
 ]

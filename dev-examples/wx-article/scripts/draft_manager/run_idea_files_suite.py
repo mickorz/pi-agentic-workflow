@@ -241,10 +241,28 @@ def t18_adopt() -> None:
     check("IF-18c adopt-check 不存在", r3.get("ok") is True and r3.get("exists") is False)
 
 
+def t19_b64() -> None:
+    """base64 防注入通道：与明文通道等价 + 毒字符串经 b64 安全落盘。"""
+    import base64 as _b64
+    title = '毒"标题" $HOME; rm -rf'
+    r = run_tool(["init", "--title", "占位", "--title-b64", _b64.b64encode(title.encode()).decode(),
+                 "--message-id", "wx-b1", "--content-b64", _b64.b64encode("含 '单引号' 与 \"双引号\" 内容".encode()).decode()])
+    d = Path(r.get("dir", ""))
+    check("B64-01 title-b64 优先生效且规范化", r.get("ok") is True and d.exists() and all(c not in d.name for c in '";$'), json.dumps(r, ensure_ascii=False)[:150])
+    check("B64-02 content-b64 原文落盘", (d / "1-idea.md").read_text(encoding="utf-8") == "含 '单引号' 与 \"双引号\" 内容")
+    r2 = run_tool(["locate", "--title", "x", "--title-b64", _b64.b64encode("毒 标题".encode()).decode()])
+    check("B64-03 locate title-b64", r2.get("ok") is True and str(r2.get("dir", "")).endswith("毒 标题") or r2.get("match") is not None, json.dumps(r2, ensure_ascii=False)[:150])
+    r3 = run_tool(["write", "--dir", str(d), "--file", "2-topic.md", "--reason", "test",
+                   "--content-b64", _b64.b64encode("# 卡\n含 `反引号` 与 $(cmd)".encode()).decode()])
+    check("B64-04 write content-b64", r3.get("ok") is True and (d / "2-topic.md").read_text(encoding="utf-8").endswith("$(cmd)"))
+    r4 = run_tool(["init", "--title", "x", "--title-b64", "!!!not-base64!!!", "--message-id", "wx-b2"])
+    check("B64-05 非法 base64 拒绝", r4.get("ok") is False and "base64" in str(r4.get("issues", "")), json.dumps(r4, ensure_ascii=False)[:150])
+
+
 def main() -> int:
     for fn in (t01_init_new, t12_idempotent, t10_conflict, t04_normalize, t05_read_whitelist,
                t06_write_backup, t09_append, t16_atomic, t11_stale, t13_locate, t13b_attack,
-               t14_state, t15_lock_takeover, t16_list, t18_adopt):
+               t14_state, t15_lock_takeover, t16_list, t18_adopt, t19_b64):
         try:
             fn()
         except Skip as s:
