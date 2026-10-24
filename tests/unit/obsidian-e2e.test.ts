@@ -67,7 +67,7 @@ async function assemble(opts?: { autoApprove?: readonly string[] }): Promise<Ass
     JSON.stringify({
       vault_root: vault,
       scope_aliases: { 灵感: "60_Workspace/写作/灵感" },
-      file_aliases: { "idea.md": "0-idea.md" },
+      file_aliases: { "idea.md": "1-idea.md" },
     }),
   );
   const dataDir = path.join(root, "data");
@@ -147,7 +147,7 @@ test("E2E §7.1+§7.3：微信保存灵感全链路（预检→审批卡→批�
 
     const userId = "wx-p1a";
     const rel = "灵感/P1a验收AI自动化/idea.md"; // LLM 提取风格（服务端锚定前）
-    const relCanon = "60_Workspace/写作/灵感/P1a验收AI自动化/0-idea.md"; // 锚定后规范落点
+    const relCanon = "60_Workspace/写作/灵感/P1a验收AI自动化/1-idea.md"; // 锚定后规范落点
     const content = "# P1a 验收灵感\n\n微信保存的灵感内容：AI 工作流与 Obsidian 联动。\n";
 
     // ① facade 预检 + 审批卡（目标不存在 → 通过 O_EXCL 预检）
@@ -342,7 +342,7 @@ test("E2E auto-approve：白名单跳过审批直接落盘；预检/非白名单
 
     const userId = "wx-autoapprove";
     // ① 白名单流程：不产生审批项，直接 accepted
-    const rel = "60_Workspace/写作/灵感/白名单自动批准测试/0-idea.md";
+    const rel = "60_Workspace/写作/灵感/白名单自动批准测试/1-idea.md";
     const content = "# 白名单灵感\n\n--auto-approve 直通测试。\n";
     const r1 = await app.facade.executeWorkflow({
       userId,

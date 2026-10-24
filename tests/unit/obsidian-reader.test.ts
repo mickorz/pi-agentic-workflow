@@ -441,7 +441,7 @@ itPy("canonicalize：scope_aliases 目录前缀 + file_aliases 文件名锚定�
     JSON.stringify({
       vault_root: f.vault,
       scope_aliases: { 灵感: "60_Workspace/写作/灵感" },
-      file_aliases: { "idea.md": "0-idea.md" },
+      file_aliases: { "idea.md": "1-idea.md" },
     }),
   );
   const opts = { scriptPath: queryScript, cwd: f.root, env: mkEnv() };
@@ -449,14 +449,14 @@ itPy("canonicalize：scope_aliases 目录前缀 + file_aliases 文件名锚定�
   const r1 = await vaultQueryCanonicalize({ path: "灵感/标题甲/idea.md" }, opts);
   assert.ok(r1.ok, JSON.stringify(r1));
   if (r1.ok) {
-    assert.equal(r1.rel, "60_Workspace/写作/灵感/标题甲/0-idea.md");
+    assert.equal(r1.rel, "60_Workspace/写作/灵感/标题甲/1-idea.md");
     assert.equal(r1.rewritten, true);
   }
   // ② 无别名命中：原样返回（非默认文件名不动）
   const r2 = await vaultQueryCanonicalize({ path: "30_Content/草稿/正文.md" }, opts);
   assert.ok(r2.ok && r2.rewritten === false && r2.rel === "30_Content/草稿/正文.md", JSON.stringify(r2));
   // ③ 已是规范路径：不重复改写（幂等）
-  const r3 = await vaultQueryCanonicalize({ path: "60_Workspace/写作/灵感/标题甲/0-idea.md" }, opts);
+  const r3 = await vaultQueryCanonicalize({ path: "60_Workspace/写作/灵感/标题甲/1-idea.md" }, opts);
   assert.ok(r3.ok && r3.rewritten === false, JSON.stringify(r3));
   // ④ 非法 rel：拒绝（后缀 .md 约束由写侧 validWriteRel 先行把关，后端只做通用锚定）
   const r4 = await vaultQueryCanonicalize({ path: "../evil.md" }, opts);
