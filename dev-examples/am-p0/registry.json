@@ -782,5 +782,200 @@
     "anyOfArgs": [
       "url"
     ]
+  },
+  {
+    "workflowId": "idea-article-start",
+    "scriptPath": "wx-article/scripts/idea_article_start.js",
+    "name": "灵感成文-任务启动",
+    "description": "灵感成文任务启动: 原文逐字存为 60_Workspace/写作/灵感/<标题>/1-idea.md + 三个实质不同的选题候选(A/B/C, 含标题/目标读者/核心观点/读者收益/写作角度)。话术:「<灵感内容> 做成文章」「帮我记录一个灵感: …」。args: content=灵感原文(必填,逐字保存), title=简短标题(可选,缺省自动提取), message_id=消息标识(幂等)。同标题→冲突引导; 同消息重投→幂等重播候选。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "灵感原文(必填; 逐字保存为 1-idea.md, 不改写)"
+        },
+        "title": {
+          "type": "string",
+          "description": "从内容提取的简短标题(≤20字, 无路径/特殊字符; 缺省由流程自动提取)"
+        },
+        "message_id": {
+          "type": "string",
+          "description": "触发消息标识(幂等键, 重复投递幂等重播; 服务端注入优先)"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "做成文章",
+      "记灵感",
+      "记录一个灵感",
+      "灵感成文",
+      "选题分析",
+      "新文章任务",
+      "选题候选",
+      "文章选题"
+    ],
+    "examples": [
+      "为什么你学了那么多AI框架还是做不出产品？做成文章",
+      "帮我记录一个灵感: 小白学AI最大的坑是收藏从未停止学习从未开始"
+    ]
+  },
+  {
+    "workflowId": "idea-article-turn",
+    "scriptPath": "wx-article/scripts/idea_article_turn.js",
+    "name": "灵感成文-讨论轮",
+    "description": "文章任务讨论轮(须先用 idea-article-start 创建任务): 按消息确定性分流——「A/B/C/选A」→确认该方向生成 Brief(3-brief.md, 九段模板+确认记录);「确认方向/按建议来」→按建议生成 Brief;「换方向/重新选题/不满意」→三批新候选;「先暂停/先这样」→paused+恢复话术; 其他→修改/补充讨论(记录到 2-topic 讨论段并回应)。args: title=任务标题(仅标题,绝不带路径), message=本轮消息原文(必填)。含糊标题命中多任务→列编号澄清。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "任务标题(仅标题字符串, 由路由从任务名/上下文提取; 绝不含路径)"
+        },
+        "message": {
+          "type": "string",
+          "description": "用户本轮消息原文(意图判定唯一依据)"
+        }
+      },
+      "required": [
+        "title",
+        "message"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "选A",
+      "选B",
+      "选C",
+      "确认方向",
+      "按建议来",
+      "换方向",
+      "重新选题",
+      "先暂停",
+      "修改读者",
+      "换个角度",
+      "继续讨论",
+      "文章方向"
+    ],
+    "examples": [
+      "选B",
+      "换方向，都太泛了",
+      "修改读者为转行做AI产品的人",
+      "先暂停"
+    ]
+  },
+  {
+    "workflowId": "idea-article-write",
+    "scriptPath": "wx-article/scripts/idea_article_write.js",
+    "name": "灵感文章·生成链",
+    "description": "Brief 确认后的文章生成链: 大纲(4-outline.md)→正文(5-article.md)→八维度审稿(6-review.md, blocking 修复循环≤上限)→draft_ready+交接提示。config.outlineApproval=true 时大纲后暂停等「确认大纲」。支持「修改文章: <意见>」修订 Brief 后全链重生成。title=任务标题; message=本轮消息(确认大纲/修改意见/空)。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "任务标题（仅标题字符串，locate 锚定；绝不含路径）"
+        },
+        "message": {
+          "type": "string",
+          "description": "本轮消息: 「确认大纲」「修改文章: <意见>」「继续写文章」或空"
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "继续写文章",
+      "开始写初稿",
+      "写正文",
+      "确认大纲",
+      "修改文章",
+      "审稿",
+      "生成文章",
+      "写文章"
+    ],
+    "examples": [
+      "继续写文章 微信自动化",
+      "确认大纲 微信自动化",
+      "修改文章 微信自动化: 结尾再口语化一点"
+    ]
+  },
+  {
+    "workflowId": "idea-article-status",
+    "scriptPath": "wx-article/scripts/idea_article_status.js",
+    "name": "灵感文章·进展查询",
+    "description": "文章任务进展只读查询: title 给定→单任务详情(状态机位置/阶段文件清单与大小/最近讨论); title 为空→任务列表(标题+状态+当前阶段+下一步提示)。不做任何写入。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "任务标题（可选；空或省略=列表模式。仅标题字符串，绝不含路径）"
+        }
+      },
+      "required": []
+    },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": [
+      "进展",
+      "写到哪了",
+      "任务列表",
+      "文章状态",
+      "查询进展",
+      "怎么样了",
+      "进展怎么样"
+    ],
+    "examples": [
+      "这篇文章进展怎么样",
+      "灵感任务列表",
+      "微信自动化 写到哪了"
+    ]
+  },
+  {
+    "workflowId": "idea-article-handoff",
+    "name": "灵感文章·交接",
+    "description": "draft_ready 文章交接: 前置校验(无blocking/无stale)→单篇/<标题>/ 三件套(正文+article.yaml+配图建议)→handoffId 幂等(sha256(articleId|contentHash))→回写 handed_off→播报「准备文章 <标题>」进入配图/草稿箱。不自动嵌套 article-prepare, 不发布(T20)。话术:「交接文章 <标题>」「准备发布 <标题>」。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "任务标题（仅标题字符串，locate 锚定；绝不含路径）"
+        },
+        "message": {
+          "type": "string",
+          "description": "本轮原始消息（可选，记入讨论记录）"
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "交接",
+      "交接文章",
+      "准备发布",
+      "发布准备",
+      "进入配图",
+      "移交"
+    ],
+    "examples": [
+      "交接文章 微信自动化",
+      "准备发布 微信自动化",
+      "文章写完了 交接 微信自动化"
+    ],
+    "scriptPath": "wx-article/scripts/idea_article_handoff.js"
   }
 ]
