@@ -330,8 +330,8 @@ def do_write(vault_root: Path, ledger_root: Path, action: str, rel: str, op_id: 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Obsidian vault 写后端（P1a Phase W）")
     parser.add_argument("--action", choices=["create", "append"], help="create|append（--dump 时可省）")
-    parser.add_argument("--rel", required=True, help="vault 相对路径（.md）")
-    parser.add_argument("--operation-id", required=True, help="幂等台账键（服务端派生）")
+    parser.add_argument("--rel", help="vault 相对路径（.md；--dump 时可省）")
+    parser.add_argument("--operation-id", help="幂等台账键（服务端派生；--dump 时可省）")
     parser.add_argument("--vault-root", help="覆盖 vault 根（优先级最高）")
     parser.add_argument("--ledger-root", help="覆盖台账根（测试旗标）")
     parser.add_argument("--dump", action="store_true", help="打印台账后退出（人工核对通道）")
@@ -342,7 +342,7 @@ def main() -> int:
         if issues:
             out(fail("invalid", issues))
             return 0
-        out({"ok": True, "ledger": ledger_path(resolve_ledger_root(args.ledger_root, cfg_root)),
+        out({"ok": True, "ledger": str(ledger_path(resolve_ledger_root(args.ledger_root, cfg_root))),
              "events": read_events(resolve_ledger_root(args.ledger_root, cfg_root))})
         return 0
 
@@ -351,8 +351,8 @@ def main() -> int:
         return 0
 
     issues: list[str] = []
-    issues += validate_operation_id(args.operation_id)
-    issues += validate_rel(args.rel)
+    issues += validate_operation_id(args.operation_id or "")
+    issues += validate_rel(args.rel or "")
     if issues:
         out(fail("invalid", issues))
         return 0
