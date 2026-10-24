@@ -643,5 +643,99 @@
       "帮我搜一下笔记里关于 AI 自动化测试的内容",
       "找找上次记的那条灵感"
     ]
+  },
+  {
+    "workflowId": "article-image-generate",
+    "scriptPath": "wx-article/scripts/article_image_generate.js",
+    "name": "文章批量生图",
+    "description": "按 image-prompts.json 批量生成文章插图(封面+正文图):manifest 断点续跑/失败重试/单图重做候选隔离/verify 双向核验。持有文章锁,与插图/发布互斥。",
+    "argsSchema": {
+      "type": "object",
+      "required": [
+        "article_dir"
+      ],
+      "properties": {
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录绝对路径(含 image-prompts.json)"
+        },
+        "provider": {
+          "type": "string",
+          "description": "fake|pi-image-gen|pi-ai|模块路径"
+        },
+        "model": {
+          "type": "string"
+        },
+        "only_ids": {
+          "type": "string"
+        },
+        "retry_failed": {
+          "type": "boolean"
+        },
+        "force_regenerate": {
+          "type": "boolean"
+        },
+        "continue_on_error": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "skip_confirm": {
+          "type": "boolean",
+          "description": "外层已授权时透传"
+        }
+      }
+    },
+    "riskLevel": "external-side-effect",
+    "enabled": true,
+    "keywords": [
+      "批量生图",
+      "生成插图",
+      "生成配图",
+      "生成封面",
+      "文章配图",
+      "生图"
+    ],
+    "examples": [
+      "给这篇文章生成所有插图",
+      "生成全部配图",
+      "重新生成封面"
+    ]
+  },
+  {
+    "workflowId": "article-image-prompts-convert",
+    "scriptPath": "wx-article/scripts/article_image_prompts_convert.js",
+    "name": "文章配图提示词转换",
+    "description": "把文章目录的 image-prompts.md 或 配图建议.md 转换为标准化 image-prompts.json(批量生图的唯一输入)。确定性解析优先,自由格式 LLM 兜底,产物过 D6 校验。",
+    "argsSchema": {
+      "type": "object",
+      "required": [
+        "article_dir"
+      ],
+      "properties": {
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录绝对路径"
+        },
+        "force": {
+          "type": "boolean",
+          "description": "覆盖已存在的 image-prompts.json"
+        }
+      }
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "提示词转换",
+      "配图建议",
+      "生图准备",
+      "image-prompts",
+      "转换清单"
+    ],
+    "examples": [
+      "把这篇的配图建议转成生图清单",
+      "转换提示词"
+    ]
   }
 ]

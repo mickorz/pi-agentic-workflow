@@ -63,6 +63,22 @@ return resultValue
 
 确定性检查 helper（供 `check()` 使用）：文件存在性（相对 cwd）；命令退出码 0（超时视为失败，缺省 30s）。
 
+### `command(spec)` → Promise<{exitCode, stdout, stderr, truncated, durationMs, signal?}>
+
+确定性子进程节点（不经 LLM）：`spawn` 以 `shell:false` 直传参数数组（无 shell 注入面），捕获 stdout/stderr 回传，供脚本 `JSON.parse` 等二次处理。与 `agent()` 共享调用序 → journal/resume 下成功命令免重执行（副作用只发生一次；exit≠0 不写 journal，resume 会重跑，符合重试语义）。不占 agent 并发与配额；仅命令成功的纯 command 脚本合法。
+
+| 选项 | 类型 | 说明 |
+|---|---|---|
+| `executable` | string | 可执行文件（PATH 解析或绝对路径；Windows .cmd/.bat 需 `cmd.exe /c` 或绝对路径，因不走 shell） |
+| `args` | string[] | 参数数组，逐项直传 |
+| `timeoutMs` | number | 超时毫秒（缺省 60s）；超时 SIGTERM→3s 后 SIGKILL，抛 `COMMAND_TIMEOUT`（可恢复） |
+| `cwd` | string | 子进程工作目录（相对 run cwd 解析） |
+| `env` | Record<string,string> | 合并在 process.env 之上（参与 journal 身份哈希） |
+| `label` | string | 展示名 |
+| `maxOutputBytes` | number | stdout/stderr 各自捕获上限（缺省 256KB，超出截断置 `truncated`） |
+
+失败语义：进程退出码非 0 **正常 resolve**（脚本自行 `check`，不是 workflow 失败）；无法启动（可执行不存在）抛 `COMMAND_SPAWN_FAILED`（不可恢复）；超时抛 `COMMAND_TIMEOUT`（可恢复，可被 `retry`/`fallback` 捕获）；run 级取消杀子进程并抛 `WORKFLOW_ABORTED`。
+
 ### `verify(item, opts?)` → Promise<{real, realCount, total, votes}>
 
 AI 对抗式审查：`opts.reviewers`（缺省 2）个独立 reviewer agent 尝试反驳 item（schema 结构化输出 `{real: boolean, reason?}`），投票比 ≥ `opts.threshold`（缺省 0.5）判真。职责分离：check 客观事实 / verify AI 质量判断。

@@ -18,6 +18,10 @@ export enum WorkflowErrorCode {
   CHECKPOINT_WAITING = "CHECKPOINT_WAITING",
   /** 脚本或参数哈希变化，拒绝复用旧 journal */
   RESUME_MISMATCH = "RESUME_MISMATCH",
+  /** command() 子进程超时（SIGTERM→SIGKILL 后仍未退出） */
+  COMMAND_TIMEOUT = "COMMAND_TIMEOUT",
+  /** command() 子进程无法启动（可执行文件不存在等，确定性配置错误） */
+  COMMAND_SPAWN_FAILED = "COMMAND_SPAWN_FAILED",
 }
 
 export class WorkflowError extends Error {
