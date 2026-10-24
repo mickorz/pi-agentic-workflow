@@ -79,6 +79,18 @@
 6. **平台差异注意**：信号/进程组语义在 Windows 受限（见 `dev-docs/experience/windows-signal-semantics-stop.md`），
    需要真进程信号的用例在脚本内显式跳过不适用平台并输出 SKIP，不要静默假 PASS。
 
+### 例外登记：image_gen 执行器用 Node（2026-10-24，公众号批量生图 P0 定案）
+
+`image_gen/`（通用层批量生图执行器）用 Node（.mjs）而非 Python，理由与边界：
+1. **依赖只在 Node 生态存在**：Provider 库 `@amaster.ai/pi-image-gen`（5 种 wire format、非破坏落盘、
+   参考图/尺寸/批量参数面）与 `@earendil-works/pi-ai` 均为 npm 包，无 Python 等价物（P0 双轨验证定案）。
+2. **仅限执行器本体**：输入/输出契约仍走文件（image-prompts.json / image-manifest.json / 图片文件），
+   stdout 维持 `[OK]/[FAIL]/[SKIP]` 文本契约不变；与 Python 侧（文章锁、insert_images.py）通过
+   **同协议锁文件**互操作（`image_gen/lib` 的 Node 锁与 `draft_manager/article_lock.py` 互拍，P0 T0.7 5/5 验证）。
+3. Python 3.9 兼容注意：本仓脚本仍需兼容 `/usr/bin/python3` 3.9（不用 `dict | None` 语法，用 `typing.Optional`）。
+4. 方案背景：`dev-docs/planning/2026-10-23-公众号批量生图接入执行方案.md` D1；验证证据：
+   `dev-docs/progress-result/P0-执行报告.md`。
+
 ## 手动测试约定：全局命令与默认模型
 
 后续所有手动测试（文档与实际执行）统一遵循以下方式，方案详情见

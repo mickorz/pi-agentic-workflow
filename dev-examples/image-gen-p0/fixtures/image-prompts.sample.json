@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "article_id": "ai-terms-04",
+  "style_prefix": "统一的小王子童话插画风格，暖色柔光，构图简洁，不要出现任何文字。",
+  "items": [
+    {
+      "id": "cover",
+      "kind": "cover",
+      "heading": "",
+      "prompt": "九个 AI 模型术语的封面构图：小王子风格的小人站在一颗星球上，头顶环绕九个发光的星星图标，每颗星星代表一个 AI 概念",
+      "filename": "cover.png"
+    },
+    {
+      "id": "term-01",
+      "kind": "body",
+      "heading": "## Transformer（转换器架构）",
+      "prompt": "用连接起来的星球表现 Transformer：几颗小星球被发光的轨道连成网络，信息像萤火虫在轨道间流动",
+      "filename": "01-transformer.png"
+    },
+    {
+      "id": "term-02",
+      "kind": "body",
+      "heading": "## 大语言模型（LLM）",
+      "prompt": "一座由书本堆成的高塔，塔顶有一盏灯，光洒向四周的星球，表现大语言模型从海量文本中学习",
+      "filename": "02-llm.png"
+    },
+    {
+      "id": "term-03",
+      "kind": "body",
+      "heading": "## RAG（检索增强生成）",
+      "prompt": "小人在一座巨大的图书馆里，手里拿着放大镜找到一本书，书页飞出组成答案的拼图，表现检索增强",
+      "filename": "03-rag.png"
+    },
+    {
+      "id": "term-04",
+      "kind": "body",
+      "heading": "## AI 智能体（Agent）",
+      "prompt": "一个提着工具箱的小机器人，独自在星球间搭桥铺路，表现智能体自主规划与使用工具",
+      "filename": "04-agent.png"
+    },
+    {
+      "id": "term-05",
+      "kind": "body",
+      "heading": "## Token（词元）",
+      "prompt": "一条长句子被切成一块块发光的积木，小人把积木递给一扇门，表现文本被切分为词元",
+      "filename": "05-token.png"
+    },
+    {
+      "id": "term-06",
+      "kind": "body",
+      "heading": "## 幻觉（Hallucination）",
+      "prompt": "小人看到的彩虹桥走近后化作雾气消散，桥的另一端是虚影，表现模型一本正经地编造",
+      "filename": "06-hallucination.png"
+    },
+    {
+      "id": "term-07",
+      "kind": "body",
+      "heading": "## 微调（Fine-tuning）",
+      "prompt": "园丁为一棵已经长大的星星树修剪枝叶、挂上小小的灯，表现微调在已有能力上做定向优化",
+      "filename": "07-finetuning.png"
+    },
+    {
+      "id": "term-08",
+      "kind": "body",
+      "heading": "## 多模态（Multimodal）",
+      "prompt": "小人同时聆听八音盒、观看画册、抚摸猫——三个感官汇成一道光束进入一颗星球，表现多模态融合",
+      "filename": "08-multimodal.png"
+    }
+  ]
+}

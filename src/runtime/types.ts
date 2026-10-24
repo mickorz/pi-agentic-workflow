@@ -59,7 +59,7 @@ export interface AgentRecord {
   /** 组合链（cmpN id 数组；纯展示用） */
   compositePath?: string[];
   /** 节点类型标记：缺省为普通 agent；checkpoint 节点用于区分「等待人工」与执行中 */
-  kind?: "checkpoint";
+  kind?: "checkpoint" | "command";
   /** resume 时从 journal 免费回放（未真实调 LLM） */
   replayed?: boolean;
 }
@@ -93,6 +93,39 @@ export interface WorkflowMeta {
   name: string;
   description?: string;
   phases?: Array<{ title: string }>;
+  /** P1a Phase W（方案 §3）：能力声明（如 "obsidian-write"）；声明后受运行时能力门约束 */
+  capabilities?: string[];
+}
+
+/** command() 节点参数：确定性子进程执行（不经 LLM） */
+export interface CommandSpec {
+  /** 可执行文件（PATH 解析或绝对路径；Windows 下 .cmd/.bat 需 cmd.exe /c 或绝对路径，因 spawn 不走 shell） */
+  executable: string;
+  /** 参数数组（逐项直传，无 shell 注入面） */
+  args: string[];
+  /** 超时毫秒；超时 SIGTERM→3s 后 SIGKILL，抛 COMMAND_TIMEOUT（可恢复） */
+  timeoutMs?: number;
+  /** 子进程工作目录（相对 shared.cwd 解析；缺省 shared.cwd） */
+  cwd?: string;
+  /** 追加/覆盖进程环境变量（合并在 process.env 之上） */
+  env?: Record<string, string>;
+  /** 展示名（缺省 executable + args 截断） */
+  label?: string;
+  /** stdout/stderr 各自捕获上限字节数（缺省 256KB；超出截断置 truncated） */
+  maxOutputBytes?: number;
+}
+
+/** command() 节点结果 */
+export interface CommandResult {
+  /** 进程退出码；被信号杀死时为 -1（signal 字段标明信号名） */
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  /** 任一输出流达到捕获上限被截断 */
+  truncated: boolean;
+  durationMs: number;
+  /** 进程被信号终止时携带（如 SIGTERM） */
+  signal?: string;
 }
 
 /** runWorkflow 的返回值 */

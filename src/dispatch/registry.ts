@@ -27,6 +27,28 @@ export class WorkflowRegistry {
     if (!["read-only", "write", "external-side-effect"].includes(reg.riskLevel)) {
       return { ok: false, error: `riskLevel 非法：${String(reg.riskLevel)}` };
     }
+    // P1a Phase W（方案 §3）：capabilities 能力声明（如 "obsidian-write"）。
+    // 写能力门槛重于风险等级：声明 obsidian-write 的注册项必须落在 write/external-side-effect，
+    // 否则拒绝入表（read-only 工作流永不可触达写后端）
+    if (reg.capabilities !== undefined) {
+      if (!Array.isArray(reg.capabilities) || reg.capabilities.length === 0) {
+        return { ok: false, error: `capabilities 需为非空字符串数组：${reg.workflowId}` };
+      }
+      const known = new Set<string>();
+      for (const cap of reg.capabilities) {
+        if (typeof cap !== "string" || !/^[a-z][a-z0-9-]*$/.test(cap)) {
+          return { ok: false, error: `capabilities 条目非法（需 kebab-case）：${reg.workflowId}#${String(cap)}` };
+        }
+        if (known.has(cap)) return { ok: false, error: `capabilities 条目重复：${reg.workflowId}#${cap}` };
+        known.add(cap);
+      }
+      if (reg.capabilities.includes("obsidian-write") && reg.riskLevel === "read-only") {
+        return {
+          ok: false,
+          error: `capabilities 含 obsidian-write 但 riskLevel=read-only，写能力必须声明为 write/external-side-effect：${reg.workflowId}`,
+        };
+      }
+    }
     // VR S4.4：anyOfArgs 声明式跨字段约束合法性（非空字符串数组，条目必须在 argsSchema.properties）
     if (reg.anyOfArgs !== undefined) {
       if (!Array.isArray(reg.anyOfArgs) || reg.anyOfArgs.length === 0) {
@@ -61,7 +83,11 @@ export class WorkflowRegistry {
         return { ok: false, error: `urlArg（默认 url）必须存在于 argsSchema.properties：${reg.workflowId}` };
       }
     }
-    this.byId.set(reg.workflowId, { ...reg, keywords: reg.keywords ?? [] });
+    this.byId.set(reg.workflowId, {
+      ...reg,
+      keywords: reg.keywords ?? [],
+      ...(reg.capabilities ? { capabilities: [...reg.capabilities] } : {}),
+    });
     return { ok: true };
   }
 

@@ -29,7 +29,7 @@ import {
 
 /** 执行服务最小接口（生产=RunApplicationService；测试=fake） */
 export interface ExecutionService {
-  start(input: { scriptPath: string; args?: unknown; cwd?: string; model?: string }): Promise<{ runId: string }>;
+  start(input: { scriptPath: string; args?: unknown; cwd?: string; model?: string; authorized?: boolean }): Promise<{ runId: string }>;
 }
 
 /** 任务控制模块接口（生产=TaskController；测试=fake） */
@@ -123,6 +123,9 @@ export class Dispatcher {
         scriptPath,
         args,
         ...(this.deps.defaultModel ? { model: this.deps.defaultModel } : {}),
+        // P1a Phase W（方案 §3）：授权信号服务端透传（非 args），运行时写能力门依赖它；
+        // 到达这里非 read-only 必已 authorized（重校验 2），read-only 直通也显式携带
+        authorized: auth.authorized === true,
       });
       runId = started.runId;
     } catch (error) {

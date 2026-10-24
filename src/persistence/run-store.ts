@@ -55,6 +55,8 @@ export interface RunManifest {
     retries?: number;
     maxAgents?: number;
     continueOnFailure?: boolean;
+    /** P1a Phase W（方案 §3）：运行级授权信号（服务端传入，非 args；resume 重建写能力门） */
+    authorized?: boolean;
   };
 }
 

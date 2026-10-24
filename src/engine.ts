@@ -59,6 +59,8 @@ export interface WorkflowInput {
   retries?: number;
   maxAgents?: number;
   continueOnFailure?: boolean;
+  /** P1a Phase W（方案 §3）：运行级授权信号（服务端传入，非 args）；manifest 持久化供 resume 重建 */
+  authorized?: boolean;
 }
 
 export interface WorkflowHandle {
@@ -177,6 +179,7 @@ export function createWorkflowEngine(config: EngineConfig = {}): WorkflowEngine 
         ...(input.retries !== undefined ? { agentRetries: input.retries } : {}),
         signal: state.controller.signal,
         continueOnAgentFailure: input.continueOnFailure ?? false,
+        ...(input.authorized !== undefined ? { authorized: input.authorized } : {}),
         eventSequenceStart,
         ...(resumeJournal ? { resumeJournal: resumeJournal as never } : {}),
         onAgentJournal: (entry) => appendJournalEntry(dir, entry),
@@ -257,6 +260,7 @@ export function createWorkflowEngine(config: EngineConfig = {}): WorkflowEngine 
           retries: input.retries,
           maxAgents: input.maxAgents,
           continueOnFailure: input.continueOnFailure,
+          authorized: input.authorized ?? false,
         },
       };
       // V2-P1 Worker 模式：Server 预写 manifest（所有权先于进程存在）——采纳并覆盖 pid，不重建
@@ -299,6 +303,7 @@ export function createWorkflowEngine(config: EngineConfig = {}): WorkflowEngine 
         retries: opts.retries,
         maxAgents: opts.maxAgents,
         continueOnFailure: opts.continueOnFailure,
+        authorized: opts.authorized,
       }, journal);
     },
 

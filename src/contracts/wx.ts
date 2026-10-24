@@ -67,6 +67,8 @@ export interface WorkflowRegistration {
   urlDomains?: string[];
   /** 前置路由注入的参数名（缺省 "url"；必须存在于 argsSchema.properties） */
   urlArg?: string;
+  /** P1a Phase W（方案 §3）：能力声明（如 "obsidian-write"）；注册面校验与 registryDigest 均纳入 */
+  capabilities?: string[];
 }
 
 // ── 意图路由结果 ──

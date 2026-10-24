@@ -18,9 +18,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
+
+# 同一文章锁（T1.7：补插图阶段临界区缺口；协议见 draft_manager/article_lock.py）
+_DRAFT_MANAGER = Path(__file__).resolve().parents[3] / "draft_manager"
+sys.path.insert(0, str(_DRAFT_MANAGER))
+from article_lock import ArticleLock, LockHeldError  # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -90,6 +96,19 @@ def main() -> int:
     if not md_file.is_file():
         print(f"[FAIL] md not found: {md_file}")
         return 1
+
+    # 插图临界区：与生图/发布同一文章锁互斥（D5 互斥矩阵）
+    lock_path = article_dir / ".publish.article.lock"
+    try:
+        with ArticleLock(lock_path, run_id=f"insert-images-{os.getpid()}", scope="insert-images"):
+            return insert_all(args, article_dir, md_file, mapping_path)
+    except LockHeldError as e:
+        info = getattr(e, "info", {}) or {}
+        print(f"[LOCKED] pid={info.get('pid')} runId={info.get('runId')}")
+        return 3
+
+
+def insert_all(args, article_dir: Path, md_file: Path, mapping_path: Path) -> int:
     print(f"[md] {md_file}")
 
     mapping = json.loads(mapping_path.read_text(encoding="utf-8-sig"))

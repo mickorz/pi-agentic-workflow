@@ -117,6 +117,16 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   const routingModeRaw = flag("--routing-mode");
   const routingMode = routingModeRaw === "legacy" ? "legacy" : "agent"; // 缺省 agent（AM-P0 目标模式；legacy 需显式指定）
   const allowAll = argv.includes("--allow-all"); // 接收所有用户（仅 AM-12 双账号用例；测试后务必移除）
+  // --auto-approve id1,id2（CSV）：高风险流程跳过审批直接执行（预检照常；服务端声明，LLM 无法自加入）
+  const autoApproveRaw = flag("--auto-approve");
+  let autoApprove: string[] | undefined;
+  if (autoApproveRaw) {
+    autoApprove = autoApproveRaw.split(",").map((v) => v.trim()).filter(Boolean);
+    if (autoApprove.length === 0) {
+      process.stderr.write(`--auto-approve 格式非法：${autoApproveRaw}（应为 workflowId CSV）\n`);
+      return finish(2);
+    }
+  }
   // --agent-limits llm,tools,ms（CSV；缺省 12,20,300000；仅 agent 模式生效，AM-11 用）
   let agentLimits: { maxLlmRequests: number; maxToolCalls: number; maxDurationMs: number } | undefined;
   const limitsRaw = flag("--agent-limits");
@@ -140,6 +150,12 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
       ].join("\n") + "\n",
     );
     return finish(2);
+  }
+  if (autoApprove) {
+    const unknown = autoApprove.filter((id) => !registry.get(id));
+    if (unknown.length > 0)
+      process.stderr.write(`⚠ --auto-approve 含未知流程：${unknown.join(",")}（照常启动，仅对存在流程生效）\n`);
+    else process.stdout.write(`自动批准白名单：${autoApprove.join(",")}（跳过审批直接执行；预检/幂等/排他照常）\n`);
   }
 
   // F5 单实例锁：前台/后台共享 Bot 启动层互斥（同机同 data 目录）
@@ -220,6 +236,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
     routingMode,
     stats: botStats,
     ...(agentLimits ? { agentLimits } : {}),
+    ...(autoApprove ? { autoApprove } : {}),
     ...(model ? { defaultModel: model } : {}),
     limits: {
       ...(rateMax !== undefined && !Number.isNaN(rateMax) ? { rateMax } : {}),
