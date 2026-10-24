@@ -13,12 +13,14 @@
  */
 
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { AuditLog } from "../audit/audit-log.js";
 import { type BotInboundMessage, DispatchError, type RoutePlan } from "../contracts/wx.js";
 import { ConversationStore } from "../dispatch/conversation.js";
 import { Dispatcher } from "../dispatch/dispatcher.js";
 import type { ExecutionService } from "../dispatch/dispatcher.js";
 import { IntentRouter, type RoutingLLM } from "../dispatch/intent-router.js";
+import { routeByUrlDirect } from "../dispatch/url-router.js";
 import { BudgetTracker, RateLimiter } from "../dispatch/limits.js";
 import type { WorkflowRegistry } from "../dispatch/registry.js";
 import { RunMonitor } from "../dispatch/run-monitor.js";
@@ -420,6 +422,52 @@ export class WechatApp {
         this.enqueueReply(message.userId, reply);
         return { duplicate: false, reply };
       }
+    }
+
+    // 1.5) 确定性通道：URL 前置路由（设计V2 §3：域名声明命中直连 workflow，不经 Agent/LLM）。
+    // 产出与 agent 工具同一形态 → facade.executeWorkflow：read-only 直启 / write 创建审批项
+    //（AM-P0 链路原样生效，LLM 无自授权通路；审计 url.route.direct）。
+    const urlHit = routeByUrlDirect(message.text, this.deps.registry);
+    if (urlHit) {
+      const out = await this.agentFacade!.executeWorkflow({
+        userId: message.userId,
+        workflowId: urlHit.workflowId,
+        args: { [urlHit.argName]: urlHit.url },
+        agentTurnId: `url-route-${randomUUID()}`,
+        originMessageId: message.messageId,
+      });
+      if ("error" in out) {
+        this.audit.record({
+          actor: message.userId,
+          action: "url.route.direct",
+          target: { workflowId: urlHit.workflowId },
+          outcome: "rejected",
+          detail: out.error,
+        });
+        this.enqueueReply(message.userId, `⚠️ ${out.error}`);
+        return { duplicate: false, reply: `⚠️ ${out.error}` };
+      }
+      if ("needsApproval" in out) {
+        // 审批卡已由 onPendingCreated 服务端生成并入队（VR #12），此处不重复回复
+        this.audit.record({
+          actor: message.userId,
+          action: "url.route.direct",
+          target: { workflowId: urlHit.workflowId },
+          outcome: "ok",
+          detail: `url=${urlHit.url} → 待审批`,
+        });
+        return { duplicate: false, reply: "" };
+      }
+      this.audit.record({
+        actor: message.userId,
+        action: "url.route.direct",
+        target: { workflowId: urlHit.workflowId },
+        outcome: "ok",
+        detail: `url=${urlHit.url}`,
+      });
+      const reply = `▶️ 已启动「${urlHit.workflowId}」（任务 ${out.taskBindingId}）。可发「进度」查询。`;
+      this.enqueueReply(message.userId, reply);
+      return { duplicate: false, reply };
     }
 
     // 2) 确定性通道：中断恢复副作用确认词（EX-009；不叫 LLM 代确认）

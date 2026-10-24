@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { WorkflowRegistry } from "./registry.js";
 import { IntentRouter } from "./intent-router.js";
+import { routeByUrlDirect } from "./url-router.js";
 import { TaskStore } from "./task-store.js";
 import { validateJsonSchema } from "../adapters/pi/schema-validator.js";
 import {
@@ -56,8 +57,30 @@ export interface DispatcherDeps {
 export class Dispatcher {
   constructor(private readonly deps: DispatcherDeps) {}
 
-  /** 两段式之一：路由计划（零执行副作用） */
+  /** 两段式之一：路由计划（零执行副作用）。
+   *  URL 确定性前置路由优先（设计V2 §3）：域名声明命中直连，不经 LLM；
+   *  参数仍过 argsSchema 服务端校验，不过则回落 LLM 路由（保持澄清能力）。 */
   async plan(input: PlanInput): Promise<RoutePlan> {
+    const hit = routeByUrlDirect(input.text, this.deps.registry);
+    if (hit) {
+      const reg = this.deps.registry.get(hit.workflowId);
+      const args = { [hit.argName]: hit.url };
+      if (reg) {
+        try {
+          validateJsonSchema(args, reg.argsSchema);
+          return {
+            intent: "execute_workflow",
+            action: "start_execution",
+            workflowId: hit.workflowId,
+            args,
+            reason: `URL 确定性前置路由（域名声明命中：${hit.url}）`,
+            confidence: 1,
+          };
+        } catch {
+          // 校验不过（如必填参数不止 url）→ 回落 IntentRouter 澄清，不硬启
+        }
+      }
+    }
     return this.deps.router.route(input.text);
   }
 

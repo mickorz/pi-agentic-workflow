@@ -45,6 +45,22 @@ export class WorkflowRegistry {
         }
       }
     }
+    // 设计V2 §3：urlDomains/urlArg 前置路由声明合法性（条目必须能匹配 argsSchema.properties）
+    if (reg.urlDomains !== undefined) {
+      if (!Array.isArray(reg.urlDomains) || reg.urlDomains.length === 0) {
+        return { ok: false, error: `urlDomains 需为非空字符串数组：${reg.workflowId}` };
+      }
+      for (const d of reg.urlDomains) {
+        if (typeof d !== "string" || !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(d)) {
+          return { ok: false, error: `urlDomains 条目非法（需为域名，不含 scheme/path）：${String(d)} @ ${reg.workflowId}` };
+        }
+      }
+      const urlArg = reg.urlArg ?? "url";
+      const props = (reg.argsSchema as { properties?: Record<string, unknown> }).properties;
+      if (typeof urlArg !== "string" || !props || typeof props !== "object" || !(urlArg in props)) {
+        return { ok: false, error: `urlArg（默认 url）必须存在于 argsSchema.properties：${reg.workflowId}` };
+      }
+    }
     this.byId.set(reg.workflowId, { ...reg, keywords: reg.keywords ?? [] });
     return { ok: true };
   }

@@ -61,6 +61,12 @@ export interface WorkflowRegistration {
   /** 跨字段「至少一」约束（VR S4.2）：声明后 facade 在创建 PendingAction 前做审批前预检，
    *  条目必须存在于 argsSchema.properties；如 ["article_dir", "vault_ref", "article_name"] */
   anyOfArgs?: string[];
+  /** URL 确定性前置路由（设计V2 §3）：声明后，消息中「恰好一个」URL 的 host 命中
+   *  任一域名（含子域）时，前置路由直连该 workflow 并以 url=<URL> 启动（不经 LLM）。
+   *  域名集合精确匹配 + endsWith('.'+domain) 子域规则，不做模糊包含。 */
+  urlDomains?: string[];
+  /** 前置路由注入的参数名（缺省 "url"；必须存在于 argsSchema.properties） */
+  urlArg?: string;
 }
 
 // ── 意图路由结果 ──
@@ -183,6 +189,7 @@ export interface NotificationOutboxItem {
 
 export type AuditAction =
   | "intent.route"
+  | "url.route.direct"
   | "run.start"
   | "run.cancel"
   | "run.resume"
