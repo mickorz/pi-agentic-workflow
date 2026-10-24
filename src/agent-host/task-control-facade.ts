@@ -17,7 +17,7 @@ import { RunLinkStore } from "./run-launch.js";
 import { LaunchCoordinator } from "./launch-flow.js";
 import { computeArgsDigest, computeRegistryDigest, sha256Hex } from "./digest.js";
 import { vaultResolve } from "../runtime/vault-resolver.js";
-import { vaultQueryRead } from "../runtime/obsidian-reader.js";
+import { vaultQueryRead, vaultQueryCanonicalize } from "../runtime/obsidian-reader.js";
 import { MAX_CONTENT_BYTES, validWriteRel } from "../runtime/obsidian-writer.js";
 import type { PendingAction } from "./types.js";
 import type {
@@ -144,7 +144,7 @@ export class TaskControlFacade implements AgentToolFacade {
     //  ③ operationId 服务端派生注入（覆盖外部同名参数，§2 幂等键）——必须在 computeArgsDigest 之前
     const obsidianKind = OBSIDIAN_OP_KIND[input.workflowId];
     if (obsidianKind) {
-      const rel = typeof args.rel === "string" ? args.rel.trim() : "";
+      let rel = typeof args.rel === "string" ? args.rel.trim() : "";
       const content = typeof args.content === "string" ? args.content : "";
       if (!validWriteRel(rel)) {
         return { error: "rel 必须是 vault 相对 .md 路径（不允许绝对路径或 . / .. 段；需 .md 结尾）" };
@@ -152,6 +152,20 @@ export class TaskControlFacade implements AgentToolFacade {
       if (!content.trim() || Buffer.byteLength(content, "utf-8") > MAX_CONTENT_BYTES) {
         return { error: "content 必须是非空字符串（UTF-8，≤1MB）" };
       }
+      // 服务端锚定（真机首测教训：LLM 的 rel 会漂移）：scope_aliases 目录前缀 +
+      // file_aliases 默认文件名改写（obsidian.config.json），改写后的 rel 进入
+      // 冲突探测/operationId/审批快照/执行参数——落点完全由配置决定。
+      let canonical: Awaited<ReturnType<typeof vaultQueryCanonicalize>>;
+      try {
+        canonical = await vaultQueryCanonicalize({ path: rel }, { ...(this.deps.vaultQuery ?? {}) });
+      } catch (e) {
+        return { error: `vault_query 不可用（未创建审批）：${errMessage(e)}` };
+      }
+      if (!canonical.ok) {
+        return { error: `rel 规范化失败：${canonical.issues.join("; ")}（未创建审批）` };
+      }
+      rel = canonical.rel;
+      args.rel = rel;
       let probe: Awaited<ReturnType<typeof vaultQueryRead>>;
       try {
         probe = await vaultQueryRead({ path: rel }, { ...(this.deps.vaultQuery ?? {}) });

@@ -285,6 +285,49 @@ def do_list(vault_root: Path, args, config: dict) -> dict:
     return payload
 
 
+def do_canonicalize(args, config: dict) -> dict:
+    """写前锚定：rel → 规范 rel。
+
+    ① scope_aliases 最长前缀改写（如 灵感/ → 60_Workspace/写作/灵感/）；
+    ② file_aliases 精确改写 basename（如 idea.md → 0-idea.md）。
+    只读纯函数：不要求目标存在（create 目标本来就不存在）；改写后的段仍过 validate_rel。
+    """
+    rel = (args.path or "").strip().replace("\\", "/")
+    issues = validate_rel(rel)
+    if issues:
+        return fail(issues)
+    rewritten = False
+    alias_used = ""
+    aliases = config.get("scope_aliases")
+    if isinstance(aliases, dict):
+        keys = sorted(
+            (k for k in aliases if isinstance(k, str) and isinstance(aliases.get(k), str) and aliases[k].strip()),
+            key=lambda k: (-len(k.split("/")), -len(k)),
+        )
+        for k in keys:
+            if rel == k or rel.startswith(k + "/"):
+                mapped = aliases[k].strip().replace("\\", "/")
+                if mapped != k:
+                    rel = mapped + rel[len(k):]
+                    rewritten = True
+                    alias_used = k
+                break
+    file_aliases = config.get("file_aliases")
+    if isinstance(file_aliases, dict):
+        parts = rel.split("/")
+        base = parts[-1]
+        mapped = file_aliases.get(base)
+        if isinstance(mapped, str) and mapped.strip() and mapped != base:
+            parts[-1] = mapped.strip()
+            rel = "/".join(parts)
+            rewritten = True
+            alias_used = (alias_used + " " if alias_used else "") + base
+    issues = validate_rel(rel)
+    if issues:
+        return fail([f"改写后 rel 非法：{i}" for i in issues])
+    return {"ok": True, "rel": rel, "rewritten": rewritten, **({"alias": alias_used} if alias_used else {})}
+
+
 def do_read(vault_root: Path, args) -> dict:
     issues = validate_rel(args.path or "")
     if issues:
@@ -384,8 +427,8 @@ def do_search(vault_root: Path, args, config: dict) -> dict:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Obsidian vault 查询后端（list/read/search，只读）")
-    ap.add_argument("--action", required=True, choices=["list", "read", "search"])
+    ap = argparse.ArgumentParser(description="Obsidian vault 查询后端（list/read/search/canonicalize，只读）")
+    ap.add_argument("--action", required=True, choices=["list", "read", "search", "canonicalize"])
     ap.add_argument("--path", default="", help="read：vault 相对路径（.md）")
     ap.add_argument("--query", default="", help="search：查询词（大小写不敏感）")
     ap.add_argument("--mode", default="both", choices=list(MODE_CHOICES))
@@ -404,7 +447,9 @@ def main() -> int:
         out(fail(issues))
         return 0
 
-    if args.action == "list":
+    if args.action == "canonicalize":
+        out(do_canonicalize(args, config))
+    elif args.action == "list":
         out(do_list(vault_root, args, config))
     elif args.action == "read":
         out(do_read(vault_root, args))

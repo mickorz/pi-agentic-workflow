@@ -61,6 +61,15 @@ async function assemble(opts?: { autoApprove?: readonly string[] }): Promise<Ass
   const vault = path.join(root, "vault");
   const ledgerRoot = path.join(root, "ledger");
   fs.mkdirSync(path.join(vault, "灵感"), { recursive: true });
+  // 配置链 fixture：cwd 发现 obsidian.config.json（scope_aliases + file_aliases 锚定）
+  fs.writeFileSync(
+    path.join(root, "obsidian.config.json"),
+    JSON.stringify({
+      vault_root: vault,
+      scope_aliases: { 灵感: "60_Workspace/写作/灵感" },
+      file_aliases: { "idea.md": "0-idea.md" },
+    }),
+  );
   const dataDir = path.join(root, "data");
   const baseDir = path.join(root, "base");
   fs.mkdirSync(baseDir, { recursive: true });
@@ -101,7 +110,7 @@ async function assemble(opts?: { autoApprove?: readonly string[] }): Promise<Ass
     ...(opts?.autoApprove ? { autoApprove: opts.autoApprove } : {}),
     vaultQuery: {
       scriptPath: QUERY,
-      vaultRoot: vault,
+      cwd: root, // 配置链：canonicalize 靠 obsidian.config.json（vaultRoot flag 会短路 alias 加载）
       env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: process.env.HOME ?? os.homedir() },
     },
   });
@@ -137,7 +146,8 @@ test("E2E §7.1+§7.3：微信保存灵感全链路（预检→审批卡→批�
     const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: process.env.HOME ?? os.homedir() };
 
     const userId = "wx-p1a";
-    const rel = "灵感/P1a验收AI自动化/idea.md"; // 话术「保存到灵感」：标题目录自动创建
+    const rel = "灵感/P1a验收AI自动化/idea.md"; // LLM 提取风格（服务端锚定前）
+    const relCanon = "60_Workspace/写作/灵感/P1a验收AI自动化/0-idea.md"; // 锚定后规范落点
     const content = "# P1a 验收灵感\n\n微信保存的灵感内容：AI 工作流与 Obsidian 联动。\n";
 
     // ① facade 预检 + 审批卡（目标不存在 → 通过 O_EXCL 预检）
@@ -167,11 +177,11 @@ test("E2E §7.1+§7.3：微信保存灵感全链路（预检→审批卡→批�
     const envelope = JSON.parse(JSON.stringify(snap.result)) as { result: unknown };
     const result = envelope.result as { ok: boolean; rel: string; status: string; message: string };
     assert.equal(result.ok, true);
-    assert.equal(result.rel, rel);
+    assert.equal(result.rel, relCanon);
     assert.equal(result.status, "created");
 
     // ③ O_EXCL 语义：文件真实落盘，内容逐字节一致
-    const file = path.join(app.vault, rel);
+    const file = path.join(app.vault, ...relCanon.split("/"));
     assert.equal(fs.readFileSync(file, "utf-8"), content);
 
     // ④ 审批级幂等：重复 confirm → alreadyExecuted（不二次启动）
@@ -182,7 +192,7 @@ test("E2E §7.1+§7.3：微信保存灵感全链路（预检→审批卡→批�
     // ⑤ 写面幂等（§7.3）：同 operationId 同内容直写 → idempotent，文件零变化
     const before = fs.readFileSync(file, "utf-8");
     const w = createObsidianWriter({ scriptPath: WRITER, vaultRoot: app.vault, ledgerRoot: app.ledgerRoot, env });
-    const retry = await w.createNote({ rel, content, operationId: opId });
+    const retry = await w.createNote({ rel: relCanon, content, operationId: opId });
     assert.equal(retry.ok, true);
     if (retry.ok) assert.equal(retry.status, "idempotent");
     assert.equal(fs.readFileSync(file, "utf-8"), before, "幂等重试不得改文件");
@@ -216,19 +226,20 @@ test("E2E §7.2+追加：检索命中刚创建内容 + append 审批链", { time
     const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: process.env.HOME ?? os.homedir() };
     const userId = "wx-p1a";
 
-    // 准备：直写创建一篇（幂等层已验证，此处聚焦检索与追加）
-    const rel = "灵感/P1a检索目标.md";
+    // 准备：直写创建一篇（幂等层已验证，此处聚焦检索与追加）——直接建在规范落点（锚定后路径）
+    const rel = "灵感/P1a检索目标.md"; // LLM 风格入参
+    const relCanon = "60_Workspace/写作/灵感/P1a检索目标.md"; // 锚定后（scope_aliases 改写）
     const token = "p1a_unique_token_搜索验证";
     const content = `# 检索目标\n\n正文包含 ${token}，用于验证微信搜笔记场景。\n`;
     const w = createObsidianWriter({ scriptPath: WRITER, vaultRoot: app.vault, ledgerRoot: app.ledgerRoot, env });
-    const created = await w.createNote({ rel, content, operationId: "e2e0000000000002" });
+    const created = await w.createNote({ rel: relCanon, content, operationId: "e2e0000000000002" });
     assert.equal(created.ok, true);
 
     // ① 检索 workflow 全链路（read-only 直启，无审批）
     const s1 = await app.facade.executeWorkflow({
       userId,
       workflowId: "obsidian-note-search",
-      args: { query: token, scope: "灵感" },
+      args: { query: token },
       agentTurnId: "turn-2",
       originMessageId: "msg-2",
     });
@@ -239,7 +250,7 @@ test("E2E §7.2+追加：检索命中刚创建内容 + append 审批链", { time
     const sResult = (JSON.parse(JSON.stringify(sSnap.result)) as { result: unknown }).result as { ok: boolean; total: number; items: { path: string }[] };
     assert.equal(sResult.ok, true);
     assert.equal(sResult.total, 1);
-    assert.equal(sResult.items[0]?.path, rel);
+    assert.equal(sResult.items[0]?.path, relCanon);
 
     // Reader 层再断言一次（同链路后端）
     const reader = createObsidianReader({ scriptPath: QUERY, vaultRoot: app.vault, env });
@@ -268,7 +279,7 @@ test("E2E §7.2+追加：检索命中刚创建内容 + append 审批链", { time
     assert.equal(aSnap.effectiveStatus, "completed");
     const aResult = (JSON.parse(JSON.stringify(aSnap.result)) as { result: unknown }).result as { ok: boolean; status: string };
     assert.equal(aResult.status, "appended");
-    assert.equal(fs.readFileSync(path.join(app.vault, rel), "utf-8"), content + extra);
+    assert.equal(fs.readFileSync(path.join(app.vault, ...relCanon.split("/")), "utf-8"), content + extra);
 
     // ③ append 不存在目标：预检拒绝，不建审批项
     const a2 = await app.facade.executeWorkflow({
@@ -331,7 +342,7 @@ test("E2E auto-approve：白名单跳过审批直接落盘；预检/非白名单
 
     const userId = "wx-autoapprove";
     // ① 白名单流程：不产生审批项，直接 accepted
-    const rel = "60_Workspace/写作/灵感/白名单自动批准测试/idea.md";
+    const rel = "60_Workspace/写作/灵感/白名单自动批准测试/0-idea.md";
     const content = "# 白名单灵感\n\n--auto-approve 直通测试。\n";
     const r1 = await app.facade.executeWorkflow({
       userId,

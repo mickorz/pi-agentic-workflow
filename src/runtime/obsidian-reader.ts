@@ -171,7 +171,7 @@ export function validNotePath(p: unknown): boolean {
 
 /** 统一出口：调 vault_query.py --action <action>，解析单 JSON */
 async function callVaultQuery(
-  action: "list" | "read" | "search",
+  action: "list" | "read" | "search" | "canonicalize",
   params: Record<string, unknown>,
   options: VaultQueryCallOptions = {},
 ): Promise<ObsidianQueryOk | ObsidianReadOk | ObsidianQueryFail> {
@@ -298,6 +298,26 @@ export async function vaultQueryRead(
   options: VaultQueryCallOptions = {},
 ): Promise<ObsidianReadResult> {
   return createObsidianReader(options).readNote(input);
+}
+
+/** P1a 锚定扩展：写前 rel 规范化（scope_aliases 目录前缀 + file_aliases 文件名，见 obsidian.config.json）。
+ *  只读纯函数，不要求目标存在；供 facade 服务端锚定（LLM 路径漂移不影响最终落点）。 */
+export interface ObsidianCanonicalOk {
+  ok: true;
+  rel: string;
+  rewritten: boolean;
+  alias?: string;
+}
+export type ObsidianCanonicalResult = ObsidianCanonicalOk | ObsidianQueryFail;
+
+export async function vaultQueryCanonicalize(
+  input: { path: string },
+  options: VaultQueryCallOptions = {},
+): Promise<ObsidianCanonicalResult> {
+  if (!input.path || typeof input.path !== "string" || !input.path.trim()) {
+    return { ok: false, issues: ["path 必须是非空字符串"] };
+  }
+  return (await callVaultQuery("canonicalize", { path: input.path.trim() }, options)) as ObsidianCanonicalResult;
 }
 
 export async function vaultQuerySearch(
