@@ -280,10 +280,32 @@ def do_write(vault_root: Path, ledger_root: Path, action: str, rel: str, op_id: 
         return fail("missing", [f"目标不存在（append 不创建）：{rel}"])
     if action == "create":
         parent = target.parent
-        if not parent.is_dir():
-            return fail("invalid", [f"父目录不存在（create 不自动建目录）：{parent}"])
         if parent.is_symlink():
             return fail("invalid", [f"父目录是符号链接，拒绝：{parent}"])
+        if not parent.is_dir():
+            # 话术「<内容> 保存到灵感」：rel=灵感/<标题>/idea.md，标题目录首建时父链不存在。
+            # 逐段创建（不 mkdir -p 一步到位，保证每段都可拒绝符号链接，§2.2 防护不放松）；
+            # 失败回滚本次新建段，不留半成品目录。
+            rel_parts = rel.strip().replace("\\", "/").split("/")[:-1]
+            cur = vault_root
+            made: list[Path] = []
+            try:
+                for part in rel_parts:
+                    cur = cur / part
+                    if cur.is_symlink():
+                        raise OSError(f"rel 路径段是符号链接，拒绝：{cur}")
+                    if not cur.exists():
+                        cur.mkdir()
+                        made.append(cur)
+                    elif not cur.is_dir():
+                        raise OSError(f"rel 路径段已存在且不是目录：{cur}")
+            except OSError as e:
+                for p in reversed(made):
+                    try:
+                        p.rmdir()
+                    except OSError:
+                        pass
+                return fail("invalid", [f"父目录创建失败：{e}"])
     if action == "append" and (target.is_symlink() or not target.is_file()):
         return fail("invalid", [f"目标不是普通文件（或为符号链接），拒绝 append：{rel}"])
 

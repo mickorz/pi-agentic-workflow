@@ -331,7 +331,7 @@
     "workflowId": "obsidian-note-create",
     "scriptPath": "scripts/obsidian_note_create.js",
     "name": "创建 Obsidian 笔记",
-    "description": "在 Obsidian vault 创建新笔记(保存灵感/记录想法/新建文章草稿)。O_EXCL 语义:目标已存在即拒绝,绝不覆盖;需用户审批后写入。用法示例:帮我保存一条灵感「AI 自动化测试」到笔记",
+    "description": "在 Obsidian vault 创建新笔记(保存灵感/记录想法/新建文章草稿)。O_EXCL 语义:目标已存在即拒绝,绝不覆盖;需用户审批后写入。主话术:「<内容> 保存到灵感」——从内容提取简短标题,落点 灵感/<标题>/idea.md(标题目录自动创建),正文为原文全文",
     "argsSchema": {
       "type": "object",
       "properties": {
@@ -370,6 +370,7 @@
       "create"
     ],
     "examples": [
+      "为什么你学了那么多 AI 框架，还是做不出产品？保存到灵感",
       "保存一条灵感到 Obsidian",
       "帮我记笔记:今天想到一个自动化测试的点子",
       "在灵感目录新建笔记"

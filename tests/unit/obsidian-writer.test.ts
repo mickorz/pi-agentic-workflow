@@ -219,11 +219,22 @@ itPy("毒字符串与越界 rel：统一 invalid，不触达文件系统写入",
       assert.equal(r.ok, false, `createNote 拒绝：${rel}`);
       if (!r.ok) assert.equal(r.code, "invalid", `code=invalid：${rel}`);
     }
-    // 语法合法但父目录不存在：create 不自动建目录 → invalid（后端前置检查）
-    const noParent = await f.writer.createNote({ rel: "灵感/子目录/x.md", content: "x", operationId: "op-no-parent" });
-    assert.equal(noParent.ok, false);
-    if (!noParent.ok) assert.equal(noParent.code, "invalid");
-    assert.ok(!fs.existsSync(path.join(f.vault, "灵感/子目录")));
+    // 话术「保存到灵感」结构：父目录不存在 → 逐段自动创建（拒符号链接），文件仍 O_EXCL
+    const nested = await f.writer.createNote({
+      rel: "灵感/为什么学了那么多AI框架还是做不出产品/idea.md",
+      content: "为什么你学了那么多 AI 框架，还是做不出产品？\n",
+      operationId: "op-auto-mkdir",
+    });
+    assert.equal(nested.ok, true, `自动建父目录应成功：${JSON.stringify(nested)}`);
+    if (nested.ok) assert.equal(nested.status, "created");
+    assert.ok(fs.existsSync(path.join(f.vault, "灵感/为什么学了那么多AI框架还是做不出产品/idea.md")));
+    // 同 rel 再建（不同 operationId）→ conflict，目录结构不变
+    const dupDir = await f.writer.createNote({
+      rel: "灵感/为什么学了那么多AI框架还是做不出产品/idea.md",
+      content: "x",
+      operationId: "op-auto-mkdir-2",
+    });
+    assert.ok(!dupDir.ok && dupDir.code === "conflict");
     assert.ok(!fs.existsSync(path.join(f.root, "escape.md")));
     assert.ok(!fs.existsSync("/tmp/escape-test-p1a.md"));
   } finally {

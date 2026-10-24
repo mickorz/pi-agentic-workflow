@@ -136,7 +136,7 @@ test("E2E §7.1+§7.3：微信保存灵感全链路（预检→审批卡→批�
     const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: process.env.HOME ?? os.homedir() };
 
     const userId = "wx-p1a";
-    const rel = "灵感/P1a验收-AI自动化.md";
+    const rel = "灵感/P1a验收AI自动化/idea.md"; // 话术「保存到灵感」：标题目录自动创建
     const content = "# P1a 验收灵感\n\n微信保存的灵感内容：AI 工作流与 Obsidian 联动。\n";
 
     // ① facade 预检 + 审批卡（目标不存在 → 通过 O_EXCL 预检）
