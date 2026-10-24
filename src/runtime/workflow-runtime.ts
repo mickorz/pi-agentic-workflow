@@ -18,13 +18,13 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { exec } from "node:child_process";
+import { exec, spawn } from "node:child_process";
 import { createLimiter } from "./semaphore.js";
 import { parseWorkflowScript, runScriptInVm } from "./vm.js";
 import { WorkflowError, WorkflowErrorCode, wrapError } from "./errors.js";
 import { createNodeExecutor, compositeScopeStorage, type WorkflowNode } from "./node-contract.js";
 import type { AgentSessionRunner, AgentRunOptions } from "../agent/session-runner.js";
-import type { AgentRecord, AgentUsage, JournalEntry, WorkflowMeta, WorkflowRunResult } from "./types.js";
+import type { AgentRecord, AgentUsage, CommandResult, CommandSpec, JournalEntry, WorkflowMeta, WorkflowRunResult } from "./types.js";
 import { buildOutputPreview, truncatePromptForJournal } from "./agent-result.js";
 import { createEventEmitter, type EventEmitter } from "../events/emitter.js";
 import type { WorkflowEventSink } from "../events/types.js";
@@ -38,6 +38,12 @@ export const MAX_AGENTS_PER_RUN = 1000;
 export const MAX_AGENT_RETRIES = 3;
 /** 子 workflow 嵌套深度上限 */
 export const MAX_WORKFLOW_DEPTH = 3;
+/** command() 缺省超时（毫秒） */
+export const DEFAULT_COMMAND_TIMEOUT_MS = 60_000;
+/** command() stdout/stderr 各自捕获上限（字节） */
+export const DEFAULT_COMMAND_OUTPUT_BYTES = 256 * 1024;
+/** command() 超时/中止后 SIGTERM→SIGKILL 宽限期（毫秒） */
+export const COMMAND_KILL_GRACE_MS = 3_000;
 
 /** 脚本内 agent() 的可选项 */
 export interface ScriptAgentOptions {
@@ -143,6 +149,8 @@ interface SharedRunContext {
   phaseFailed: Array<{ label: string; phase?: string; error: string }>;
   continueOnAgentFailure: boolean;
   maxWorkflowDepth: number;
+  /** command() 调用次数（独立于 agentCount：不占 LLM 配额/并发） */
+  commandCount: number;
   resumeJournal?: Map<string, JournalEntry>;
   onAgentJournal?: (entry: JournalEntry & { key: string }) => void;
   confirm?: (promptText: string) => Promise<unknown>;
@@ -168,6 +176,7 @@ function createSharedRunContext(options: WorkflowRunOptions, runId: string): Sha
     phaseFailed: [],
     continueOnAgentFailure: options.continueOnAgentFailure ?? false,
     maxWorkflowDepth: options.maxWorkflowDepth ?? MAX_WORKFLOW_DEPTH,
+    commandCount: 0,
     resumeJournal: options.resumeJournal,
     onAgentJournal: options.onAgentJournal,
     confirm: options.confirm,
@@ -251,9 +260,9 @@ export async function runWorkflow<T = unknown>(
     result = outcome.result;
     // 阶段失败闸门终检（在 run.completed 之前：闸门失败不得发 completed）
     if (shared.phaseFailed.length > 0) throw buildFailedGateError(shared.phaseFailed);
-    if (shared.agentCount === 0) {
+    if (shared.agentCount === 0 && shared.commandCount === 0) {
       throw new WorkflowError(
-        "workflow 脚本必须至少调用一次 agent()（或经 workflow() 子流程间接调用）；纯计算请直接完成，不要用 workflow",
+        "workflow 脚本必须至少调用一次 agent() 或 command()（或经 workflow() 子流程间接调用）；纯计算请直接完成，不要用 workflow",
         WorkflowErrorCode.SCRIPT_VALIDATION_ERROR,
         { recoverable: false },
       );
@@ -889,6 +898,275 @@ async function executeWorkflow(
     });
   };
 
+  // ── command（T1.0）：确定性子进程节点 ──
+  // args 数组直传（spawn shell:false，无 shell 注入面）；stdout/stderr 捕获回传；
+  // 与 agent() 共享 scope.callSeq（同一脚本调用序不变 → journal key 稳定）；
+  // 仅 exitCode===0 的结果写 journal（失败重跑符合重试语义）；不占 agent 并发与配额。
+  const validateCommandSpec = (spec: unknown): WorkflowError | undefined => {
+    if (spec === null || typeof spec !== "object" || Array.isArray(spec)) {
+      return new WorkflowError("command() 需要 { executable, args } 对象", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+      });
+    }
+    const s = spec as Partial<CommandSpec>;
+    if (typeof s.executable !== "string" || !s.executable.trim()) {
+      return new WorkflowError("command() executable 必须是非空字符串", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+      });
+    }
+    if (s.args !== undefined && (!Array.isArray(s.args) || s.args.some((a) => typeof a !== "string"))) {
+      return new WorkflowError("command() args 必须是字符串数组（逐项直传，无 shell 解析）", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+      });
+    }
+    if (
+      s.timeoutMs !== undefined &&
+      (typeof s.timeoutMs !== "number" || !Number.isFinite(s.timeoutMs) || s.timeoutMs <= 0)
+    ) {
+      return new WorkflowError("command() timeoutMs 必须是正数（毫秒）", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+      });
+    }
+    if (
+      s.env !== undefined &&
+      (typeof s.env !== "object" || s.env === null || Array.isArray(s.env) || Object.values(s.env).some((v) => typeof v !== "string"))
+    ) {
+      return new WorkflowError("command() env 必须是 string→string 的对象", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+      });
+    }
+    if (s.label !== undefined && typeof s.label !== "string") {
+      return new WorkflowError("command() label 必须是字符串", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+      });
+    }
+    if (s.cwd !== undefined && (typeof s.cwd !== "string" || !s.cwd.trim())) {
+      return new WorkflowError("command() cwd 必须是非空字符串（相对 shared.cwd 解析）", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+      });
+    }
+    if (
+      s.maxOutputBytes !== undefined &&
+      (typeof s.maxOutputBytes !== "number" || !Number.isFinite(s.maxOutputBytes) || s.maxOutputBytes <= 0)
+    ) {
+      return new WorkflowError("command() maxOutputBytes 必须是正数（字节）", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+      });
+    }
+    return undefined;
+  };
+
+  const command = (spec: CommandSpec): Promise<CommandResult> => {
+    let call: Promise<CommandResult>;
+    const invalid = validateCommandSpec(spec);
+    if (invalid) call = Promise.reject(invalid);
+    else call = commandImpl(spec);
+    // 防“脚本忘了 await”的拒绝演变为 unhandledRejection
+    call.catch(() => {});
+    return call;
+  };
+
+  const commandImpl = async (spec: CommandSpec): Promise<CommandResult> => {
+    throwIfAborted();
+    const assignedPhase = scope.currentPhase;
+    const displayPhase = scope.phasePrefix ? scope.phasePrefix + (assignedPhase ?? "") : assignedPhase;
+    const label = spec.label?.trim() || `${spec.executable} ${(spec.args ?? []).join(" ")}`.trim().slice(0, 60);
+    const timeoutMs = spec.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
+
+    const callIndex = scope.callSeq++;
+    shared.commandCount++;
+    const compositePath = compositeScopeStorage.getStore()?.compositePath;
+    const record: AgentRecord = {
+      id: scopedKey(shared, scope, callIndex),
+      label,
+      kind: "command",
+      ...(displayPhase ? { phase: displayPhase } : {}),
+      status: "running",
+      ...(scope.parent ? { workflowPath: scope.pathLabels, workflowScopePath: scope.pathKeys } : {}),
+      ...(compositePath?.length ? { compositePath: [...compositePath] } : {}),
+    };
+    shared.agents.push(record);
+
+    // ---- journal / resume：与 agent 同机制（确定性哈希 + 最长未变前缀回放）----
+    // 哈希身份：kind 命名空间 + executable/args/timeoutMs/cwd/env/maxOutputBytes/phase
+    const deltaKey = record.id;
+    const callHash = hashCommandCall(spec, timeoutMs, displayPhase);
+    const cached = shared.resumeJournal?.get(deltaKey);
+    if (cached && cached.hash === callHash && callIndex < scope.firstMiss) {
+      record.status = "ok";
+      record.replayed = true;
+      shared.events.emit("node.replayed", { nodeId: record.id, payload: { label } });
+      return cached.result as CommandResult;
+    }
+    if (!cached || cached.hash !== callHash) {
+      scope.firstMiss = Math.min(scope.firstMiss, callIndex);
+    }
+
+    record.startedAt = Date.now();
+    record.timeoutMs = timeoutMs;
+    shared.events.emit("node.started", {
+      nodeId: record.id,
+      payload: {
+        label,
+        phase: displayPhase,
+        workflowScopePath: scope.pathKeys ?? ["root"],
+        ...(compositePath?.length ? { compositePath } : {}),
+      },
+    });
+
+    const result = await runCommandProcess(spec, timeoutMs, label, record);
+    record.durationMs = Date.now() - (record.startedAt ?? Date.now());
+    if (result.exitCode === 0) {
+      record.status = "ok";
+      shared.events.emit("node.completed", { nodeId: record.id, payload: { label, exitCode: result.exitCode } });
+      // 成功结果写 journal（resume 免重执行副作用）；失败不写 → 重跑符合重试语义
+      shared.onAgentJournal?.({
+        key: deltaKey,
+        hash: callHash,
+        result,
+        label,
+        workflowLabel: scope.parent ? scope.label : undefined,
+        phase: displayPhase,
+        outputType: "unknown",
+        startedAt: record.startedAt,
+        durationMs: record.durationMs,
+      });
+    } else {
+      // exit≠0 正常 resolve（脚本自行 check；不进阶段失败闸门，不是 LLM 失败）
+      record.status = "failed";
+      record.error = `exit ${result.exitCode}${result.signal ? ` (${result.signal})` : ""}`;
+      shared.events.emit("node.completed", { nodeId: record.id, payload: { label, exitCode: result.exitCode } });
+    }
+    return result;
+  };
+
+  /** 子进程执行体：spawn(shell:false) + 输出捕获上限 + 超时/中止双 kill（SIGTERM→3s→SIGKILL） */
+  const runCommandProcess = (
+    spec: CommandSpec,
+    timeoutMs: number,
+    label: string,
+    record: AgentRecord,
+  ): Promise<CommandResult> =>
+    new Promise<CommandResult>((resolve, reject) => {
+      const cwd = spec.cwd ? path.resolve(shared.cwd, spec.cwd) : shared.cwd;
+      const cap = spec.maxOutputBytes ?? DEFAULT_COMMAND_OUTPUT_BYTES;
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(spec.executable, spec.args ?? [], {
+          cwd,
+          env: spec.env ? { ...process.env, ...spec.env } : process.env,
+          windowsHide: true,
+          shell: false,
+        });
+      } catch (error) {
+        reject(
+          new WorkflowError(
+            `command "${label}" 无法启动: ${error instanceof Error ? error.message : String(error)}`,
+            WorkflowErrorCode.COMMAND_SPAWN_FAILED,
+            { recoverable: false },
+          ),
+        );
+        return;
+      }
+      let stdout = "";
+      let stderr = "";
+      let truncated = false;
+      child.stdout?.setEncoding("utf8");
+      child.stdout?.on("data", (chunk: string) => {
+        if (stdout.length >= cap) {
+          truncated = true;
+          return;
+        }
+        stdout += chunk;
+        if (stdout.length > cap) {
+          stdout = stdout.slice(0, cap);
+          truncated = true;
+        }
+      });
+      child.stderr?.setEncoding("utf8");
+      child.stderr?.on("data", (chunk: string) => {
+        if (stderr.length >= cap) {
+          truncated = true;
+          return;
+        }
+        stderr += chunk;
+        if (stderr.length > cap) {
+          stderr = stderr.slice(0, cap);
+          truncated = true;
+        }
+      });
+
+      let timedOut = false;
+      let abortedByRun = false;
+      let killTimer: NodeJS.Timeout | undefined;
+      const started = Date.now();
+      const kill = (signal: NodeJS.Signals) => {
+        try {
+          child.kill(signal);
+        } catch {
+          // 已退出
+        }
+      };
+      const timeoutTimer = setTimeout(() => {
+        timedOut = true;
+        kill("SIGTERM");
+        killTimer = setTimeout(() => kill("SIGKILL"), COMMAND_KILL_GRACE_MS);
+      }, timeoutMs);
+      const onAbort = () => {
+        abortedByRun = true;
+        kill("SIGTERM");
+        killTimer = setTimeout(() => kill("SIGKILL"), COMMAND_KILL_GRACE_MS);
+      };
+      shared.signal?.addEventListener("abort", onAbort);
+      const compositeSignal = compositeScopeStorage.getStore()?.signal;
+      compositeSignal?.addEventListener("abort", onAbort);
+      const cleanup = () => {
+        clearTimeout(timeoutTimer);
+        if (killTimer) clearTimeout(killTimer);
+        shared.signal?.removeEventListener("abort", onAbort);
+        compositeSignal?.removeEventListener("abort", onAbort);
+      };
+      child.on("error", (error) => {
+        cleanup();
+        record.status = "failed";
+        reject(
+          new WorkflowError(
+            `command "${label}" 无法启动: ${error.message}`,
+            WorkflowErrorCode.COMMAND_SPAWN_FAILED,
+            { recoverable: false },
+          ),
+        );
+      });
+      child.on("close", (code, signal) => {
+        cleanup();
+        if (abortedByRun || isAborted()) {
+          record.status = "aborted";
+          reject(new WorkflowError("workflow aborted", WorkflowErrorCode.WORKFLOW_ABORTED, { recoverable: true }));
+          return;
+        }
+        if (timedOut) {
+          record.status = "failed";
+          const partial = (stderr.slice(0, 200) || stdout.slice(0, 200)).replace(/\s+/g, " ").trim();
+          reject(
+            new WorkflowError(
+              `command "${label}" 超时 (${timeoutMs}ms)，已 SIGTERM/SIGKILL 终止${partial ? `；partial: ${partial}` : ""}`,
+              WorkflowErrorCode.COMMAND_TIMEOUT,
+              { recoverable: true },
+            ),
+          );
+          return;
+        }
+        resolve({
+          exitCode: code ?? -1,
+          stdout,
+          stderr,
+          truncated,
+          durationMs: Date.now() - started,
+          ...(signal ? { signal } : {}),
+        });
+      });
+    });
+
   // ── verify / retry（P1） ──
 
   const VERIFY_SCHEMA: Record<string, unknown> = {
@@ -1062,6 +1340,7 @@ async function executeWorkflow(
     check,
     fileExists,
     commandSuccess,
+    command,
     phase,
     log,
     args,
@@ -1146,6 +1425,21 @@ function hashAgentCall(prompt: string, options: ScriptAgentOptions, phase: strin
     phase: phase ?? null,
     agentType: options.agentType ?? null,
     schema: options.schema ?? null,
+  });
+  return createHash("sha256").update(identity).digest("hex");
+}
+
+/** command 调用的稳定身份哈希：kind 命名空间与 agent 隔离；可执行身份全参与（executable/args/timeoutMs/cwd/env/maxOutputBytes/phase） */
+function hashCommandCall(spec: CommandSpec, timeoutMs: number, phase: string | undefined): string {
+  const identity = JSON.stringify({
+    kind: "command",
+    executable: spec.executable,
+    args: spec.args ?? [],
+    timeoutMs,
+    cwd: spec.cwd ?? null,
+    env: spec.env ?? null,
+    maxOutputBytes: spec.maxOutputBytes ?? null,
+    phase: phase ?? null,
   });
   return createHash("sha256").update(identity).digest("hex");
 }

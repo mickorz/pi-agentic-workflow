@@ -242,5 +242,70 @@
     "examples": [
       "正式发表第一篇"
     ]
+  },
+  {
+    "workflowId": "article-image-generate",
+    "scriptPath": "scripts/article_image_generate.js",
+    "name": "公众号批量生图",
+    "description": "按文章目录 image-prompts.json 批量生成封面与正文插图: 校验计划→一次授权→顺序生成(文章锁+manifest断点续跑+候选隔离)→零LLM双向核验→标准报告。provider 支持 fake(测试)/pi-image-gen(智谱等,缺省)/pi-ai(实验)",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录绝对路径(含 image-prompts.json)"
+        },
+        "provider": {
+          "type": "string",
+          "description": "fake|pi-image-gen|pi-ai|模块路径(默认 pi-image-gen)"
+        },
+        "model": {
+          "type": "string",
+          "description": "模型 id(可选)"
+        },
+        "only_ids": {
+          "type": "string",
+          "description": "只处理的条目 id 子集(逗号分隔)"
+        },
+        "retry_failed": {
+          "type": "boolean",
+          "description": "重试 failed 条目"
+        },
+        "force_regenerate": {
+          "type": "boolean",
+          "description": "succeeded 也重生成(候选隔离,原图不动)"
+        },
+        "continue_on_error": {
+          "type": "boolean",
+          "description": "单图失败继续后续"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "只出计划不生成"
+        },
+        "skip_confirm": {
+          "type": "boolean",
+          "description": "外层已授权时跳过 checkpoint(微信批准链)"
+        }
+      },
+      "required": [
+        "article_dir"
+      ]
+    },
+    "riskLevel": "external-side-effect",
+    "enabled": true,
+    "keywords": [
+      "生图",
+      "批量生图",
+      "插图生成",
+      "配图",
+      "image",
+      "image-generate",
+      "封面"
+    ],
+    "examples": [
+      "给这篇文章生成全部插图 article_dir=/path/to/article",
+      "只重做术语三的图 force_regenerate=true only_ids=term-03"
+    ]
   }
 ]
