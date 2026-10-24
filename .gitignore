@@ -36,3 +36,6 @@ __pycache__/
 # P1a Obsidian vault 本地配置与写台账（方案 §5，不入库）
 obsidian.config.json
 .obsidian-ops/
+
+# resolver 门禁套件运行时产物（symlink 指向临时目录，每次运行重建）
+dev-examples/wx-article/scripts/draft_manager/test-fixture/vault/公众号/escape
