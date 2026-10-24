@@ -19,11 +19,13 @@
   append        --dir --file 1-idea.md|messages.jsonl [--role --turn --message-id]（stdin=内容）
   stale         --dir --from topic|brief|outline
   state         --dir --set k=v [--set k=v ...]
+  handoff       --dir（draft_ready→单篇/<标题>/ 三件套交接，handoffId 幂等）
 """
 from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -160,6 +162,11 @@ def fail(code: str, issues: list[str], **extra) -> dict:
     payload = {"ok": False, "code": code, "issues": issues}
     payload.update(extra)
     return payload
+
+
+def _yaml_sq(s: str) -> str:
+    """YAML 单引号转义（与 单篇/article.yaml 现有格式一致）。"""
+    return "'" + str(s).replace("'", "''") + "'"
 
 
 def now_iso() -> str:
@@ -670,6 +677,167 @@ def do_stale(args, root: Path) -> dict:
     return with_rmw_lock(workdir, perform)
 
 
+def do_handoff(args, root: Path) -> dict:
+    """交接（D7）：draft_ready → <vault>/…/单篇/<标题>/ 三件套（正文/article.yaml/配图建议）。
+
+    - 前置：status=draft_ready（handed_off 走幂等/转人工裁决）、无 stale、审稿无 ⛔
+    - 幂等（T18）：handoffId=sha256(articleId|contentHash(5-article))[:16]；重复交接正文一致→幂等成功；不一致→unknown 转人工禁覆盖
+    - 下游不自动嵌套：只落三件套+回写工作目录状态（T20：无任何 publish 通道）
+    """
+    workdir, issues = resolve_dir(args.dir, root)
+    if issues:
+        return fail("invalid", issues)
+
+    def sha(data: bytes) -> str:
+        return hashlib.sha256(data).hexdigest()
+
+    def place(path: Path, data: bytes) -> dict:
+        """O_EXCL 落盘；已存在且内容一致→跳过；不一致→冲突转人工。"""
+        if path.exists():
+            if sha(path.read_bytes()) == sha(data):
+                return {"file": path.name, "existed": True}
+            return {"file": path.name, "conflict": True}
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        return {"file": path.name, "written": True}
+
+    def build_body(text: str, title: str, digest: str) -> str:
+        """确保 frontmatter 含 title/description（缺失才补，已有不动）。"""
+        if text.startswith("---"):
+            end = text.find("\n---", 3)
+            if end != -1:
+                lines = text[:end].splitlines()
+                rest = text[end:]
+                body = [l for l in lines[1:] if re.match(r"^(title|description)\s*:", l)]
+                has_t = any(re.match(r"^title\s*:", l) for l in body)
+                has_d = any(re.match(r"^description\s*:", l) for l in body)
+                if not has_t:
+                    lines.append("title: " + _yaml_sq(title))
+                if not has_d:
+                    ti = next((i for i, l in enumerate(lines) if re.match(r"^title\s*:", l)), len(lines) - 1)
+                    lines.insert(ti + 1, "description: " + _yaml_sq(digest[:120]))
+                return "\n".join(lines) + rest
+        return "---\ntitle: " + _yaml_sq(title) + "\ndescription: " + _yaml_sq(digest[:120]) + "\n---\n\n" + text
+
+    def perform() -> dict:
+        state = load_state_yaml(workdir)
+        status = str(state.get("status", ""))
+        if status not in ("draft_ready", "handed_off"):
+            return fail("invalid", [f"状态必须为 draft_ready 才能交接（当前: {status}）"])
+        stale = state.get("stale") or {}
+        if stale:
+            return fail("invalid", ["存在 stale 标记（上游已变更，需重新生成）: " + ",".join(sorted(stale))])
+        title = str(state.get("title", "")).strip()
+        if not title:
+            return fail("invalid", ["article.yaml 缺少 title"])
+        if TITLE_ILLEGAL.search(title) or "/" in title or "\\" in title:
+            return fail("invalid", ["title 含非法字符，拒绝用作交接目录名"])
+
+        article_path = workdir / "5-article.md"
+        if not article_path.is_file():
+            return fail("not_found", ["5-article.md 缺失（未完成正文）"])
+        article_bytes = article_path.read_bytes()
+        content_hash = sha(article_bytes)
+        article_id = str(state.get("articleId", ""))
+        handoff_id = hashlib.sha256(f"{article_id}|{content_hash}".encode("utf-8")).hexdigest()[:16]
+
+        review_path = workdir / "6-review.md"
+        review_text = review_path.read_text(encoding="utf-8") if review_path.is_file() else ""
+        blocking = [ln for ln in review_text.splitlines() if "⛔" in ln]
+        if blocking:
+            return fail("invalid", [f"审稿存在未解决 blocking {len(blocking)} 条，先修复后交接"])
+
+        digest = ""
+        m = re.search(r"^## 总结\s*$\n+(\S.*)$", review_text, flags=re.M)
+        if m:
+            digest = m.group(1).strip()
+        if not digest:
+            digest = title
+
+        danpian = root.parent / "单篇"
+        if not danpian.is_dir():
+            return fail("invalid", [f"交接根目录不存在: {danpian}"])
+
+        prev = state.get("handoff") or {}
+        prev_dir = str(prev.get("articleDir", "") or "")
+        prev_id = str(prev.get("handoffId", "") or "")
+
+        if prev_id and prev_dir:
+            if prev_id != handoff_id:
+                return fail("unknown", [
+                    "正文在交接后已变更（handoffId 不一致），禁止覆盖交接目录",
+                    f"已记录 handoffId: {prev_id}；当前 handoffId: {handoff_id}",
+                    "请人工核对后处理（需求 §9.3：unknown 禁自动重试）",
+                ])
+            target = Path(prev_dir)
+            if (target / f"{title}.md").is_file() and sha((target / f"{title}.md").read_bytes()) == sha(build_body(article_bytes.decode("utf-8"), title, digest).encode("utf-8")):
+                return {
+                    "ok": True, "idempotent": True, "handoffId": handoff_id,
+                    "articleDir": str(target), "dirName": target.name, "title": title,
+                    "files": [], "note": "同 handoffId 重复交接：幂等成功，未重写任何文件",
+                }
+            if not target.is_dir():
+                target.mkdir(parents=False)  # 部分失败重试：目录丢了重建，文件级 O_EXCL 续补
+        else:
+            target = danpian / title
+            if target.exists():
+                target = danpian / f"{title}-{datetime.now():%Y%m%d}-{article_id[-4:]}"
+                if target.exists():
+                    return fail("invalid", [f"交接目录冲突（含日期后缀仍存在）: {target}"])
+            target.mkdir(parents=False)
+
+        body_md = build_body(article_bytes.decode("utf-8"), title, digest)
+        results = [place(target / f"{title}.md", body_md.encode("utf-8"))]
+        yaml_md = (
+            "title: " + _yaml_sq(title) + "\n"
+            "author: AI奇点\n"
+            "digest: " + _yaml_sq(digest[:120]) + "\n"
+            "publish_completed: false\n"
+            "content_source: " + _yaml_sq(f"{title}.md") + "\n"
+        )
+        results.append(place(target / "article.yaml", yaml_md.encode("utf-8")))
+
+        notes = []
+        sug = workdir / "配图建议.md"
+        sug_text = ""
+        if sug.is_file():
+            sug_text = sug.read_text(encoding="utf-8")
+        else:
+            ol = workdir / "4-outline.md"
+            if ol.is_file():
+                om = re.search(r"(^## 配图建议\s*$[\s\S]*?)(?=^## |\Z)", ol.read_text(encoding="utf-8"), flags=re.M)
+                if om:
+                    sug_text = om.group(1).strip() + "\n"
+        if sug_text.strip():
+            results.append(place(target / "配图建议.md", sug_text.encode("utf-8")))
+        else:
+            notes.append("无配图建议（可选件，跳过；下游生图链可后补）")
+
+        conflicts = [r for r in results if r.get("conflict")]
+        if conflicts:
+            return fail("unknown", [
+                "交接目录内同名文件内容不一致: " + ",".join(r["file"] for r in conflicts),
+                "禁止覆盖，请人工核对（需求 §9.3）",
+            ])
+
+        state["handoff"] = {"articleDir": str(target), "handoffId": handoff_id}
+        state["status"] = "handed_off"
+        state["currentStage"] = "handoff"
+        state["revision"] = int(state.get("revision", 1)) + 1
+        state["updatedAt"] = now_iso()
+        atomic_write(workdir / YAML_NAME, render_state_yaml(state))
+        return {
+            "ok": True, "idempotent": False, "handoffId": handoff_id,
+            "articleDir": str(target), "dirName": target.name, "title": title,
+            "files": results, "notes": notes,
+        }
+
+    return with_rmw_lock(workdir, perform)
+
+
 def do_state(args, root: Path) -> dict:
     workdir, issues = resolve_dir(args.dir, root)
     if issues:
@@ -762,9 +930,12 @@ def main() -> int:
     p_state.add_argument("--dir", required=True)
     p_state.add_argument("--set", action="append", default=[])
 
+    p_handoff = sub.add_parser("handoff")
+    p_handoff.add_argument("--dir", required=True)
+
     args = parser.parse_args()
     if not args.action:
-        out(fail("invalid", ["缺少子命令（init/adopt-check/locate/list/read/write/append/stale/state）"]))
+        out(fail("invalid", ["缺少子命令（init/adopt-check/locate/list/read/write/append/stale/state/handoff）"]))
         return 0
 
     # base64 防注入通道：--title-b64 优先于 --title；--content-b64 优先于 stdin
@@ -795,6 +966,7 @@ def main() -> int:
         "list": lambda: do_list(args, root),
         "read": lambda: do_read(args, root),
         "write": lambda: do_write(args, root),
+        "handoff": lambda: do_handoff(args, root),
         "append": lambda: do_append(args, root),
         "stale": lambda: do_stale(args, root),
         "state": lambda: do_state(args, root),

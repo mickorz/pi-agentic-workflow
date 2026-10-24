@@ -83,10 +83,10 @@ test("双 registry：三个 obsidian 流程全部在册且契约正确（loadFro
   }
 });
 
-test("registry 存量不回归：wx-article 15 条 / am-p0 21 条（+idea-article start/turn/write/status）", () => {
+test("registry 存量不回归：wx-article 16 条 / am-p0 22 条（+idea-article start/turn/write/status/handoff）", () => {
   for (const [reg, expect] of [
-    [REGISTRIES[0], 15],
-    [REGISTRIES[1], 21],
+    [REGISTRIES[0], 16],
+    [REGISTRIES[1], 22],
   ] as const) {
     const { registry, issues } = WorkflowRegistry.loadFromFile(reg.path);
     assert.deepEqual(issues, [], `${reg.path}: 无坏条目`);

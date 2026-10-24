@@ -728,5 +728,42 @@
       "灵感任务列表",
       "微信自动化 写到哪了"
     ]
+  },
+  {
+    "workflowId": "idea-article-handoff",
+    "name": "灵感文章·交接",
+    "description": "draft_ready 文章交接: 前置校验(无blocking/无stale)→单篇/<标题>/ 三件套(正文+article.yaml+配图建议)→handoffId 幂等(sha256(articleId|contentHash))→回写 handed_off→播报「准备文章 <标题>」进入配图/草稿箱。不自动嵌套 article-prepare, 不发布(T20)。话术:「交接文章 <标题>」「准备发布 <标题>」。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "任务标题（仅标题字符串，locate 锚定；绝不含路径）"
+        },
+        "message": {
+          "type": "string",
+          "description": "本轮原始消息（可选，记入讨论记录）"
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "交接",
+      "交接文章",
+      "准备发布",
+      "发布准备",
+      "进入配图",
+      "移交"
+    ],
+    "examples": [
+      "交接文章 微信自动化",
+      "准备发布 微信自动化",
+      "文章写完了 交接 微信自动化"
+    ],
+    "scriptPath": "scripts/idea_article_handoff.js"
   }
 ]
