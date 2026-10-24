@@ -416,6 +416,7 @@ async function runOne(step, ctx) {
 
       try {
         const r = await attempt(n);
+        lastErr = null; // 成功即清：防 finally 终态块把已成功条目改写为 FAILED（T1.10 实测踩坑）
         if (isCandidate) {
           candRecord.status = CAND_STATUS.READY;
           entry.updated_at = new Date().toISOString();

@@ -356,3 +356,21 @@ test("--promote：崩溃残留 ready 候选可手动提升", () => {
   assert.notEqual(sha256(path.join(dir, "imgs", "01-term.png")), oldHash);
   assert.equal(fs.existsSync(candPath), false, "候选文件已转正");
 });
+
+// 回归（T1.10 实测踩坑）：首次尝试可恢复失败、重试成功 → 条目终态必须 succeeded 且计入成功
+test("A15 成功前置失败后 finally 不改写终态", () => {
+  const dir = mkArticleDir("a15", SAMPLE);
+  fs.writeFileSync(faultFile(dir), JSON.stringify({ "term-03": { failTimes: 1, code: "E_PROVIDER", recoverable: true } }));
+  const { res } = runGen(dir, ["--continue-on-error"]);
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const result = JSON.parse(lastLine(res.stdout, "[RESULT] "));
+  assert.equal(result.ok, true);
+  assert.equal(result.succeeded, 9);
+  assert.equal(result.failed, 0);
+  assert.equal(result.failed_ids.length, 0);
+  const m = readManifest(dir);
+  const e = m.entries["term-03"];
+  assert.equal(e.status, "succeeded");
+  assert.equal(e.error_code, null);
+  assert.equal(e.attempts, 2);
+});

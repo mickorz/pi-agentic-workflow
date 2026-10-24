@@ -307,5 +307,40 @@
       "给这篇文章生成全部插图 article_dir=/path/to/article",
       "只重做术语三的图 force_regenerate=true only_ids=term-03"
     ]
+  },
+  {
+    "workflowId": "article-image-prompts-convert",
+    "scriptPath": "scripts/article_image_prompts_convert.js",
+    "name": "文章配图提示词转换",
+    "description": "把文章目录的 image-prompts.md 或 配图建议.md 转换为标准化 image-prompts.json(批量生图的唯一输入)。确定性解析优先,自由格式 LLM 兜底,产物过 D6 校验。",
+    "argsSchema": {
+      "type": "object",
+      "required": [
+        "article_dir"
+      ],
+      "properties": {
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录绝对路径"
+        },
+        "force": {
+          "type": "boolean",
+          "description": "覆盖已存在的 image-prompts.json"
+        }
+      }
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "提示词转换",
+      "配图建议",
+      "生图准备",
+      "image-prompts",
+      "转换清单"
+    ],
+    "examples": [
+      "把这篇的配图建议转成生图清单",
+      "转换提示词"
+    ]
   }
 ]
