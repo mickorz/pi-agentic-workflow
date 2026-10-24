@@ -18,11 +18,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { readServiceLock } from "../../gateway/service-lock.js";
 import { readBotStatus, aggregateServiceStatus, type BotStatusFile } from "../../gateway/bot-status.js";
 import { readBotStats } from "../../gateway/bot-stats.js";
+import { listRuns } from "../../persistence/run-store.js";
 
 const PM2_APP_NAME = "wechat-bot";
 
@@ -96,6 +98,7 @@ export function findPm2App(runner: Pm2Runner, name = PM2_APP_NAME): Pm2AppInfo |
   const app = list.find((a) => a.name === name);
   if (!app) return null;
   const env = (app.pm2_env ?? {}) as Record<string, unknown>;
+  const rawArgs = (env.args ?? []) as unknown;
   return {
     name,
     pid: typeof app.pid === "number" ? app.pid : 0,
@@ -103,6 +106,7 @@ export function findPm2App(runner: Pm2Runner, name = PM2_APP_NAME): Pm2AppInfo |
     restarts: typeof env.restart_time === "number" ? env.restart_time : 0,
     unstableRestarts: typeof env.unstable_restarts === "number" ? env.unstable_restarts : 0,
     startedAt: typeof env.pm_uptime === "number" ? new Date(env.pm_uptime).toISOString() : "",
+    args: Array.isArray(rawArgs) ? rawArgs.map(String) : [],
   };
 }
 
@@ -113,6 +117,21 @@ export interface Pm2AppInfo {
   restarts: number;
   unstableRestarts: number;
   startedAt: string;
+  /** PM2 进程启动参数（ecosystem args 数组；从中提取 --data/--registry 锚定真实路径） */
+  args: string[];
+}
+
+/** 从 PM2 注册信息提取 --data（服务真实 data 目录；无则用默认） */
+function dataDirFromApp(app: Pm2AppInfo): string {
+  const v = flagValue(app.args, "--data");
+  return v ? path.resolve(v) : path.resolve(".pi-wechat");
+}
+
+/** status/stop/restart 的 data 目录解析：--data flag > PM2 注册参数 > 默认 .pi-wechat */
+function resolveDataDir(flags: string[], app: Pm2AppInfo | null): string {
+  const v = flagValue(flags, "--data");
+  if (v) return path.resolve(v);
+  return app ? dataDirFromApp(app) : path.resolve(".pi-wechat");
 }
 
 function pidAlive(pid: number): boolean {
@@ -168,7 +187,8 @@ module.exports = {
       script: ${JSON.stringify(entry)},
       interpreter: "node", // PM2 7 对 .ts 默认选 bun（无 bun 时静默起不来，online 假象零日志），强制 node
       node_args: "--import " + ${JSON.stringify(tsx)},
-      args: ${JSON.stringify(args.join(" "))},
+      // 参数保持数组形态：含空格路径由 PM2 自行处理边界（拼接字符串会在 Windows/空格路径下拆错）
+      args: ${JSON.stringify(args)},
       cwd: ${JSON.stringify(rootAbs)},
       exec_mode: "fork",
       instances: 1,
@@ -210,17 +230,18 @@ function isConsumedFlag(argv: string[], i: number): boolean {
 
 export async function wechatService(argv: string[], runner: Pm2Runner = createShellPm2Runner()): Promise<number> {
   const sub = argv[0];
-  if (sub === "start") return serviceStart(argv.slice(1), runner);
-  if (sub === "stop") return serviceStop(runner);
-  if (sub === "status") return serviceStatus(runner);
-  if (sub === "restart") return serviceRestart(runner);
+  const flags = argv.slice(1);
+  if (sub === "start") return serviceStart(flags, runner);
+  if (sub === "stop") return serviceStop(flags, runner);
+  if (sub === "status") return serviceStatus(flags, runner);
+  if (sub === "restart") return serviceRestart(flags, runner);
   process.stderr.write(
     [
       "用法：pi-workflow wechat service <start|stop|status|restart>",
       "  start [wechat start 同款 flags：--registry/--scripts/--data/--routing-mode/--model/--rate-max/--budget-tokens/--agent-limits/--allow-user/--allow-all]",
-      "  stop     优雅停止（shutdown message，10s 超时强杀兜底）",
-      "  status   PM2 进程态 + 单实例锁",
-      "  restart  用现有配置重启（改参数请 stop 后重新 start）",
+      "  stop [--data <dir>] [--force]   优雅停止（活跃 workflow 在跑时需 --force）",
+      "  status [--data <dir>]           PM2 进程态 + 单实例锁 + 版本指纹（非 healthy 退出码 1）",
+      "  restart [--data <dir>] [--force] 用现有配置重启（活跃 workflow 在跑时需 --force）",
     ].join("\n") + "\n",
   );
   return 2;
@@ -281,11 +302,64 @@ async function serviceStart(flags: string[], runner: Pm2Runner): Promise<number>
   return 0;
 }
 
-async function serviceStop(runner: Pm2Runner): Promise<number> {
+/** 服务进程 cwd（ecosystem 锚定仓库根）即 RunApplicationService baseDir——活跃 run 从这里扫 */
+function activeWorkflowRuns(): { runId: string; name: string }[] {
+  try {
+    return listRuns(repoRoot())
+      .filter((r) => r.effectiveStatus === "running")
+      .map((r) => ({ runId: r.runId, name: r.name }));
+  } catch {
+    return []; // runs 目录不存在/不可读 → 不阻断生命周期命令
+  }
+}
+
+/** 活跃 workflow 守卫：在跑且无 --force → 返回提示文案；可停返回 null */
+function activeRunGuard(flags: string[]): string | null {
+  if (flags.includes("--force")) return null;
+  const active = activeWorkflowRuns();
+  if (active.length === 0) return null;
+  const head = active.slice(0, 5).map((r) => `  - ${r.runId}（${r.name}）`).join("\n");
+  const more = active.length > 5 ? `\n  …共 ${active.length} 个` : "";
+  return [
+    `有 ${active.length} 个 workflow 正在运行，停止/重启会中断它们：`,
+    head + more,
+    `确认中断请加 --force；或等任务完成 / pi-workflow status 查看进度。`,
+  ].join("\n");
+}
+
+/** git HEAD 短指纹（识别“跑的是哪个版本”；非 git 环境返回 ?） */
+function gitHead(root: string): string {
+  try {
+    const r = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, encoding: "utf8" });
+    return r.status === 0 ? (r.stdout ?? "").trim() : "?";
+  } catch {
+    return "?";
+  }
+}
+
+/** registry 指纹：条数 + sha256 前 8 位（识别“加载的是哪份注册表”） */
+function registryFingerprint(file: string): string {
+  try {
+    const raw = fs.readFileSync(file, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    const count = Array.isArray(parsed) ? parsed.length : -1;
+    const sha8 = createHash("sha256").update(raw).digest("hex").slice(0, 8);
+    return `${file}（${count} 条，sha ${sha8}）`;
+  } catch {
+    return `${file}（不可读）`;
+  }
+}
+
+async function serviceStop(flags: string[], runner: Pm2Runner): Promise<number> {
   const app = findPm2App(runner);
   if (!app) {
     process.stdout.write(`PM2 中无 ${PM2_APP_NAME} 条目（服务未以 service 形态运行）。\n`);
     return 0;
+  }
+  const guard = activeRunGuard(flags);
+  if (guard) {
+    process.stderr.write(guard + "\n");
+    return 2;
   }
   const stop = runner(["stop", PM2_APP_NAME]);
   if (!stop.ok) {
@@ -300,28 +374,33 @@ async function serviceStop(runner: Pm2Runner): Promise<number> {
   return 0;
 }
 
-async function serviceStatus(runner: Pm2Runner): Promise<number> {
+async function serviceStatus(flags: string[], runner: Pm2Runner): Promise<number> {
   const app = findPm2App(runner);
   const processStatus = app?.status ?? "unregistered";
-  const lock = readServiceLock(path.resolve(".pi-wechat"));
+  const dataDir = resolveDataDir(flags, app);
+  const lock = readServiceLock(dataDir);
   const holderPid = lock && pidAlive(lock.pid) ? lock.pid : 0;
-  const bot = readBotStatus(path.resolve(".pi-wechat"));
+  const bot = readBotStatus(dataDir);
   const agg = aggregateServiceStatus({
     processStatus: processStatus === "online" ? "online" : processStatus === "stopped" ? "stopped" : processStatus === "errored" ? "errored" : "unregistered",
     holderPid,
     botStatus: bot as BotStatusFile | null,
   });
+  const root = repoRoot();
+  const registryFile =
+    (app ? flagValue(app.args, "--registry") : undefined) ?? path.join(root, "dev-examples", "am-p0", "registry.json");
   const lines: string[] = [
     `综合状态：${agg.overall}（${agg.detail}）`,
     app
       ? `PM2 进程：${app.status}（pid=${app.pid}，restarts=${app.restarts}，unstable=${app.unstableRestarts}，startedAt=${app.startedAt}）`
       : `PM2 进程：未注册（服务未以 service 形态运行）`,
+    `data 目录：${dataDir}`,
     `单实例锁：${lock ? `pid=${lock.pid}（${pidAlive(lock.pid) ? "存活" : "已死（陈锁，下次启动自愈）"}，startedAt=${lock.startedAt}）` : "无锁（服务未运行）"}`,
     bot
       ? `Bot 连接：${agg.bot}（attempt=${bot.attempt}，updatedAt=${bot.updatedAt}，lastPollOkAt=${bot.lastPollOkAt || "无"}）`
       : `Bot 连接：无状态文件`,
+    `版本：git ${gitHead(root)}；registry ${registryFingerprint(path.resolve(registryFile))}`,
     (() => {
-      const dataDir = path.resolve(".pi-wechat");
       const s = readBotStats(dataDir);
       if (!s || s.pid !== holderPid) return `运营统计：无（本代未记录）`;
       const fmt = (iso: string) => (iso ? new Date(iso).toLocaleString() : "无");
@@ -330,7 +409,7 @@ async function serviceStatus(runner: Pm2Runner): Promise<number> {
     (() => {
       // 最近崩溃线索：restarts>0 时取 err 日志尾行（非权威 crash 栈，定位起点用）
       if (!app || app.restarts <= 0) return `崩溃：无重启记录`;
-      const errLog = path.resolve(".pi-wechat", "logs", "wechat-bot-err.log");
+      const errLog = path.join(dataDir, "logs", "wechat-bot-err.log");
       try {
         const tail = fs
           .readFileSync(errLog, "utf8")
@@ -343,17 +422,23 @@ async function serviceStatus(runner: Pm2Runner): Promise<number> {
         return `崩溃：restarts=${app.restarts}（err 日志不可读）`;
       }
     })(),
-    `日志：<data>/logs/（pm2-logrotate 按天滚动）`,
+    `日志：${path.join(dataDir, "logs")}（pm2-logrotate 按天滚动）`,
   ];
   process.stdout.write(lines.join("\n") + "\n");
-  // 退出码：查询本身总成功；仅异常健康态（凭据失效/心跳超时/进程 errored）非零，供脚本/巡检用
-  return agg.overall === "unhealthy" || agg.overall === "login_required" || agg.overall === "errored" ? 1 : 0;
+  // 退出码：查询本身总能完成；非 healthy（未注册/停止/启动中/凭据失效/心跳超时/errored）→ 1，
+  // 供脚本/巡检直接判定“服务就绪与否”（2026-10-24 复审：unregistered/stopped 此前误归 0）
+  return agg.overall === "healthy" ? 0 : 1;
 }
 
-async function serviceRestart(runner: Pm2Runner): Promise<number> {
+async function serviceRestart(flags: string[], runner: Pm2Runner): Promise<number> {
   const app = findPm2App(runner);
   if (!app) {
     process.stderr.write(`PM2 中无 ${PM2_APP_NAME} 条目；首次启动请用 service start（可带参数）。\n`);
+    return 2;
+  }
+  const guard = activeRunGuard(flags);
+  if (guard) {
+    process.stderr.write(guard + "\n");
     return 2;
   }
   const r = runner(["restart", PM2_APP_NAME]);
