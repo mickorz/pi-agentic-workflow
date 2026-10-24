@@ -48,6 +48,10 @@ export interface TaskControlFacadeDeps {
   vaultResolver?: { scriptPath?: string; cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; vaultRoot?: string };
   /** P1a Phase W：Obsidian 写操作冲突预检用查询后端配置（注入链缺省：PI_VAULT_QUERY_PATH > dev 兜底） */
   vaultQuery?: { scriptPath?: string; cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; vaultRoot?: string };
+  /** 自动批准白名单（启动期服务端显式声明，如 --auto-approve obsidian-note-create）：
+   *  命中的高风险流程跳过 PendingAction 人闸直接执行——仍在同一 authorized 服务端通道，
+   *  全部预检（契约/冲突/幂等键/锚点）照常生效；LLM 无法自行加入白名单。缺省空=一律审批。 */
+  autoApprove?: readonly string[];
   /** VR #12：PendingAction 创建后回调（gateway 接确定性审批卡推送，不依赖 Agent 自行描述） */
   onPendingCreated?: (action: PendingAction) => void;
 }
@@ -207,6 +211,30 @@ export class TaskControlFacade implements AgentToolFacade {
         // 且必须在 computeArgsDigest 之前注入——保证审批快照与执行参数一致。
         args.vault_ref_pinned_rel = resolved.resolved_rel;
         resolvedTarget = resolved.resolved_rel;
+      }
+    }
+    // 自动批准白名单：命中即跳过 PendingAction 人闸直接执行（启动期 --auto-approve 显式声明）。
+    // 位置在全部预检之后：契约/冲突探测/operationId 派生/anyOfArgs/vault 锚点全部照常生效，
+    // 执行仍走 authorized:true 服务端通道（与用户批准同路径），LLM 链路上无入口加入白名单。
+    if (this.deps.autoApprove?.includes(input.workflowId)) {
+      const plan: RoutePlan = {
+        intent: "execute_workflow",
+        action: "start_execution",
+        workflowId: input.workflowId,
+        args,
+        reason: "auto-approve 白名单（服务端启动期声明，预检全部通过）",
+        confidence: 1,
+      };
+      try {
+        const r = await this.deps.launcher.execute(
+          plan,
+          { actor: input.userId, authorized: true, entrypoint: this.channel },
+          { channel: this.channel, userId: input.userId, messageId: input.originMessageId },
+          { agentTurnId: input.agentTurnId },
+        );
+        return { accepted: true, runId: r.runId, taskBindingId: r.taskBindingId, status: r.status };
+      } catch (e) {
+        return { error: errMessage(e) };
       }
     }
     const argsDigest = computeArgsDigest(args);

@@ -56,7 +56,7 @@ async function hasPython(): Promise<boolean> {
   }
 }
 
-async function assemble(): Promise<Assembled> {
+async function assemble(opts?: { autoApprove?: readonly string[] }): Promise<Assembled> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "obs-e2e-"));
   const vault = path.join(root, "vault");
   const ledgerRoot = path.join(root, "ledger");
@@ -98,6 +98,7 @@ async function assemble(): Promise<Assembled> {
     service,
     pending: pendingStore,
     runLinks,
+    ...(opts?.autoApprove ? { autoApprove: opts.autoApprove } : {}),
     vaultQuery: {
       scriptPath: QUERY,
       vaultRoot: vault,
@@ -316,5 +317,67 @@ test("E2E §7.3-unknown：started-无-done 台账 → unknown 报错禁自动重
     assert.equal(fs.readFileSync(path.join(vault, rel), "utf-8"), "既有内容", "unknown 分支不得写文件");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("E2E auto-approve：白名单跳过审批直接落盘；预检/非白名单不受影响", { timeout: 120_000 }, async (t) => {
+  if (!(await hasPython())) return t.skip("python3 不可用");
+  const app = await assemble({ autoApprove: ["obsidian-note-create"] });
+  try {
+    process.env.PI_VAULT_QUERY_PATH = QUERY;
+    process.env.PI_VAULT_WRITER_PATH = WRITER;
+    process.env.OBSIDIAN_VAULT_ROOT = app.vault;
+    process.env.PI_OBSIDIAN_LEDGER_ROOT = app.ledgerRoot;
+
+    const userId = "wx-autoapprove";
+    // ① 白名单流程：不产生审批项，直接 accepted
+    const rel = "60_Workspace/写作/灵感/白名单自动批准测试/idea.md";
+    const content = "# 白名单灵感\n\n--auto-approve 直通测试。\n";
+    const r1 = await app.facade.executeWorkflow({
+      userId,
+      workflowId: "obsidian-note-create",
+      args: { rel, content },
+      agentTurnId: "turn-auto-1",
+      originMessageId: "msg-auto-1",
+    });
+    assert.ok(r1.accepted === true, `白名单应直接执行：${JSON.stringify(r1)}`);
+    const snap = await waitForRun(app.service, (r1 as { runId: string }).runId);
+    assert.equal(snap.effectiveStatus, "completed");
+    const file = path.join(app.vault, ...rel.split("/"));
+    assert.ok(fs.existsSync(file), "真实文件已落盘");
+    assert.equal(fs.readFileSync(file, "utf-8"), content, "内容逐字节一致");
+    assert.equal(app.pendingStore.pendingFor(userId).length, 0, "全程零审批项");
+
+    // ② 白名单 ≠ 免预检：同 rel 已存在 → 冲突拦截，仍未建审批项
+    const r2 = await app.facade.executeWorkflow({
+      userId,
+      workflowId: "obsidian-note-create",
+      args: { rel, content: "另一份内容" },
+      agentTurnId: "turn-auto-2",
+      originMessageId: "msg-auto-2",
+    });
+    assert.ok(!("accepted" in r2) && "error" in r2 && r2.error.includes("已存在"), `冲突应被预检拦截：${JSON.stringify(r2)}`);
+    assert.equal(app.pendingStore.pendingFor(userId).length, 0);
+
+    // ③ 非白名单高风险流程：照常走审批
+    const r3 = await app.facade.executeWorkflow({
+      userId,
+      workflowId: "obsidian-note-append",
+      args: { rel, content: "追加一段" },
+      agentTurnId: "turn-auto-3",
+      originMessageId: "msg-auto-3",
+    });
+    assert.ok("needsApproval" in r3, `非白名单仍需审批：${JSON.stringify(r3)}`);
+    assert.equal(app.pendingStore.pendingFor(userId).length, 1);
+  } finally {
+    for (const [k, v] of Object.entries({
+      PI_VAULT_QUERY_PATH: undefined,
+      PI_VAULT_WRITER_PATH: undefined,
+      OBSIDIAN_VAULT_ROOT: undefined,
+      PI_OBSIDIAN_LEDGER_ROOT: undefined,
+    })) {
+      if (v === undefined) delete process.env[k];
+    }
+    fs.rmSync(app.root, { recursive: true, force: true });
   }
 });

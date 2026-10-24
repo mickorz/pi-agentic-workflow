@@ -79,6 +79,8 @@ export interface WechatAppDeps {
   agentModel?: string;
   /** agent 单 Turn 硬限（缺省 DEFAULT_TURN_LIMITS） */
   agentLimits?: import("../agent-host/types.js").TurnLimits;
+  /** 自动批准白名单（--auto-approve）：命中的高风险流程跳过审批直接执行（预检照常；缺省空） */
+  autoApprove?: readonly string[];
 }
 
 export class WechatApp {
@@ -168,6 +170,7 @@ export class WechatApp {
         service: deps.service,
         pending: pendingStore,
         runLinks,
+        ...(deps.autoApprove ? { autoApprove: deps.autoApprove } : {}),
         // VR #12：审批卡由服务端确定性生成（三要素），创建即推送，不依赖 Agent 自行描述
         onPendingCreated: (a) => {
           this.enqueueReply(a.userId, renderPendingActionApproval(a));
