@@ -1,0 +1,44 @@
+[
+  {
+    "workflowId": "videodigest-extract",
+    "scriptPath": "scripts/videodigest_extract.js",
+    "name": "提取短视频",
+    "description": "抖音短视频→音频下载→百炼转写→AI 提炼→幂等归档 Obsidian 60_Workspace/写作/灵感/<标题>/ 并回执。同视频重发幂等返回已有素材路径。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "抖音视频链接(v.douyin.com 短链或 www.douyin.com/video/... 长链)"
+        }
+      },
+      "required": ["url"]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "urlArg": "url",
+    "urlDomains": [
+      "v.douyin.com",
+      "www.douyin.com",
+      "douyin.com",
+      "www.iesdouyin.com",
+      "iesdouyin.com"
+    ],
+    "keywords": [
+      "抖音",
+      "短视频",
+      "视频提取",
+      "提取视频",
+      "转写",
+      "视频转文字",
+      "灵感归档",
+      "videodigest"
+    ],
+    "examples": [
+      "https://v.douyin.com/xxxxx/ 帮我提取这个视频",
+      "提取这个抖音视频归档到灵感 https://www.douyin.com/video/7381234567890123456",
+      "把这个短视频转成文字存到灵感库"
+    ],
+    "anyOfArgs": ["url"]
+  }
+]

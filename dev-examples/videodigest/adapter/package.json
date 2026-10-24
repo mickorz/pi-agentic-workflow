@@ -1,0 +1,11 @@
+{
+  "name": "video-extract-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "抖音视频提取 adapter：从 thirdparties/VideoDigest 移植的单视频链路（短链解析/cookie/yt-dlp/百炼转写），输出结构化 JSON。构建与测试使用仓库根工具链（npx tsc -p . / npx tsx --test tests/*.test.ts），无独立依赖安装。",
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "tsx --test tests/*.test.ts"
+  }
+}

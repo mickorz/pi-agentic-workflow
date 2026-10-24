@@ -27,8 +27,12 @@ dev-examples/*/.pi-wechat/
 dev-docs/
 # 公众号凭证（本地集成，绝不入库）
 dev-examples/wx-article/.aws-article/
+.aws-article/
 dev-examples/wx-article/aws.env
 .pi/tasks/
 
 # Python 运行产物
 __pycache__/
+
+# videodigest 运行产物（adapter workdir）
+dev-examples/videodigest/work/
