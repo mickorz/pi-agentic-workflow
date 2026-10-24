@@ -137,6 +137,9 @@ STATE_SETTABLE = {
     "approval.outline": {"pending", "approved", "rejected", "not_required"},
     "approval.publish": {"not_requested", "pending", "approved", "rejected"},
     "lastRunId": str,
+    "stats.agentCount": str,
+    "stats.durationMs": str,
+    "stats.lastRunAt": str,
     "handoff.articleDir": str,
     "handoff.handoffId": str,
     "config.outlineApproval": {"true", "false"},
@@ -317,6 +320,7 @@ def default_state(title: str, article_id: str, channel: str, message_id: str, us
         "stale": {},
         "revision": 1,
         "handoff": {},
+        "stats": {"agentCount": "0", "durationMs": "0", "lastRunAt": ""},
         "config": {
             "outlineApproval": "false",
             "targetWords": "1500-2500",

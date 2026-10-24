@@ -869,5 +869,76 @@
       "修改读者为转行做AI产品的人",
       "先暂停"
     ]
+  },
+  {
+    "workflowId": "idea-article-write",
+    "scriptPath": "wx-article/scripts/idea_article_write.js",
+    "name": "灵感文章·生成链",
+    "description": "Brief 确认后的文章生成链: 大纲(4-outline.md)→正文(5-article.md)→八维度审稿(6-review.md, blocking 修复循环≤上限)→draft_ready+交接提示。config.outlineApproval=true 时大纲后暂停等「确认大纲」。支持「修改文章: <意见>」修订 Brief 后全链重生成。title=任务标题; message=本轮消息(确认大纲/修改意见/空)。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "任务标题（仅标题字符串，locate 锚定；绝不含路径）"
+        },
+        "message": {
+          "type": "string",
+          "description": "本轮消息: 「确认大纲」「修改文章: <意见>」「继续写文章」或空"
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "继续写文章",
+      "开始写初稿",
+      "写正文",
+      "确认大纲",
+      "修改文章",
+      "审稿",
+      "生成文章",
+      "写文章"
+    ],
+    "examples": [
+      "继续写文章 微信自动化",
+      "确认大纲 微信自动化",
+      "修改文章 微信自动化: 结尾再口语化一点"
+    ]
+  },
+  {
+    "workflowId": "idea-article-status",
+    "scriptPath": "wx-article/scripts/idea_article_status.js",
+    "name": "灵感文章·进展查询",
+    "description": "文章任务进展只读查询: title 给定→单任务详情(状态机位置/阶段文件清单与大小/最近讨论); title 为空→任务列表(标题+状态+当前阶段+下一步提示)。不做任何写入。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "任务标题（可选；空或省略=列表模式。仅标题字符串，绝不含路径）"
+        }
+      },
+      "required": []
+    },
+    "riskLevel": "read-only",
+    "enabled": true,
+    "keywords": [
+      "进展",
+      "写到哪了",
+      "任务列表",
+      "文章状态",
+      "查询进展",
+      "怎么样了",
+      "进展怎么样"
+    ],
+    "examples": [
+      "这篇文章进展怎么样",
+      "灵感任务列表",
+      "微信自动化 写到哪了"
+    ]
   }
 ]
