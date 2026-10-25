@@ -337,7 +337,7 @@ def main() -> int:
         return fail(f"cover not found: {cover_path}")
 
     config_root = Path(args.config_dir) if args.config_dir else (
-        find_config_root(Path(__file__).parent) or find_config_root(article_dir)
+        find_config_root(article_dir) or find_config_root(Path(__file__).parent)
     )
     if config_root is None:
         return fail("cannot find config root (.aws-article); pass --config-dir")
