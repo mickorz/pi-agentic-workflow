@@ -136,6 +136,15 @@ test("routeByUrlDirect（含链即触发）：无 scheme 裸域名链接 → 归
   assert.equal(hit2.url, "https://www.douyin.com/video/7381234567890123456");
 });
 
+test("routeByUrlDirect：真实抖音分享文案（前缀乱码+文案+#话题+尾随空格）→ 精确抽出链接直连", () => {
+  const text =
+    "0.76 tre:/ o@Q.xS :8pm 09/09 复制打开抖音极速版，看看【董俊豪企业AI化的作品】花100多亿token做ai落地的方法 # ai落... https://v.douyin.com/SKccO74-xAk/ ";
+  const hit = routeByUrlDirect(text, reg([VIDEODIGEST]));
+  assert.ok(hit);
+  assert.equal(hit.workflowId, "videodigest-extract");
+  assert.equal(hit.url, "https://v.douyin.com/SKccO74-xAk/");
+});
+
 test("routeByUrlDirect：裸域名提及无路径 / evildouyin 无 scheme / 子串域名 → null", () => {
   assert.equal(routeByUrlDirect("去 douyin.com 看看", reg([VIDEODIGEST])), null);
   assert.equal(routeByUrlDirect("evildouyin.com/x", reg([VIDEODIGEST])), null);
