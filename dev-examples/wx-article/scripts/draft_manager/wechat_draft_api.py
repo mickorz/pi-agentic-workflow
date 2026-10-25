@@ -43,8 +43,8 @@ class WechatNetworkError(Exception):
         super().__init__(f"{where} network: {detail}")
 
 
-def load_account_credentials(config_dir: Path, account_slot: int) -> tuple[str, str]:
-    """从 aws.env 读取指定槽位凭证。槽位不存在立即报错（账号透传失败必须显性暴露）。"""
+def load_account_credentials(config_dir: Path, account_slot: int) -> tuple[str, str, str | None]:
+    """从 aws.env 读取指定槽位凭证与可选 API base（代理通道，缺省直连官方）。槽位不存在立即报错（账号透传失败必须显性暴露）。"""
     env_file = Path(config_dir) / "aws.env"
     env_vars: dict[str, str] = {}
     for line in env_file.read_text(encoding="utf-8-sig", errors="replace").splitlines():
@@ -56,16 +56,19 @@ def load_account_credentials(config_dir: Path, account_slot: int) -> tuple[str, 
     secret = env_vars.get(f"WECHAT_{account_slot}_APPSECRET")
     if not appid or not secret:
         raise WechatAPIError("credentials", f"missing WECHAT_{account_slot}_APPID/APPSECRET in {env_file}")
-    return appid, secret
+    api_base = (env_vars.get(f"WECHAT_{account_slot}_API_BASE") or "").strip() or None
+    return appid, secret, api_base
 
 
 # ---------------------------------------------------------------- 真实实现 --
 
 
 class WechatClient:
-    def __init__(self, appid: str, secret: str):
+    def __init__(self, appid: str, secret: str, api_base: str | None = None):
         self.appid = appid
         self.secret = secret
+        # 代理通道：aws.env 的 WECHAT_<N>_API_BASE（如 IP 白名单场景），缺省直连官方
+        self.base = (api_base or BASE).rstrip("/")
         self._token: str | None = None
 
     def _get_json(self, url: str, timeout: int = 60) -> dict:
@@ -91,7 +94,7 @@ class WechatClient:
     def token(self) -> str:
         if self._token:
             return self._token
-        r = self._get_json(BASE + "/cgi-bin/token?" + urlencode({"grant_type": "client_credential", "appid": self.appid, "secret": self.secret}))
+        r = self._get_json(self.base + "/cgi-bin/token?" + urlencode({"grant_type": "client_credential", "appid": self.appid, "secret": self.secret}))
         if not r.get("access_token"):
             raise WechatAPIError("token", r.get("errcode"), r.get("errmsg"))
         self._token = r["access_token"]
@@ -115,26 +118,26 @@ class WechatClient:
             raise WechatNetworkError("upload", str(e))
 
     def add_material_image(self, path: Path) -> str:
-        r = self._upload_multipart(f"{BASE}/cgi-bin/material/add_material?access_token={self.token()}&type=image", path)
+        r = self._upload_multipart(f"{self.base}/cgi-bin/material/add_material?access_token={self.token()}&type=image", path)
         if not r.get("media_id"):
             raise WechatAPIError("add_material", r.get("errcode"), r.get("errmsg"))
         return r["media_id"]
 
     def uploadimg(self, path: Path) -> str:
-        r = self._upload_multipart(f"{BASE}/cgi-bin/media/uploadimg?access_token={self.token()}", path)
+        r = self._upload_multipart(f"{self.base}/cgi-bin/media/uploadimg?access_token={self.token()}", path)
         if not r.get("url"):
             raise WechatAPIError("uploadimg", r.get("errcode"), r.get("errmsg"))
         return r["url"]
 
     def draft_add(self, article: dict) -> str:
-        r = self._post_json(f"{BASE}/cgi-bin/draft/add?access_token={self.token()}", {"articles": [article]})
+        r = self._post_json(f"{self.base}/cgi-bin/draft/add?access_token={self.token()}", {"articles": [article]})
         if not r.get("media_id"):
             raise WechatAPIError("draft_add", r.get("errcode"), r.get("errmsg"))
         return r["media_id"]
 
     def draft_update(self, media_id: str, article: dict, index: int = 0) -> None:
         r = self._post_json(
-            f"{BASE}/cgi-bin/draft/update?access_token={self.token()}",
+            f"{self.base}/cgi-bin/draft/update?access_token={self.token()}",
             {"media_id": media_id, "index": index, "articles": article},
         )
         if r.get("errcode", 0) not in (0, None):
@@ -142,7 +145,7 @@ class WechatClient:
 
     def draft_get(self, media_id: str) -> dict | None:
         """取草稿；草稿不存在（已删除/已发表移除）返回 None，其他错误照常抛出。"""
-        r = self._post_json(f"{BASE}/cgi-bin/draft/get?access_token={self.token()}", {"media_id": media_id})
+        r = self._post_json(f"{self.base}/cgi-bin/draft/get?access_token={self.token()}", {"media_id": media_id})
         if r.get("errcode") and r.get("errcode") != 0:
             # 40007 = 无效 media_id（草稿已删除或已发表移除）
             if r.get("errcode") == 40007:

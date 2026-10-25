@@ -121,13 +121,13 @@ def parse_frontmatter(md_text: str) -> tuple[str, str]:
     return (t.group(1) if t else ""), (d.group(1) if d else "")
 
 
-def make_client(args, appid: str, secret: str, article_dir: Path):
+def make_client(args, appid: str, secret: str, article_dir: Path, api_base: str | None = None):
     if args.mock:
         store = Path(args.mock_store) if args.mock_store else article_dir / "publish-mock-store.json"
         return MockWechatClient(appid, store, inject=args.inject, secret=secret)
     if args.inject:
         fail_and_raise("--inject only available with --mock")
-    return WechatClient(appid, secret)
+    return WechatClient(appid, secret, api_base)
 
 
 def fail_and_raise(msg: str):
@@ -346,13 +346,13 @@ def main() -> int:
 
     # 账号槽位透传（P0 修复：不再写死 WECHAT_1）
     try:
-        appid, secret = load_account_credentials(config_root, args.account_slot)
+        appid, secret, api_base = load_account_credentials(config_root, args.account_slot)
     except WechatAPIError as e:
         return fail(str(e))
-    print(f"[account] slot={args.account_slot} appid={appid}")
+    print(f"[account] slot={args.account_slot} appid={appid} api_base={api_base or 'official'}")
 
     state_path = article_dir / "publish-state.json"
-    client = make_client(args, appid, secret, article_dir)
+    client = make_client(args, appid, secret, article_dir, api_base)
     status_only = args.publish_status or bool(args.resolve_publish_id) or args.clear_pending
 
     run_id = f"pid{__import__('os').getpid()}-{time.strftime('%H%M%S')}"
