@@ -24,7 +24,7 @@ import { routeByUrlDirect } from "../dispatch/url-router.js";
 import { BudgetTracker, RateLimiter } from "../dispatch/limits.js";
 import type { WorkflowRegistry } from "../dispatch/registry.js";
 import { RunMonitor } from "../dispatch/run-monitor.js";
-import { type TaskControlService, TaskController } from "../dispatch/task-control.js";
+import { type TaskControlService, TaskController, parseVerb } from "../dispatch/task-control.js";
 import { TaskStore } from "../dispatch/task-store.js";
 import { ModelRoutingLog } from "../model-routing/model-router.js";
 import type { ModelRouter } from "../model-routing/model-router.js";
@@ -424,6 +424,23 @@ export class WechatApp {
         });
         this.enqueueReply(message.userId, reply);
         return { duplicate: false, reply };
+      }
+    }
+
+    // 1.2) 确定性通道：任务级 checkpoint 审批（waiting_checkpoint 存在时，批准/拒绝词直通 TaskController，不经 LLM）
+    // 同 PendingAction 通道同构：审批卡由 run-monitor 下发（tb 编号），决策词确定性解析，避免 LLM 误路由/重复发卡。
+    if (this.taskControl.hasPendingApproval(message.userId)) {
+      const verb = parseVerb(message.text);
+      if (verb === "approve" || verb === "reject") {
+        const out = await this.taskControl.handle(message);
+        this.audit.record({
+          actor: message.userId,
+          action: verb === "approve" ? "checkpoint.approve" : "checkpoint.reject",
+          outcome: "ok",
+          detail: "任务级 checkpoint 确定性直通",
+        });
+        this.enqueueReply(message.userId, out.reply);
+        return { duplicate: false, reply: out.reply };
       }
     }
 
