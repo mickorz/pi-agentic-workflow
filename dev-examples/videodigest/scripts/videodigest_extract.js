@@ -281,7 +281,7 @@ try {
     timings: timings,
     receipt:
       '✅ 已归档: ' + archiveJson.title + '\n' +
-      '📁 60_Workspace/写作/灵感/' + archiveJson.rel_dir + '/' + archiveJson.file_rel + '\n' +
+      '📁 60_Workspace/写作/灵感/' + archiveJson.file_rel + '\n' +
       (timingLine ? '⏱ ' + timingLine : ''),
   }
 } catch (err) {
