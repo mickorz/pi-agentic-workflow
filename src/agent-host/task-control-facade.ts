@@ -139,6 +139,15 @@ export class TaskControlFacade implements AgentToolFacade {
     // 避免 LLM 重试/重复发起时叠加多条 pending，导致用户「批准」绑定错位（批准走最老一条）。
     const args = { ...((input.args ?? {}) as Record<string, unknown>) };
     let resolvedTarget: string | undefined;
+    // 网关授权链 → 脚本内 checkpoint 透传（「一次授权」契约）：
+    //  workflow 声明了 skip_confirm 参数即表示它理解网关授权;
+    //  本链路后续只有两种出口——审批卡（用户确定性批准）或 auto-approve 白名单（用户显式配置）
+    //  ——两者都是有效外层授权，脚本内部不再二次确认。仅当未显式传 false 时注入 true。
+    if (reg.argsSchema?.properties
+        && typeof (reg.argsSchema.properties as Record<string, unknown>).skip_confirm === "object"
+        && (args.skip_confirm === undefined || args.skip_confirm === null)) {
+      args.skip_confirm = true;
+    }
     // P1a Phase W（方案 §2）：Obsidian 写操作审批前预检——
     //  ① rel/content 契约校验 ② 冲突/缺失确定性探测（用户批准前就发现写不进去）
     //  ③ operationId 服务端派生注入（覆盖外部同名参数，§2 幂等键）——必须在 computeArgsDigest 之前
