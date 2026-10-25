@@ -174,6 +174,44 @@ def main() -> int:
     check("INSERT.after-insert-referenced", j["imgs"]["referenced"] >= 2 and j["needs_insert"] is False, r.stdout)
     check("INSERT.prepare-ready", j["prepare_ready"] is True, str(j.get("issues")))
 
+    # ============ I2: 插图幂等 / 错图替换 / 序号确定性映射（2026-10-24 修复回归） ============
+    map_path.write_text(json.dumps(mapping, ensure_ascii=False), encoding="utf-8")
+    md_before = (art / "正文.md").read_bytes()
+    r = run_py(INSERT, "--article-dir", str(art), "--md-file", str(art / "正文.md"),
+               "--mapping-path", str(map_path), "--cover-image", "cover.png")
+    check("I2.rerun-idempotent", r.returncode == 0 and "skipped: 2" in r.stdout
+          and "inserted 0 / 2" in r.stdout
+          and (art / "正文.md").read_bytes() == md_before, r.stdout)
+
+    t = (art / "正文.md").read_text(encoding="utf-8-sig")
+    (art / "正文.md").write_text(t.replace("imgs/一.png", "imgs/错图.png"), encoding="utf-8-sig")
+    r = run_py(INSERT, "--article-dir", str(art), "--md-file", str(art / "正文.md"),
+               "--mapping-path", str(map_path), "--cover-image", "cover.png")
+    t2 = (art / "正文.md").read_text(encoding="utf-8-sig")
+    check("I2.wrong-img-replaced", r.returncode == 0 and "replaced: 1" in r.stdout
+          and "imgs/错图.png" not in t2 and "imgs/一.png" in t2, r.stdout)
+    map_path.unlink(missing_ok=True)
+
+    # numbered 模式：无 mapping 扫 imgs 按序号映射；mapping 带序号时服务端覆盖乱写的 heading
+    nart = root / "P1编号文章"
+    (nart / "imgs").mkdir(parents=True)
+    (nart / "imgs" / "01-上.png").write_bytes(PNG_A)
+    (nart / "imgs" / "02-下.png").write_bytes(PNG_B)
+    (nart / "正文.md").write_text(MD, encoding="utf-8")
+    r = run_py(INSERT, "--article-dir", str(nart), "--mode", "numbered")
+    t3 = (nart / "正文.md").read_text(encoding="utf-8-sig")
+    i1, i2 = t3.find("## 一、上篇"), t3.find("## 二、下篇")
+    check("I2.numbered-mapping", r.returncode == 0 and "inserted 2 / 2" in r.stdout
+          and 0 < t3.find("imgs/01-上.png") < i2 and t3.find("imgs/02-下.png") > i2 > i1 > 0, r.stdout)
+
+    bogus = [{"image": "imgs/01-上.png", "heading": "## 乱写的章节", "alt": "x"},
+             {"image": "imgs/02-下.png", "heading": "## 也是乱写", "alt": "y"}]
+    (nart / "_bogus.json").write_text(json.dumps(bogus, ensure_ascii=False), encoding="utf-8")
+    r = run_py(INSERT, "--article-dir", str(nart), "--mode", "mapping", "--mapping-path", str(nart / "_bogus.json"))
+    check("I2.numbered-override-bogus-heading", r.returncode == 0 and "[NUMBER]" in r.stdout
+          and "skipped: 2" in r.stdout and "heading not found" not in r.stdout, r.stdout)
+    (nart / "_bogus.json").unlink(missing_ok=True)
+
     # ============ 首次发布（add）+ 复用（reuse）+ 变更更新（update，场景 D） ============
     r = run_pub(art, cfg)
     check("PUB.add-exit0", r.returncode == 0 and "=== ALL DONE" in r.stdout, r.stdout + r.stderr)

@@ -35,12 +35,13 @@ const scan = await agent(
   '2. 用 Read 读该 .md, 列出所有 "## " 开头的章节标题(完整行文本, 如 "## 01. RAG（检索增强生成）：让 AI 学会开卷考试")。\n\n' +
   '3. 用 Glob 列 目标目录/imgs 下的所有图片文件名(计数记 imgs_count)。若没有 imgs 目录或为空, 直接返回空匹配并说明。\n\n' +
   '3.5 封面检测(与发布流程同约定): 目录根 cover.(png|jpg|jpeg|webp) 优先; 其次 imgs/ 下 cover 开头的图片。找到则 cover 写相对文章目录路径(如 "cover.png" 或 "imgs/cover-xxx.png", imgs 下的保持 imgs/ 前缀不复制); 两处都没有则 cover 写空字符串。\n\n' +
-  '4. 语义匹配: 对每张图片, 根据文件名里的主题词与章节标题的含义匹配, 选出最合适的章节。规则:\n' +
+  '4. 序号优先确定性匹配(不要读图片内容): 图片文件名带序号开头(如 01-rag.png / 1_x.png / 图1-xxx.png)时, 第 N 张图直接映射到文章第 N 个 "## " 章节(heading=该章节完整原行文本), 禁止读图片文件、禁止语义猜测。只有无序号的图才用文件名主题词做语义匹配。规则:\n' +
   '   - imgs 下 cover 开头的图是封面候选, 不参与章节匹配, 也不进 unmatched。\n' +
   '   - image 字段写 "imgs/<图片文件名>"(图片位于目标目录/imgs 下)。\n' +
   '   - heading 字段写该章节完整的 "## " 行文本(必须与 .md 中原文逐字一致, 用于脚本精确匹配)。\n' +
   '   - alt 字段写一句简短中文描述, 形如 "术语插画：<图意>"。\n' +
-  '   - 一张图只匹配一个章节; 多个图可匹配不同章节。无法判断归属的放进 unmatched(写文件名)。\n\n' +
+  '   - 一张图只匹配一个章节; 多个图可匹配不同章节。无法判断归属的放进 unmatched(写文件名)。\n' +
+  '   - 插入脚本对带序号图会按「序号 N -> 第 N 章」在服务端重锤定(即使 heading 写错也会纠正), 对已存在相同图自动跳过, 对章节内已有错图会替换。\n\n' +
   '5. 生成 suggested_title: 不超过 32 字, 概括全文所有术语, 风格参考 "RAG、Embedding、向量数据库……9 个 AI 术语，接着讲"。\n' +
   '6. 生成 suggested_digest: 80-120 字, 用生活化比喻概括这篇文章讲了什么。\n\n' +
   '返回 JSON: { md_path, md_name, imgs_count, cover, images:[{image,heading,alt}], unmatched:[], suggested_title, suggested_digest }。',
@@ -93,9 +94,9 @@ const insert = await agent(
   JSON.stringify(scan.images) + '\n\n' +
   '2. 用 bash 工具执行(一条命令):\n' +
   insertCmd + '\n\n' +
-  '脚本行为: 找到 .md -> 按每项的 heading 定位章节 -> 在该章节的"**一句话记住"行前插入 ![alt](image) 三行(空行+图+空行); 若章节无"一句话记住"则插到章节末尾。' +
-  (scan.cover ? '另: 本次传了 -CoverImage "' + scan.cover + '", 脚本会把封面标记 ![文章封面](' + scan.cover + ') 插到头部段落末尾(首个 ## 章节前, 已存在则跳过)。' : '') + '\n' +
-  '3. 解析 stdout: "[OK] ..." 表示成功插入; "[OK] cover ..."/"[SKIP] cover ..." 为封面插入/跳过; "=== inserted N / M ; cover: <state> ; md img markers now: K ===" 给出统计; 末尾 "=== ALL DONE ===" 表示全部成功; 有 "[FAIL]" 或退出码非 0 表示有失败项。cover_state 取统计行的 cover: 值(inserted/skipped/none/failed)。\n' +
+  '脚本行为: 找到 .md -> 按每项的 heading 定位章节 -> 章节内已有相同图则跳过(幂等), 已有其它配图则首位替换并清除多余(错图纠正), 否则在该章节的"**一句话记住"行前插入 ![alt](image); 带序号文件名的图按「序号 N -> 第 N 章」服务端重锤定(忽略 LLM heading); 章节无"一句话记住"则插到章节末尾。' +
+  (scan.cover ? '另: 本次传了 -CoverImage "' + scan.cover + '", 脚本会把封面标记 ![文章封面](' + scan.cover + ') 插到头部段落末尾(首个 ## 章节前, 相同封面已存在则跳过, 已存在指向其它封面的标记则原位替换)。' : '') + '\n' +
+  '3. 解析 stdout: "[OK] ..." 表示成功插入; "[SKIP] ..." 表示已存在跳过(幂等); "[REPLACE] ..." 表示错图替换; "[OK] cover ..."/"[SKIP] cover ..." 为封面插入/跳过; "[NUMBER] ..." 表示序号重锤定生效; "=== inserted N / M ; skipped: S ; replaced: R ; cover: <state> ; md img markers now: K ===" 给出统计; 末尾 "=== ALL DONE ===" 表示全部成功; 有 "[FAIL]" 或退出码非 0 表示有失败项。cover_state 取统计行的 cover: 值(inserted/skipped/replaced/none/failed)。\n' +
   '4. 无论成功失败, 最后用 bash 删除临时文件 ' + mappingPath + ' (rm -f)。\n\n' +
   '不要自行改写 .md 正文, 只依赖脚本插入。\n' +
   '返回 JSON: { inserted, cover_state, failed_count, detail }(detail 放脚本关键输出行)。',

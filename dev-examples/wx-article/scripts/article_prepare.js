@@ -108,7 +108,7 @@ if (args.skip_confirm !== true) {
     '即将处理文章: ' + articleDir + '\n' +
     '账号槽位: ' + (args.account_slot || 1) + '\n' +
     '计划步骤:\n' +
-    (inspectResult.needs_insert ? '  1. 插图: imgs 有未引用配图,按章节语义匹配插入(不改写正文)\n' : '  1. 插图: 跳过(无未引用配图)\n') +
+    (inspectResult.needs_insert ? '  1. 插图: imgs 有未引用配图,按图片序号/语义匹配插入(不改写正文;已存在相同图跳过,错图替换)\n' : '  1. 插图: 跳过(无未引用配图)\n') +
     '  2. 草稿: 调 publish.py 建/更新草稿' +
       (pendingAcc.length ? '(注意: 账号 ' + pendingAcc.join(',') + ' 有未决操作,将先人工核对再继续)\n' : '\n') +
     '说明: 会修改文章目录内文件(插图标记/article.yaml/publish-state.json),并调用微信 API。\n' +
