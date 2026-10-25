@@ -381,7 +381,7 @@
     "workflowId": "article-prepare",
     "scriptPath": "wx-article/scripts/article_prepare.js",
     "name": "文章处理入草稿箱",
-    "description": "自动补齐文章并入草稿箱:文章定位(定位三选一: article_dir 绝对路径 / vault_ref(Obsidian 逻辑引用:文章名或 vault 相对路径,跨设备免绝对路径,如《AI提问技巧》或 公众号/AI入门/AI提问技巧) / article_name 工作区名称唯一命中) -> 一次授权 -> 按需插图(语义匹配,默认不改写正文) -> 建/更新草稿(同内容复用,变更更新,不产生重复草稿)。修改文件并调微信 API",
+    "description": "自动补齐文章并入草稿箱:文章定位(定位三选一: article_dir 绝对路径 / vault_ref(Obsidian 逻辑引用:文章名或 vault 相对路径,跨设备免绝对路径,如《AI提问技巧》或 公众号/AI入门/AI提问技巧) / article_name 工作区名称唯一命中) -> 一次授权 -> 按需插图(语义匹配,默认不改写正文) -> 建/更新草稿(同内容复用,变更更新,不产生重复草稿)。修改文件并调微信 API。话术:「准备文章 <标题>」「处理文章 <标题>」「插图/入草稿箱 <标题>」。",
     "argsSchema": {
       "type": "object",
       "properties": {
@@ -427,7 +427,9 @@
       "准备草稿",
       "插图",
       "prepare",
-      "入草稿箱"
+      "入草稿箱",
+      "准备文章",
+      "文章配图"
     ],
     "examples": [
       "帮我检查一下《AI提问技巧》这篇公众号文章，然后放到草稿箱",
@@ -944,7 +946,7 @@
   {
     "workflowId": "idea-article-handoff",
     "name": "灵感文章·交接",
-    "description": "draft_ready 文章交接: 前置校验(无blocking/无stale)→单篇/<标题>/ 三件套(正文+article.yaml+配图建议)→handoffId 幂等(sha256(articleId|contentHash))→回写 handed_off→播报「准备文章 <标题>」进入配图/草稿箱。不自动嵌套 article-prepare, 不发布(T20)。话术:「交接文章 <标题>」「准备发布 <标题>」。",
+    "description": "draft_ready 文章交接: 前置校验(无blocking/无stale)→单篇/<标题>/ 三件套(正文+article.yaml+配图建议)→handoffId 幂等(sha256(articleId|contentHash))→回写 handed_off→播报引导用户用 article-prepare(处理文章)进入配图/草稿箱。不自动嵌套 article-prepare, 不发布(T20)。话术:「交接文章 <标题>」「准备发布 <标题>」「文章写完了 交接」。注意:「准备文章」是 article-prepare 的触发词(配图+草稿箱), 不是本流程。",
     "argsSchema": {
       "type": "object",
       "properties": {
