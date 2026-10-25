@@ -4,7 +4,8 @@
  * 覆盖（§3.2/§3.3 边界表）：
  *  - extractUrls：裸链接 / 链接+文字 / 中文引号包裹 / 多链接 / 非链接 / 尾标点剥离
  *  - hostMatchesDomain：精确 / 子域 / evildouyin.com 误命中防护 / 大小写
- *  - routeByUrlDirect：唯一命中直连 / 多 URL 不猜 / 未声明域名回落 / 多 workflow 命中歧义 / enabled=false 排除
+ *  - routeByUrlDirect：含链即触发（其它域名链接不拦截）/ 同 workflow 多链接不猜 / 无 scheme 裸域名归一 /
+ *    未声明域名回落 / 多 workflow 命中歧义 / enabled=false 排除
  *  - Registry：urlDomains/urlArg 声明合法性校验
  *  - Dispatcher.plan（legacy 链路）：前置路由直连且不触发 LLM；schema 不过回落 LLM
  *  - WechatApp agent 链路：裸抖音链接 → write 级 PendingAction 审批卡（不走 Agent 会话）；
@@ -112,8 +113,33 @@ test("routeByUrlDirect：链接+文字仍直连", () => {
   assert.equal(hit.workflowId, "videodigest-extract");
 });
 
-test("routeByUrlDirect：多条 URL → null（不猜，回落 LLM）", () => {
+test("routeByUrlDirect：同 workflow 多条链接 → null（选哪条歧义，回落 LLM）", () => {
   assert.equal(routeByUrlDirect("https://v.douyin.com/a/ 和 https://v.douyin.com/b/", reg([VIDEODIGEST])), null);
+});
+
+test("routeByUrlDirect（含链即触发）：douyin 链接 + 其它域名链接 → 仍直连（其它域名不拦截）", () => {
+  const hit = routeByUrlDirect(
+    "看下这个 https://v.douyin.com/iRNBosU/ 和参考 https://github.com/foo/bar",
+    reg([VIDEODIGEST]),
+  );
+  assert.ok(hit);
+  assert.equal(hit.workflowId, "videodigest-extract");
+  assert.equal(hit.url, "https://v.douyin.com/iRNBosU/");
+});
+
+test("routeByUrlDirect（含链即触发）：无 scheme 裸域名链接 → 归一 https:// 后直连", () => {
+  const hit = routeByUrlDirect("v.douyin.com/iRNBosU/ 帮我提取", reg([VIDEODIGEST]));
+  assert.ok(hit);
+  assert.equal(hit.url, "https://v.douyin.com/iRNBosU/");
+  const hit2 = routeByUrlDirect("看看 www.douyin.com/video/7381234567890123456 谢谢", reg([VIDEODIGEST]));
+  assert.ok(hit2);
+  assert.equal(hit2.url, "https://www.douyin.com/video/7381234567890123456");
+});
+
+test("routeByUrlDirect：裸域名提及无路径 / evildouyin 无 scheme / 子串域名 → null", () => {
+  assert.equal(routeByUrlDirect("去 douyin.com 看看", reg([VIDEODIGEST])), null);
+  assert.equal(routeByUrlDirect("evildouyin.com/x", reg([VIDEODIGEST])), null);
+  assert.equal(routeByUrlDirect("v.douyin.com/a/ 和 v.douyin.com/b/", reg([VIDEODIGEST])), null);
 });
 
 test("routeByUrlDirect：非 URL 消息 → null", () => {
@@ -349,10 +375,12 @@ test("agent 链路：链接+文字仍直连；同链接重发 → 复用既有 p
   assert.equal(cards.length, 1, "同 argsDigest 的 pending 去重复用，只发一张卡");
 });
 
-test("agent 链路：多 URL / 非 URL 消息 → 走 Agent 通道（未拦截）", async () => {
+test("agent 链路：同 workflow 多链接 / 非 URL 消息 → 走 Agent 通道（未拦截）；其它域名链接不再拦截 douyin 直连", async () => {
   const env = makeAgentEnv([VIDEODIGEST]);
+  await env.app.handleInbound(msg("m0", "https://v.douyin.com/a/ 加 https://github.com/x/y"));
+  assert.equal(env.openedSessions.n, 0, "douyin+其它域名：含链即触发，不开 Agent 会话");
   await env.app.handleInbound(msg("m1", "https://v.douyin.com/a/ 和 https://v.douyin.com/b/"));
-  assert.equal(env.openedSessions.n, 1, "多 URL 回落 Agent");
+  assert.equal(env.openedSessions.n, 1, "两条 douyin 链接歧义回落 Agent");
   await env.app.handleInbound(msg("m2", "帮我写个总结"));
   assert.equal(env.openedSessions.prompts.length >= 2, true, "非 URL 消息走 Agent");
 });
