@@ -53,9 +53,11 @@ test("双 registry：三个 obsidian 流程全部在册且契约正确（loadFro
   for (const reg of REGISTRIES) {
     const { registry, issues } = WorkflowRegistry.loadFromFile(reg.path);
     assert.deepEqual(issues, [], `${reg.path}: 无坏条目`);
-    const create = registry.get("obsidian-note-create");
-    const append = registry.get("obsidian-note-append");
-    const search = registry.get("obsidian-note-search");
+    // 面收敛后 append 可能 enabled=false，契约断言用全量视图（all(false)）
+    const rows = registry.all(false);
+    const create = rows.find((r) => r.workflowId === "obsidian-note-create");
+    const append = rows.find((r) => r.workflowId === "obsidian-note-append");
+    const search = rows.find((r) => r.workflowId === "obsidian-note-search");
     assert.ok(create, `${reg.path}: obsidian-note-create 在册`);
     assert.ok(append, `${reg.path}: obsidian-note-append 在册`);
     assert.ok(search, `${reg.path}: obsidian-note-search 在册`);
@@ -109,7 +111,9 @@ test("端到端：registry 实条目 → facade 预检 → 审批卡渲染（操
   const vault = path.join(root, "vault");
   fs.mkdirSync(vault, { recursive: true });
   try {
-    const { registry } = WorkflowRegistry.loadFromFile(REGISTRIES[0].path);
+    // 端到端验证链路能力：全量启用，不受生产面收敛影响
+    const loaded0 = WorkflowRegistry.loadFromFile(REGISTRIES[0].path);
+    const registry = new WorkflowRegistry(loaded0.registry.all(false).map((r) => ({ ...r, enabled: true })));
     const pending = new PendingActionStore(path.join(root, "data"));
     const facade = new TaskControlFacade({
       registry,

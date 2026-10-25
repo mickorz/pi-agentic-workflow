@@ -338,8 +338,9 @@ test("registry JSON：两份文件可加载，VR 条目 required=[]+anyOfArgs+va
   for (const file of ["dev-examples/wx-article/registry.json", "dev-examples/am-p0/registry.json"]) {
     const { registry, issues } = WorkflowRegistry.loadFromFile(path.resolve(file));
     assert.deepEqual(issues, [], `${file} 全部条目可注册（anyOfArgs 合法）`);
+    const rows = registry.all(false); // 面收敛后部分条目 enabled=false，契约断言用全量视图
     for (const [wid, exp] of Object.entries(expectations)) {
-      const reg = registry.get(wid);
+      const reg = rows.find((r) => r.workflowId === wid);
       assert.ok(reg, `${file} 含 ${wid}`);
       assert.deepEqual(reg.argsSchema.required, [], `${file}:${wid} required 清空`);
       assert.deepEqual((reg.anyOfArgs ?? []).slice().sort(), [...exp.anyOf].sort(), `${file}:${wid} anyOfArgs`);

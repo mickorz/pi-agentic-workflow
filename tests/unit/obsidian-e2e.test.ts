@@ -82,7 +82,9 @@ async function assemble(opts?: { autoApprove?: readonly string[] }): Promise<Ass
   }));
   const service = createRunApplicationService({ baseDir, runner });
 
-  const { registry } = WorkflowRegistry.loadFromFile(REGISTRY_FILE);
+  // e2e 验证的是链路能力而非生产路由面：不受 registry 面收敛（enabled=false）影响，全量启用
+  const loaded = WorkflowRegistry.loadFromFile(REGISTRY_FILE);
+  const registry = new WorkflowRegistry(loaded.registry.all(false).map((r) => ({ ...r, enabled: true })));
   const tasks = new TaskStore(dataDir);
   const dispatcher = new Dispatcher({
     registry,
