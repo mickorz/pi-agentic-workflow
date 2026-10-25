@@ -111,6 +111,20 @@ def select_md(article_dir: Path, explicit: str | None) -> Path:
     raise ValueError(f"multiple .md candidates, pass --md-file explicitly: {names}")
 
 
+def read_article_yaml(article_dir: Path) -> dict:
+    """读 article.yaml 的顶层 key: value（handoff/prepare 产物；简单行式解析，不引 pyyaml）。"""
+    out: dict = {}
+    p = article_dir / "article.yaml"
+    if not p.is_file():
+        return out
+    for line in p.read_text(encoding="utf-8-sig").splitlines():
+        if line.startswith((" ", "\t", "#")) or ":" not in line:
+            continue
+        k, _, v = line.partition(":")
+        out[k.strip()] = v.strip()
+    return out
+
+
 def parse_frontmatter(md_text: str) -> tuple[str, str]:
     m = re.match(r"^---\r?\n(.*?)\r?\n---", md_text, flags=re.S)
     if not m:
@@ -385,12 +399,24 @@ def main() -> int:
 
         md_text = md_path.read_text(encoding="utf-8-sig")
         fm_title, fm_digest = parse_frontmatter(md_text)
-        title = args.title or fm_title
-        digest = args.digest or fm_digest
-        author = args.author or cfg.get("default_author") or ""
+        # article.yaml 兑底（handoff/prepare 产出的标题与摘要在此；CLI 显式参数 > frontmatter > article.yaml）
+        ym = read_article_yaml(article_dir)
+        title = args.title or fm_title or ym.get("title", "")
+        digest = args.digest or fm_digest or ym.get("digest", "")
+        author = args.author or ym.get("author", "") or cfg.get("default_author") or ""
         if not title:
             return fail("no title: pass --title or add frontmatter (no more guessing)")
         digest = digest or title
+        # 微信草稿 digest 上限 120 字（errcode 45004 description size out of limit）；超长截断到句读边界
+        if len(digest) > 120:
+            cut = digest[:120]
+            for sep in ("。", "；", "，", ","):
+                idx = cut.rfind(sep)
+                if idx >= 54:  # 至少保留 54 字，避免截得太碎
+                    cut = cut[: idx + len(sep)]
+                    break
+            digest = cut
+            print(f"[digest] 超 120 字截断 -> {len(digest)} 字")
         author = author or "AI奇点"
         print(f"[meta] title={title} | author={author} | digestLen={len(digest)}")
 
