@@ -21,6 +21,7 @@ import { Dispatcher } from "../dispatch/dispatcher.js";
 import type { ExecutionService } from "../dispatch/dispatcher.js";
 import { IntentRouter, type RoutingLLM } from "../dispatch/intent-router.js";
 import { routeByUrlDirect } from "../dispatch/url-router.js";
+import { WORKFLOW_CATALOG_RE, renderWorkflowCatalog } from "./catalog.js";
 import { BudgetTracker, RateLimiter } from "../dispatch/limits.js";
 import type { WorkflowRegistry } from "../dispatch/registry.js";
 import { RunMonitor } from "../dispatch/run-monitor.js";
@@ -442,6 +443,19 @@ export class WechatApp {
         this.enqueueReply(message.userId, out.reply);
         return { duplicate: false, reply: out.reply };
       }
+    }
+
+    // 1.3) 确定性通道：工作流目录查询（「查看公众号工作流」→ 渲染 enabled 条目表格，不经 LLM）
+    if (WORKFLOW_CATALOG_RE.test(message.text.replace(/\s+/g, ""))) {
+      const reply = renderWorkflowCatalog(this.deps.registry.all());
+      this.audit.record({
+        actor: message.userId,
+        action: "workflow.catalog",
+        outcome: "ok",
+        detail: `目录查询，enabled=${this.deps.registry.all().filter((r) => r.enabled !== false).length}`,
+      });
+      this.enqueueReply(message.userId, reply);
+      return { duplicate: false, reply };
     }
 
     // 1.5) 确定性通道：URL 前置路由（设计V2 §3：域名声明命中直连 workflow，不经 Agent/LLM）。

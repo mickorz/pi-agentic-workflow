@@ -123,7 +123,7 @@
       "required": []
     },
     "riskLevel": "write",
-    "enabled": true,
+    "enabled": false,
     "keywords": [
       "obsidian",
       "目录",
@@ -185,7 +185,7 @@
       "required": []
     },
     "riskLevel": "external-side-effect",
-    "enabled": true,
+    "enabled": false,
     "keywords": [
       "发布",
       "草稿",
@@ -256,7 +256,7 @@
       ]
     },
     "riskLevel": "write",
-    "enabled": true,
+    "enabled": false,
     "keywords": [
       "插图",
       "配图",
@@ -305,7 +305,7 @@
       }
     },
     "riskLevel": "write",
-    "enabled": true,
+    "enabled": false,
     "keywords": [
       "去AI味",
       "去 AI 味",
@@ -360,7 +360,7 @@
       "required": []
     },
     "riskLevel": "read-only",
-    "enabled": true,
+    "enabled": false,
     "keywords": [
       "检查文章",
       "巡检",
@@ -585,7 +585,7 @@
       ]
     },
     "riskLevel": "write",
-    "enabled": true,
+    "enabled": false,
     "keywords": [
       "obsidian",
       "追加笔记",
@@ -690,7 +690,7 @@
       }
     },
     "riskLevel": "external-side-effect",
-    "enabled": true,
+    "enabled": false,
     "keywords": [
       "批量生图",
       "生成插图",
@@ -727,7 +727,7 @@
       }
     },
     "riskLevel": "write",
-    "enabled": true,
+    "enabled": false,
     "keywords": [
       "提示词转换",
       "配图建议",
