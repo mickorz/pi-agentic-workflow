@@ -636,18 +636,22 @@ def cmd_rebuild_index(args: argparse.Namespace) -> None:
 
 # ── 子命令：resolve-root / read-raw（workflow 编排用） ──
 
-def resolve_kb_root(explicit: str) -> Tuple[Optional[str], List[str]]:
+KB_REL = ("70_KnowlegeBase", "01_Github")  # 知识库在 vault 内的缺省相对落点（用户定版 2026-10-26）
+
+
+def resolve_kb_root(explicit: str, from_dir: str = "") -> Tuple[Optional[str], List[str]]:
     """知识库根解析顺序（执行方案 3.1）：显式 --root → 环境变量 GITHUB_KB_ROOT →
-    .aws-article/config.json 的 github_knowledge_root → article_workspace 同级 GitHub项目库。"""
+    .aws-article/config.json 的 github_knowledge_root → 从 article_workspace 向上找
+    vault 级 70_KnowlegeBase/01_Github（60_Workspace 与 70_KnowlegeBase 是 vault 同级目录）。"""
     issues: List[str] = []
     if explicit:
         return explicit, issues
     env = os.environ.get("GITHUB_KB_ROOT", "")
     if env:
         return env, issues
-    # 从脚本位置向上找工作区配置（与 check_state.py 的 find_config_root 同思路）
-    d = os.path.dirname(os.path.abspath(__file__))
-    for _ in range(6):
+    # 从 from_dir（缺省脚本位置）向上找工作区配置（与 check_state.py 的 find_config_root 同思路）
+    d = os.path.abspath(from_dir) if from_dir else os.path.dirname(os.path.abspath(__file__))
+    for _ in range(8):
         cfg = os.path.join(d, ".aws-article", "config.json")
         if os.path.isfile(cfg):
             try:
@@ -657,8 +661,12 @@ def resolve_kb_root(explicit: str) -> Tuple[Optional[str], List[str]]:
                     return k, issues
                 aw = str(c.get("article_workspace") or "")
                 if aw:
-                    cand = os.path.join(os.path.dirname(os.path.abspath(aw)), "GitHub项目库")
-                    return cand, ["提示: 未配置 github_knowledge_root，回退 article_workspace 同级 GitHub项目库"]
+                    kb = _find_kb_under(os.path.abspath(aw))
+                    if kb is not None:
+                        return kb, ["提示: 未配置 github_knowledge_root，回退 vault 落点 " + kb]
+                    return None, issues + [
+                        "未配置 github_knowledge_root，且从 article_workspace 向上未找到 70_KnowlegeBase"
+                        "（请在 vault 根创建 %s/%s，或配置显式路径）" % KB_REL]
             except (OSError, ValueError) as e:
                 issues.append("config.json 解析失败: %s" % e)
             break
@@ -669,8 +677,27 @@ def resolve_kb_root(explicit: str) -> Tuple[Optional[str], List[str]]:
     return None, issues + ["未配置知识库根：传 --kb-root/--root，或设 GITHUB_KB_ROOT，或在 .aws-article/config.json 配 github_knowledge_root"]
 
 
+def _find_kb_under(start: str) -> Optional[str]:
+    """从 start 逐级向上，找包含 70_KnowlegeBase 的祖先目录；返回 …/70_KnowlegeBase/01_Github。
+
+    找到 70_KnowlegeBase 而 01_Github 不存在时自动创建（目录名拼接过 gitignore 不受影响）。
+    未找到任何 70_KnowlegeBase 返回 None（不凭空发明 vault 根）。"""
+    d = start
+    for _ in range(10):
+        kb_parent = os.path.join(d, KB_REL[0])
+        if os.path.isdir(kb_parent):
+            root = os.path.join(kb_parent, KB_REL[1])
+            os.makedirs(root, exist_ok=True)
+            return root
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+    return None
+
+
 def cmd_resolve_root(args: argparse.Namespace) -> None:
-    root, issues = resolve_kb_root(args.root)
+    root, issues = resolve_kb_root(args.root, args.from_dir)
     if root is None:
         out({"ok": False, "issues": issues})
         return
@@ -720,6 +747,7 @@ def main() -> int:
 
     p = sub.add_parser("resolve-root")
     p.add_argument("--root", default="")
+    p.add_argument("--from", dest="from_dir", default="", help="config 搜索起点目录（缺省脚本位置；测试用）")
     p.set_defaults(fn=cmd_resolve_root)
 
     p = sub.add_parser("read-raw")

@@ -265,6 +265,31 @@ def main():
         names = sorted(p["projectId"] for p in idx["projects"])
         case("T-A 并发归档: 索引两条都在", names == ["example__projA", "example__projB"], json.dumps(names))
 
+        # ── 11. resolve-root 回退链（70_KnowlegeBase/01_Github） ──
+        vault = os.path.join(tmp, "vault")
+        ws = os.path.join(vault, "60_Workspace", "写作", "单篇")
+        os.makedirs(os.path.join(ws, ".aws-article"))
+        json.dump({"article_workspace": ws}, open(os.path.join(ws, ".aws-article", "config.json"), "w", encoding="utf-8"))
+        os.makedirs(os.path.join(vault, "70_KnowlegeBase"))  # vault 级目录存在，01_Github 由解析器自动创建
+        r = run("resolve-root", "--from", ws)
+        want = os.path.join(vault, "70_KnowlegeBase", "01_Github")
+        case("resolve-root 回退: vault 级 70_KnowlegeBase/01_Github",
+             r.get("ok") and os.path.normcase(r.get("root", "")) == os.path.normcase(want)
+             and os.path.isdir(want), json.dumps(r, ensure_ascii=False)[:120])
+        # 显式配置优先级最高
+        json.dump({"article_workspace": ws, "github_knowledge_root": os.path.join(tmp, "explicit-kb")},
+                  open(os.path.join(ws, ".aws-article", "config.json"), "w", encoding="utf-8"))
+        r = run("resolve-root", "--from", ws)
+        case("resolve-root 优先级: 显式 github_knowledge_root 胜出",
+             r.get("ok") and os.path.normcase(r.get("root", "")) == os.path.normcase(os.path.join(tmp, "explicit-kb")))
+        # 无 70_KnowlegeBase → 明确失败不凭空发明
+        vault2 = os.path.join(tmp, "vault2")
+        ws2 = os.path.join(vault2, "60_Workspace", "单篇")
+        os.makedirs(os.path.join(ws2, ".aws-article"))
+        json.dump({"article_workspace": ws2}, open(os.path.join(ws2, ".aws-article", "config.json"), "w", encoding="utf-8"))
+        r = run("resolve-root", "--from", ws2)
+        case("resolve-root 回退: 无 70_KnowlegeBase 时明确报错", not r.get("ok"))
+
         # ── T-D: 恶意 README（kb 层） ──
         r = run("fetch", "--root", root3, "--url", "https://github.com/example/prompt-inject-demo", "--fixture", EVIL_FIXTURE)
         evil_pid = "example__prompt-inject-demo"
