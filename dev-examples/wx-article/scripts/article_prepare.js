@@ -1,6 +1,6 @@
 export const meta = {
   name: 'article_prepare',
-  description: '文章自动补齐入草稿箱: 定位目录 -> 确定性状态检查(含配图序号预检,缺号/越界直接中断并告知序号) -> 一次授权 -> 按需插图(序号优先/语义匹配,默认不改写正文) -> 显式参数调 draft_manager/publish.py 建或更新草稿(同内容复用/变更更新)。默认必须走到草稿箱。对应需求文档 V1.2 prepare 模式。',
+  description: '文章自动补齐入草稿箱: 定位目录 -> 确定性状态检查(含配图序号预检,缺号/越界直接中断;手动插图(Obsidian ![[图]] 内嵌)识别为免自动插图) -> 一次授权 -> 按需插图(序号优先/语义匹配,默认不改写正文)或手动插图链接规范化(零 LLM,不改图片位置) -> 显式参数调 draft_manager/publish.py 建或更新草稿(同内容复用/变更更新)。默认必须走到草稿箱。对应需求文档 V1.2 prepare 模式。',
 }
 
 // 输入 args:
@@ -18,6 +18,7 @@ export const meta = {
 
 const CHECK_SCRIPT = 'dev-examples/wx-article/scripts/draft_manager/check_state.py'
 const PUBLISH_SCRIPT = 'dev-examples/wx-article/scripts/draft_manager/publish.py'
+const NORMALIZE_SCRIPT = 'dev-examples/wx-article/scripts/draft_manager/normalize_manual_images.py'
 
 // Python 解释器真探测(Store 占位符问题,见 experience/windows-python-subprocess-gbk-and-python3-alias.md)
 const PY_PROBE = 'PY=""; for c in python3 python py; do if "$c" -c "import sys" 2>/dev/null; then PY="$c"; break; fi; done; [ -n "$PY" ] || { echo "[FAIL] no usable python on PATH"; exit 49; }'
@@ -132,8 +133,18 @@ if (inspectResult.needs_insert && numbering && numbering.applicable && (numMissi
   }
 }
 
+// ---------- 手动插图检测（Obsidian wiki 内嵌, 2026-10-26） ----------
+// check_state 已把 wiki 内嵌计入 referenced(needs_insert=false)：手动插图文章不走自动插图，
+// 只需把 ![[图]] 链接确定性规范化为公众号格式(零 LLM,不改图片位置)。标准引用格式的手动插图
+// 由原「配图已就绪」路径天然覆盖，无需本分支。
+const imgsInfo = (() => { try { return (JSON.parse(inspectResult.raw) || {}).imgs || {} } catch { return {} } })()
+const manualWiki = imgsInfo.wiki_embeds || 0
+const manualMode = manualWiki > 0
+
 await notify('info', '检查完成:《' + (inspectResult.md && inspectResult.md.name ? inspectResult.md.name : articleDir) + '》' +
-  (inspectResult.needs_insert ? '有未引用配图待插入' : '配图已就绪') + '，即将' + (inspectResult.needs_insert ? '插图并' : '') + '入草稿箱')
+  (manualMode
+    ? '检测到手动插图(' + manualWiki + ' 处 Obsidian 链接),将规范化图片链接后入草稿箱(不自动插图)'
+    : (inspectResult.needs_insert ? '有未引用配图待插入' : '配图已就绪') + '，即将' + (inspectResult.needs_insert ? '插图并' : '') + '入草稿箱'))
 
 // ---------- 一次授权（网关批准链生效时可 skip_confirm 透传） ----------
 if (args.skip_confirm !== true) {
@@ -141,7 +152,9 @@ if (args.skip_confirm !== true) {
     '即将处理文章: ' + articleDir + '\n' +
     '账号槽位: ' + (args.account_slot || 1) + '\n' +
     '计划步骤:\n' +
-    (inspectResult.needs_insert ? '  1. 插图: imgs 有未引用配图,按图片序号/语义匹配插入(不改写正文;已存在相同图跳过,错图替换)\n' : '  1. 插图: 跳过(无未引用配图)\n') +
+    (manualMode
+      ? '  1. 图片: 手动插图模式——跳过自动插图,仅把 Obsidian ![[图]] 链接规范化为公众号格式(不改图片位置;补缺失元数据)\n'
+      : inspectResult.needs_insert ? '  1. 插图: imgs 有未引用配图,按图片序号/语义匹配插入(不改写正文;已存在相同图跳过,错图替换)\n' : '  1. 插图: 跳过(无未引用配图)\n') +
     '  2. 草稿: 调 publish.py 建/更新草稿' +
       (pendingAcc.length ? '(注意: 账号 ' + pendingAcc.join(',') + ' 有未决操作,将先人工核对再继续)\n' : '\n') +
     '说明: 会修改文章目录内文件(插图标记/article.yaml/publish-state.json),并调用微信 API。\n' +
@@ -151,7 +164,30 @@ if (args.skip_confirm !== true) {
 
 // ---------- 按需插图（复用既有插图流程: 语义匹配必须靠 AI; 默认不改写正文） ----------
 let inserted = 0
-if (inspectResult.needs_insert) {
+let manualNormalized = false
+if (manualMode) {
+  // 手动插图模式: 确定性规范化链接(command 直跑,零 LLM; 参照 videodigest 执行器演进 2026-10-26)
+  phase('手动插图规范化')
+  let pyExec = ''
+  for (const cand of ['python3', 'python', 'py']) {
+    const probe = await command({ executable: cand, args: ['-c', 'import sys'], label: '探测 python(' + cand + ')' })
+    if (probe.exitCode === 0) { pyExec = cand; break }
+  }
+  if (!pyExec) throw new Error('PATH 上无可用 Python 解释器(python3/python/py 均试运行失败)')
+  const nr = await command({ executable: pyExec, args: [NORMALIZE_SCRIPT, '--article-dir', articleDir], label: '手动插图规范化' })
+  log('规范化 stdout:\n' + nr.stdout)
+  if (nr.exitCode !== 0) {
+    const why = ((nr.stderr || '') + ' ' + (nr.stdout || '')).slice(0, 400)
+    await notify('failed', '文章处理失败(手动插图规范化):' + why)
+    return {
+      ok: false, article_dir: articleDir, inserted: 0, media_id: '', draft_mode: '', reused: false,
+      manual_normalized: false,
+      report: '手动插图链接规范化失败: ' + why, issues: ['normalize_failed: ' + why],
+    }
+  }
+  manualNormalized = true
+  await notify('info', '手动插图:图片链接已规范化为公众号格式(未自动插图,图片位置不变)')
+} else if (inspectResult.needs_insert) {
   phase('按需插图')
   const ins = await workflow('article_insert_images_meta.js', {
     article_dir: articleDir,
@@ -252,7 +288,8 @@ const shortName = String(articleDir).replace(/\\/g, '/').split('/').pop()
 if (okResult) {
   await notify('completed', '完成了！《' + shortName + '》草稿已入草稿箱(' +
     (draftMode === 'reuse' ? '同内容复用' : draftMode === 'update' ? '内容变更已更新' : '新建') +
-    ',插图 ' + inserted + ' 张,media_id=' + String(pub.media_id).slice(-12) + '),可到公众号后台预览')
+    (manualMode ? ',手动插图链接已规范化' : ',插图 ' + inserted + ' 张') +
+    ',media_id=' + String(pub.media_id).slice(-12) + '),可到公众号后台预览')
 } else if (pub.unknown) {
   await notify('interrupted', '文章处理中断(结果不确定): 需人工核对草稿箱后用 --resolve-media-id 恢复。文章: ' + shortName)
 } else if (pub.locked) {
@@ -268,12 +305,13 @@ const report =
       : pub.locked
         ? '文章正被其他任务处理,稍后重试'
         : '发布失败: ' + (pub.fail_line || '未知')) +
-  '\n文章: ' + articleDir + '\n插图: ' + inserted + ' 张'
+  '\n文章: ' + articleDir + '\n插图: ' + inserted + ' 张' + (manualMode ? '（手动插图模式,链接已规范化）' : '')
 
 return {
   ok: okResult,
   article_dir: articleDir,
   inserted,
+  manual_normalized: manualNormalized,
   media_id: pub.media_id || '',
   draft_mode: draftMode,
   reused: draftMode === 'reuse',

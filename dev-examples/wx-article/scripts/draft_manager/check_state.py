@@ -12,7 +12,7 @@
   ok          定位成功且目录合法（多候选/零命中时 ok=false，candidates 给出列表）
   article_dir / md{path,name} / frontmatter{title,description}
   yaml        {exists,title,digest,author,content_source,missing[]}
-  imgs        {dir_exists, files, referenced}   files 不含 cover*；referenced 为正文引用数
+  imgs        {dir_exists, files, referenced, wiki_embeds}   files 不含 cover*；referenced 为正文引用数(含 wiki 内嵌)；wiki_embeds 为 Obsidian 图片内嵌数
   imgs_numbering {applicable, missing[], out_of_range[], sections}  序号方案预检（全部唯一序号才适用）
   needs_insert   imgs 有图但正文引用数 < 图数（含 cover 前缀图排除）=> 需要插图
   cover       {state: root|imgs|none, path(相对 article_dir)}
@@ -37,6 +37,8 @@ if hasattr(sys.stdout, "reconfigure"):
 IMG_PREFIX_EXCLUDE = re.compile(r"^(article|draft|review)")
 NAME_ILLEGAL = ("审稿", "图片引用清单", "大纲", "配图建议")
 IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
+# Obsidian wiki 图片内嵌 ![[名.png]] / ![[名.png|300]]（容忍尺寸后缀）；与 IMG_REF 同源计数
+WIKI_EMBED = re.compile(r"!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]")
 # 与 insert_images.py 的 NUM_RE 保持一致（序号方案契约同源）
 NUM_RE = re.compile(r"^(?:图\s*)?(\d{1,3})(?=[-_.\s]|$)")
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -145,7 +147,19 @@ def inspect_dir(article_dir: Path, account_slot: int, config_dir: str | None) ->
     img_files = [p.name for p in sorted(imgs_dir.iterdir()) if p.is_file() and not p.name.lower().startswith("cover")] if imgs_dir.is_dir() else []
     refs = [r for r in (m.group(1).strip() for m in IMG_REF.finditer(md_text)) if not r.startswith("http")]
     referenced_imgs = [r for r in refs if r.startswith("imgs/")]
-    out["imgs"] = {"dir_exists": imgs_dir.is_dir(), "files": len(img_files), "referenced": len(referenced_imgs)}
+    # 手动插图（Obsidian wiki 内嵌）：按文件名解析到 imgs/，计入引用数；解析不到的后续报引用图缺失
+    wiki_targets = [t for t in (m.group(1).strip() for m in WIKI_EMBED.finditer(md_text))
+                    if t.lower().endswith(tuple(IMG_EXTS))]
+    wiki_refs, wiki_missing = [], []
+    for t in wiki_targets:
+        base = t.replace("\\", "/").split("/")[-1]
+        if (imgs_dir / base).is_file():
+            wiki_refs.append("imgs/" + base)
+        else:
+            wiki_missing.append(t)
+    referenced_imgs = referenced_imgs + wiki_refs
+    out["imgs"] = {"dir_exists": imgs_dir.is_dir(), "files": len(img_files), "referenced": len(referenced_imgs),
+                   "wiki_embeds": len(wiki_targets)}
     out["needs_insert"] = bool(img_files) and len(referenced_imgs) < len(img_files)
 
     # 配图序号完整性预检：缺号/越界由 article_prepare 在授权前中断并告知序号
@@ -178,10 +192,12 @@ def inspect_dir(article_dir: Path, account_slot: int, config_dir: str | None) ->
             out["issues"].append("publish-state.json corrupted (需人工处理)")
     out["state"] = {"exists": state_path.is_file(), "accounts": accounts_summary}
 
-    # 图片引用完整性（正文引用的图必须真实存在）
+    # 图片引用完整性（正文引用的图必须真实存在；wiki 内嵌解析不到同名文件同样算缺失）
     for r in refs:
         if not r.startswith("http") and not (article_dir / r.replace("\\", "/")).is_file():
             out["issues"].append(f"引用图缺失: {r}")
+    for t in wiki_missing:
+        out["issues"].append(f"引用图缺失: ![[{t}]]")
 
     # prepare 就绪判定
     out["prepare_ready"] = bool(

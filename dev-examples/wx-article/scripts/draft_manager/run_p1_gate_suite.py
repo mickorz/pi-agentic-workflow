@@ -21,6 +21,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 CHECK = HERE / "check_state.py"
 PUBLISH = HERE / "publish.py"
+NORMALIZE = HERE / "normalize_manual_images.py"
 INSERT = HERE.parent / "references" / "article_insert_images_meta" / "scripts" / "insert_images.py"
 
 MD = """---
@@ -238,6 +239,47 @@ def main() -> int:
           j["imgs_numbering"]["applicable"] is True and j["imgs_numbering"]["missing"] == []
           and j["imgs_numbering"]["out_of_range"] == []
           and not any(i.startswith("配图序号") for i in j["issues"]), r.stdout)
+
+    # ============ I4: 手动插图（Obsidian wiki 内嵌）检测与链接规范化 ============
+    mart = root / "P1手动插图"
+    (mart / "imgs").mkdir(parents=True)
+    (mart / "imgs" / "01-甲.png").write_bytes(PNG_A)
+    (mart / "imgs" / "02-乙.png").write_bytes(PNG_B)
+    (mart / "imgs" / "cover-手.png").write_bytes(PNG_A)
+    manual_md = MD + "![[cover-手.png|300]]\n\n![[01-甲.png]]\n\n![[02-乙.png]]\n"
+    (mart / "正文.md").write_text(manual_md, encoding="utf-8")  # 无 article.yaml → 规范化时补最小元数据
+    r = run_py(CHECK, "--article-dir", str(mart))
+    j = json.loads(r.stdout)
+    check("I4.manual-wiki-detected",
+          j["needs_insert"] is False and j["imgs"]["wiki_embeds"] == 3
+          and j["imgs"]["referenced"] == 3 and j["prepare_ready"] is False, r.stdout)  # 无 yaml 仍 not ready
+    (mart / "正文.md").write_text(MD + "![[不存在.png]]\n", encoding="utf-8")
+    r = run_py(CHECK, "--article-dir", str(mart))
+    j = json.loads(r.stdout)
+    check("I4.manual-wiki-missing-file",
+          any(i.startswith("引用图缺失: ![[不存在.png]]") for i in j["issues"])
+          and j["prepare_ready"] is False, r.stdout)
+    (mart / "正文.md").write_text(manual_md, encoding="utf-8")
+    r = run_py(NORMALIZE, "--article-dir", str(mart))
+    norm_md = (mart / "正文.md").read_text(encoding="utf-8")
+    check("I4.manual-normalize-rewrites",
+          r.returncode == 0 and r.stdout.count("[WIKI]") == 3
+          and "![文章封面](imgs/cover-手.png)" in norm_md and "![](imgs/01-甲.png)" in norm_md
+          and "![[" not in norm_md and "meta=patched" in r.stdout, r.stdout)
+    yml = (mart / "article.yaml").read_text(encoding="utf-8")
+    check("I4.manual-normalize-patches-yaml",
+          "title: \"正文\"" in yml and "author: \"AI奇点\"" in yml
+          and "content_source: \"正文.md\"" in yml, yml)
+    snap_norm = snapshot_dir(mart)
+    r = run_py(NORMALIZE, "--article-dir", str(mart))
+    check("I4.manual-normalize-idempotent",
+          r.returncode == 0 and "[SKIP]" in r.stdout and "meta=kept" in r.stdout
+          and snapshot_dir(mart) == snap_norm, r.stdout)
+    r = run_py(CHECK, "--article-dir", str(mart))
+    j = json.loads(r.stdout)
+    check("I4.manual-after-normalize-ready",
+          j["needs_insert"] is False and j["imgs"]["wiki_embeds"] == 0
+          and j["prepare_ready"] is True and j["ok"] is True, r.stdout)
 
     # ============ 首次发布（add）+ 复用（reuse）+ 变更更新（update，场景 D） ============
     r = run_pub(art, cfg)
