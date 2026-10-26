@@ -125,6 +125,49 @@ env -u IMAGE_GEN_API_KEY node dev-examples/wx-article/scripts/image_gen/generate
   --article-dir dev-examples/manual-test/p15/article --mode preview --provider pi-image-gen
 ```
 
+## 2. 提示词与风格（style_prefix 在哪改）
+
+`style_prefix` **不走环境变量**，它是每篇文章输入文件 `image-prompts.json` 里的字段，与环境变量分工如下：
+
+| 层 | 载体 | 管什么 |
+|---|---|---|
+| Provider 连接层 | 环境变量（第 1 节） | 怎么连：key / url / model / size / 单价 |
+| 内容输入层 | `<文章目录>/image-prompts.json` | 画什么：风格与每张图的提示词 |
+
+每张图的实际请求提示词 = `style_prefix + "\n---\n" + 该条目 prompt`（风格层统一拼接；curl 对照表中的 `prompt` 字段即拼接结果）。示例（B0 准备的文件）：
+
+```json
+{
+  "version": 1,
+  "article_id": "p15-manual",
+  "style_prefix": "小王子童话插画风：柔和的水彩质感，明亮色调",
+  "items": [
+    { "id": "term-01", "kind": "body", "heading": "术语一", "prompt": "术语一插图：科技概念拟人化小场景", "filename": "01-term.png" }
+  ]
+}
+```
+
+**修改方式（三选一）**：
+
+```bash
+# ① 直接改 json（sed 一行，B6 用例同款）
+sed -i 's/旧风格描述/新风格描述/' dev-examples/manual-test/p15/article/image-prompts.json
+
+# ② 手工编辑：用任意编辑器改 style_prefix 字段
+
+# ③ 正规链路：改文章的 配图建议.md（或 image-prompts.md）源头，
+#    再用 article-image-prompts-convert 工作流重新转换生成 image-prompts.json
+```
+
+**修改后必须知道的联动**（V1.1 需求 4.1 失效分级，B6 用例验证）：
+
+| 改了什么 | 风格审批 | 需要做什么 |
+|---|---|---|
+| `style_prefix`（全局风格） | **自动失效回 pending** | 重新 `--mode preview`（代表图候选链重做，旧图 bak 保底）+ `--approve-style` |
+| 仅某张图的 prompt（非代表图） | 不失效 | 该张自动转 stale，重跑 batch/regenerate 只重做该张 |
+| 代表图（首个 body）的 prompt | 失效 | 同第一行：重新 preview + 确认 |
+| 模型 / 风格参考图（`--model` / `--style-reference`） | 失效 | 同上 |
+
 两阶段总流程（对照用）：
 
 ```mermaid
