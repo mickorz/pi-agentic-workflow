@@ -247,7 +247,16 @@ def main() -> int:
     (mart / "imgs" / "02-乙.png").write_bytes(PNG_B)
     (mart / "imgs" / "cover-手.png").write_bytes(PNG_A)
     manual_md = MD + "![[cover-手.png|300]]\n\n![[01-甲.png]]\n\n![[02-乙.png]]\n"
-    (mart / "正文.md").write_text(manual_md, encoding="utf-8")  # 无 article.yaml → 规范化时补最小元数据
+    (mart / "正文.md").write_text(manual_md, encoding="utf-8")
+    # 封面预检契约：手动插图无 cover 前缀文件 → check_state 报封面缺失且 not ready
+    # （prepare DSL 据此在授权前中断，引导用户重命名 cover- 开头）
+    (mart / "imgs" / "cover-手.png").unlink()
+    r = run_py(CHECK, "--article-dir", str(mart))
+    j = json.loads(r.stdout)
+    check("I4.manual-cover-none-blocked",
+          any(i.startswith("封面缺失") for i in j["issues"]) and j["prepare_ready"] is False
+          and j["cover"]["state"] == "none", r.stdout)
+    (mart / "imgs" / "cover-手.png").write_bytes(PNG_A)
     r = run_py(CHECK, "--article-dir", str(mart))
     j = json.loads(r.stdout)
     check("I4.manual-wiki-detected",

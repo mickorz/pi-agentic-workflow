@@ -44,6 +44,12 @@
   - 复查：needs_insert=false、wiki_embeds=0、prepare_ready=true、issues=[] —— 发布链可直接走通。
 - registry 未动（无路由变更），workflow DSL 与 python 脚本运行时现读，**无需重启 PM2 服务**。
 
+## 増补（同日）：手动插图封面预检（m00618 用户补充细节）
+
+- 用户指出：封面只能由文件名约定告知（手动插图无法其它方式声明），publish 必须带封面。
+- 确认机制：封面判定唯一来源 = check_state.cover_state（根 cover.* 或 imgs/ cover 前缀），自动/手动统一；publish --cover 必传（微信草稿硬性要求）；正文 ![文章封面](...) 标记与判定无关，只让封面同时显示在正文顶部（与自动插图行为一致）。
+- 増补：article_prepare.js 手动模式在授权 checkpoint 前新增封面预检——cover_path 为空（无 cover 文件）即中断并指引「把选定封面图重命名为 cover-开头放 imgs/ 下后重试」，不再浪费一次授权+规范化周期（与序号预检同理）；门禁新增 I4.manual-cover-none-blocked，全套 31/31 PASS。
+
 ## 遗留
 
 - publish 实建草稿留给用户微信实测「准备文章 用Manus改造Manus，AI Native组织的团队分享」（授权 → 规范化[SKIP 幂等] → 建稿）。

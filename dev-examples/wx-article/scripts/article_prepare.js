@@ -141,6 +141,21 @@ const imgsInfo = (() => { try { return (JSON.parse(inspectResult.raw) || {}).img
 const manualWiki = imgsInfo.wiki_embeds || 0
 const manualMode = manualWiki > 0
 
+// 手动插图封面预检（2026-10-26）：封面只能由文件名约定告知（根 cover.* 或 imgs/ cover 前缀），
+// 手动插图无法其它方式声明；公众号草稿必须带封面。缺封面在授权前中断并指引重命名，
+// 不浪费一次授权+规范化周期（与序号预检同理）。
+if (manualMode && !inspectResult.cover_path) {
+  const msg = '手动插图缺少封面：imgs/ 下没有 cover 开头的图片文件，而公众号草稿必须带封面。' +
+    '请在 Obsidian 中把选定的封面图重命名为 cover-开头（如 cover-主题.png，放 imgs/ 下）后重试。' +
+    '本次未做任何修改（链接规范化尚未执行）'
+  await notify('failed', '文章处理失败(封面预检):' + msg)
+  return {
+    ok: false, article_dir: articleDir, inserted: 0, manual_normalized: false,
+    media_id: '', draft_mode: '', reused: false,
+    report: msg, issues: ['封面缺失: imgs/ 无 cover 前缀图（手动插图模式）'],
+  }
+}
+
 await notify('info', '检查完成:《' + (inspectResult.md && inspectResult.md.name ? inspectResult.md.name : articleDir) + '》' +
   (manualMode
     ? '检测到手动插图(' + manualWiki + ' 处 Obsidian 链接),将规范化图片链接后入草稿箱(不自动插图)'
