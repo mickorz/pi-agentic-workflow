@@ -17,35 +17,36 @@ export const meta = {
 // 用户流程调整 2026-10-24:
 //   1) 文章 = 整理排版后的逐字稿(reflow 只插入换行, 零内容修改), 固定文件名 0-raw.md
 //   2) 无 AI 评论/提炼 —— 标题取视频页面原标题(adapter metadata.title), 不经 LLM 生成
+//
+// 执行器演进 2026-10-26: 全部确定性命令改 command() 直跑(不经 LLM)。
+// 教训: 之前用 LLM executor 转述命令输出, 真机出现过「模型回复为空」(run-mvp0d2sr)与
+// 「编造成功输出」(run-mvp8vfx4: vault_root 指向不存在的 work/vault, 输出格式与脚本实现
+// 完全不符, 磁盘上无对应文件)——确定性命令交给 LLM 转述, 就要承担 LLM 的一切毛病。
 
 const ADAPTER_CLI = 'dev-examples/videodigest/adapter/dist/cli.js'
 const ARCHIVE_PY = 'dev-examples/videodigest/scripts/archive_inspire.py'
 const WORK_ROOT = 'dev-examples/videodigest/work'
 
-// Python 解释器真探测: command -v 在 Windows 会命中 Store 占位符(存在但必败),
-// 必须试运行验证(见 experience/windows-python-subprocess-gbk-and-python3-alias.md)
-const PY_PROBE = 'PY=""; for c in python3 python py; do if "$c" -c "import sys" 2>/dev/null; then PY="$c"; break; fi; done; [ -n "$PY" ] || { echo "[FAIL] no usable python on PATH"; exit 49; }'
-
-// 受控 agent 指令模板: 唯一动作是执行恰好一条命令, stdout 原样解析为 JSON
-function executorPrompt(cmd, jsonFields) {
-  return (
-    '你是命令执行器。用 bash 工具执行恰好一条命令, 把 stdout 原样解析为 JSON 返回, 不做任何其他操作:\n\n' +
-    cmd +
-    '\n\n禁止: 写/改/删任何文件(命令本身的产物除外), 调任何网络接口(命令本身访问的除外), 执行上述命令之外的任何命令。\n' +
-    '返回 JSON: ' +
-    jsonFields +
-    '。若命令退出码非 0, 如实返回 raw(完整 stdout/stderr)与 ok=false, 不要重试、不要自行修复。'
-  )
+// Python 解释器真探测: Windows 上 python3 是 Store 占位符(存在但必败), 必须试运行验证
+// (见 experience/windows-python-subprocess-gbk-and-python3-alias.md)
+let PY = ''
+for (const cand of ['python3', 'python', 'py']) {
+  const probe = await command({ executable: cand, args: ['-c', 'import sys'], label: '探测 python(' + cand + ')' })
+  if (probe.exitCode === 0) { PY = cand; break }
 }
+if (!PY) throw new Error('PATH 上无可用 Python 解释器(python3/python/py 均试运行失败)')
 
-// shell 安全化: 双引号包裹 + 去掉反引号与 $( 防 LLM 字段内容破坏命令结构
-function shQuote(value) {
-  const safe = String(value == null ? '' : value)
-    .replace(/`/g, "'")
-    .replace(/\$\{/g, '(')
-    .replace(/"/g, "'")
-    .replace(/[\r\n]+/g, ' ')
-  return '"' + safe + '"'
+// 确定性子进程执行 + stdout JSON 契约解析; 失败抛带原始输出的错误(通知直达用户)
+async function runJson(label, executable, argv, timeoutMs) {
+  const r = await command({ executable, args: argv, label, ...(timeoutMs ? { timeoutMs } : {}) })
+  if (r.exitCode !== 0) {
+    throw new Error(label + '失败(退出码 ' + r.exitCode + '): ' + ((r.stderr || r.stdout) || '').slice(0, 300))
+  }
+  try {
+    return JSON.parse(r.stdout)
+  } catch {
+    throw new Error(label + ' stdout 非合法 JSON: ' + r.stdout.slice(0, 300))
+  }
 }
 
 // ①链接解析: 确定性 resolve(短链 302 跟随 → videoId → sourceKey), 零 LLM
@@ -53,45 +54,10 @@ phase('链接解析')
 const rawUrl = String(args.url || '').trim()
 await check(() => /^https?:\/\//.test(rawUrl), 'args.url 不是 http(s) 链接: ' + rawUrl)
 
-// stderr 重定向到文件: agent 只看 stdout 纯 JSON, 防日志行混入 raw 导致 JSON.parse 失败。
-// 包一层 bash -c: 先 mkdir -p 确保重定向目标目录存在(全新环境 work/ 可能不存在)
-function stdioRedirect(cmd, stderrPath, mkdirDir) {
-  return 'bash -c ' + shQuote('mkdir -p ' + mkdirDir + ' && ' + cmd + ' 2>' + stderrPath)
-}
-
-const resolveCmd = stdioRedirect(
-  'node ' + shQuote(ADAPTER_CLI) + ' resolve --url ' + shQuote(rawUrl),
-  WORK_ROOT + '/resolve.stderr.log',
-  WORK_ROOT,
-)
-const resolveResult = await agent(executorPrompt(resolveCmd, '{ raw(命令 stdout 原文), ok, sourceKey, videoId, canonicalUrl, platform }'), {
-  label: '链接解析',
-  agentType: 'general',
-  schema: {
-    type: 'object',
-    properties: {
-      raw: { type: 'string' },
-      ok: { type: 'boolean' },
-      sourceKey: { type: 'string' },
-      videoId: { type: 'string' },
-      canonicalUrl: { type: 'string' },
-      platform: { type: 'string' },
-    },
-    required: ['raw', 'ok'],
-  },
-})
-
-// agent 重试耗尽返回 null：提前退出，让阶段失败闸门以真实原因标记失败（防 null.raw TypeError 遮蔽真因）
-if (!resolveResult) return
-let resolveJson = {}
-try {
-  resolveJson = JSON.parse(resolveResult.raw)
-} catch {
-  /* 空, 下方 check 兜底 */
-}
+const resolveJson = await runJson('链接解析 ', 'node', [ADAPTER_CLI, 'resolve', '--url', rawUrl])
 await check(
-  () => resolveResult.ok === true && resolveJson.ok === true && typeof resolveJson.sourceKey === 'string',
-  '链接解析失败: ' + (resolveResult.raw || '').slice(0, 300)
+  () => resolveJson.ok === true && typeof resolveJson.sourceKey === 'string',
+  '链接解析失败: ' + JSON.stringify(resolveJson).slice(0, 300)
 )
 const sourceKey = resolveJson.sourceKey
 const platform = resolveJson.platform || sourceKey.split(':', 1)[0]
@@ -99,41 +65,15 @@ const videoId = resolveJson.videoId || sourceKey.split(':', 2)[1] || ''
 const canonicalUrl = resolveJson.canonicalUrl || rawUrl
 log('sourceKey=' + sourceKey + ' canonicalUrl=' + canonicalUrl)
 
-const runArchive = (sub) => PY_PROBE + '; "$PY" ' + shQuote(ARCHIVE_PY) + ' ' + sub
+const archiveArgs = (sub) => [ARCHIVE_PY, sub, '--source-key', sourceKey]
 
 // ②幂等查重: frontmatter 扫查(已归档→直接回执) + 原子占锁(占用→「处理中」回执)
 phase('幂等查重')
-const checkCmd =
-  runArchive('check') +
-  ' --source-key ' + shQuote(sourceKey) +
-  ' --source-platform ' + shQuote(platform) +
-  ' --source-id ' + shQuote(videoId)
-const checkResult = await agent(executorPrompt(checkCmd, '{ raw, ok, archived, title?, rel_dir?, file_rel?, locked, lock_stale }'), {
-  label: '幂等查重',
-  agentType: 'general',
-  schema: {
-    type: 'object',
-    properties: {
-      raw: { type: 'string' },
-      ok: { type: 'boolean' },
-      archived: { type: 'boolean' },
-      title: { type: 'string' },
-      rel_dir: { type: 'string' },
-      file_rel: { type: 'string' },
-      locked: { type: 'boolean' },
-      lock_stale: { type: 'boolean' },
-    },
-    required: ['raw', 'ok', 'archived'],
-  },
-})
-if (!checkResult) return // 同上：闸门报真因
-let idempotentState = {}
-try {
-  idempotentState = JSON.parse(checkResult.raw)
-} catch {
-  /* 空 */
-}
-await check(() => checkResult.ok === true, '幂等查重脚本失败: ' + (checkResult.raw || '').slice(0, 300))
+const idempotentState = await runJson(
+  '幂等查重 ',
+  PY,
+  [...archiveArgs('check'), '--source-platform', platform, '--source-id', videoId]
+)
 
 if (idempotentState.archived === true) {
   // 同视频重发: 返回已有素材路径, 不重新下载不建新目录(§4.1)
@@ -158,68 +98,25 @@ if (idempotentState.locked === true && idempotentState.lock_stale === false) {
   }
 }
 
-const lockCmd = runArchive('lock') + ' --source-key ' + shQuote(sourceKey) + ' --claimer workflow'
-const lockResult = await agent(executorPrompt(lockCmd, '{ raw, ok, locked, busy?, took_over? }'), {
-  label: '占锁',
-  agentType: 'general',
-  schema: {
-    type: 'object',
-    properties: { raw: { type: 'string' }, ok: { type: 'boolean' }, locked: { type: 'boolean' }, busy: { type: 'boolean' }, took_over: { type: 'boolean' } },
-    required: ['raw', 'ok', 'locked'],
-  },
-})
-if (!lockResult) return // 同上：闸门报真因
-let lockJson = {}
-try {
-  lockJson = JSON.parse(lockResult.raw)
-} catch {
-  /* 空 */
-}
-await check(() => lockResult.ok === true && lockJson.locked === true, '未获得处理锁（可能正被并发处理）: ' + (lockResult.raw || '').slice(0, 200))
+const lockJson = await runJson('占锁 ', PY, [...archiveArgs('lock'), '--claimer', 'workflow'])
+await check(
+  () => lockJson.locked === true,
+  '未获得处理锁（可能正被并发处理）: ' + JSON.stringify(lockJson).slice(0, 200)
+)
 
-// 失败路径统一: 释放锁再让失败浮出(崩溃残留由 30min 陈锁接管兜底)
 try {
   // ③音频提取: 短链→cookie→音频下载(16kHz wav)→百炼 fun-asr 转写(2~5 分钟, 轮询上限 30 分钟)
   phase('音频提取')
   const workDir = WORK_ROOT + '/' + sourceKey.replace(/[^a-zA-Z0-9_-]/g, '_')
-  const extractCmd = stdioRedirect(
-    'node ' + shQuote(ADAPTER_CLI) + ' extract --url ' + shQuote(canonicalUrl) + ' --workdir ' + shQuote(workDir),
-    workDir + '/extract.stderr.log',
-    workDir,
+  const extractJson = await runJson(
+    '音频提取 ',
+    'node',
+    [ADAPTER_CLI, 'extract', '--url', canonicalUrl, '--workdir', workDir],
+    40 * 60 * 1000 // 转写轮询上限 30 分钟 + 下载余量
   )
-  const extractResult = await agent(
-    executorPrompt(extractCmd, '{ raw(命令 stdout 原文, 含 extract JSON), ok, sourceKey, transcriptText, metadata }') +
-      '\n注意: 该命令耗时可能 2~5 分钟(下载+转写轮询), 请耐心等待完成, 不要中途打断或超时放弃。',
-    {
-      label: '音频提取',
-      agentType: 'general',
-      schema: {
-        type: 'object',
-        properties: {
-          raw: { type: 'string' },
-          ok: { type: 'boolean' },
-          sourceKey: { type: 'string' },
-          transcriptText: { type: 'string' },
-          metadata: { type: 'object' },
-        },
-        required: ['raw', 'ok'],
-      },
-    }
-  )
-  if (!extractResult) return // 同上：闸门报真因
-  await check(
-    () => extractResult.ok === true,
-    '音频提取/转写失败(原始输出): ' + (extractResult.raw || '').slice(0, 400)
-  )
-  let extractJson = {}
-  try {
-    extractJson = JSON.parse(extractResult.raw)
-  } catch {
-    /* 空 */
-  }
   await check(
     () => typeof extractJson.transcriptText === 'string' && extractJson.transcriptText.trim().length > 0,
-    '转写结果为空(疑似无音轨或图文笔记): ' + (extractResult.raw || '').slice(0, 200)
+    '转写结果为空(疑似无音轨或图文笔记): ' + JSON.stringify(extractJson).slice(0, 300)
   )
   const metadata = extractJson.metadata || {}
   const timings = extractJson.timings || null
@@ -232,41 +129,19 @@ try {
     () => typeof metadata.title === 'string' && metadata.title.trim().length > 0,
     '视频页面标题缺失, 无法命名素材目录'
   )
-  const archiveCmd =
-    runArchive('archive') +
-    ' --title ' + shQuote(metadata.title) +
-    ' --transcript-json ' + shQuote(workDir + '/transcript.json') +
-    ' --source-platform ' + shQuote(platform) +
-    ' --source-id ' + shQuote(videoId) +
-    ' --source-url ' + shQuote(canonicalUrl) +
-    ' --uploader ' + shQuote(metadata.uploader || '') +
-    (metadata.durationSeconds != null ? ' --duration ' + Number(metadata.durationSeconds) : '')
-  const archiveResult = await agent(
-    executorPrompt(archiveCmd, '{ raw, ok, duplicate?, title, rel_dir, file_rel, vault_root }'),
-    { label: '灵感归档', agentType: 'general', schema: {
-      type: 'object',
-      properties: {
-        raw: { type: 'string' },
-        ok: { type: 'boolean' },
-        duplicate: { type: 'boolean' },
-        title: { type: 'string' },
-        rel_dir: { type: 'string' },
-        file_rel: { type: 'string' },
-        vault_root: { type: 'string' },
-      },
-      required: ['raw', 'ok'],
-    } }
-  )
-  if (!archiveResult) return // 同上：闸门报真因
-  let archiveJson = {}
-  try {
-    archiveJson = JSON.parse(archiveResult.raw)
-  } catch {
-    /* 空 */
-  }
+  const archiveJson = await runJson('灵感归档 ', PY, [
+    ARCHIVE_PY, 'archive',
+    '--title', metadata.title,
+    '--transcript-json', workDir + '/transcript.json',
+    '--source-platform', platform,
+    '--source-id', videoId,
+    '--source-url', canonicalUrl,
+    '--uploader', metadata.uploader || '',
+    ...(metadata.durationSeconds != null ? ['--duration', String(Number(metadata.durationSeconds))] : []),
+  ])
   await check(
-    () => archiveResult.ok === true && archiveJson.ok === true,
-    '灵感归档失败: ' + (archiveResult.raw || '').slice(0, 300)
+    () => archiveJson.ok === true,
+    '灵感归档失败: ' + JSON.stringify(archiveJson).slice(0, 300)
   )
 
   // ⑤回执: 标题 + vault 相对路径 + 各步耗时
@@ -290,18 +165,11 @@ try {
       '📁 60_Workspace/写作/灵感/' + archiveJson.file_rel + '\n' +
       (timingLine ? '⏱ ' + timingLine : ''),
   }
-} catch (err) {
-  // 锁释放在 finally 统一做; 这里只让失败原因浮出(网关/监控发失败回执)
-  throw err
 } finally {
   // 归档完成或最终失败都释放锁(§4.2); 释放失败容忍(30min 陈锁接管兜底);
   // 成功后幂等由 frontmatter 扫查接管
   try {
-    await agent(executorPrompt(runArchive('unlock') + ' --source-key ' + shQuote(sourceKey), '{ raw, ok }'), {
-      label: '释放锁',
-      agentType: 'general',
-      schema: { type: 'object', properties: { raw: { type: 'string' }, ok: { type: 'boolean' } }, required: ['raw', 'ok'] },
-    })
+    await command({ executable: PY, args: archiveArgs('unlock'), label: '释放锁' })
   } catch {
     /* 释放失败容忍 */
   }
