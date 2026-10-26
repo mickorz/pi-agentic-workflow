@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 """github_kb.py 测试套件——P0 验收（执行方案 V1.1 十一节 + 评审用例 T-A/T-B/T-C/T-D）。
 
-逐用例输出 PASS/FAIL/SKIP，结尾汇总计数。全部走 fixture 沙盒（零网络）；
-真实网络冒烟单列（失败输出 SKIP，不假 PASS）。
+布局契约（用户定版 2026-10-26）：<知识库根>/<分类>/<repo 名>/（无 owner 前缀），
+元数据 project.md（YAML frontmatter），抓取暂存 .incoming/<repo>/。
+逐用例输出 PASS/FAIL/SKIP，结尾汇总计数。fixture 沙盒零网络；真实网络冒烟单列。
 
 用法：
   python run_github_kb_suite.py [--kb SCRIPT] [--skip-network]
@@ -16,15 +17,17 @@ import subprocess
 import sys
 import tempfile
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 KB = os.path.join(HERE, "github_kb.py")
 FIXTURE = os.path.join(HERE, "fixtures", "github", "demo-repo")
 EVIL_FIXTURE = os.path.join(HERE, "fixtures", "github", "evil-readme")
 
 RESULTS = []
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
+sys.path.insert(0, HERE)  # 复用 kb 的 frontmatter 解析器做断言
 
 
 def run(*cli_args):
@@ -70,6 +73,8 @@ ANALYSIS = """# demo-repo 项目研究档案
 - compare：与 cron/Make/轻量 CI 的对比评测
 """
 
+META = {"tags": ["自动化", "任务编排"], "category": "devtools", "useScenes": ["批量处理", "定时编排"]}
+
 
 def evidence_ok():
     return {
@@ -90,19 +95,36 @@ def b64(text):
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
+def archive_args(pid, analysis=None, ev=None, meta=None, staging=""):
+    a = ["archive", "--root", ROOT, "--project-id", pid,
+         "--analysis-b64", b64(analysis if analysis is not None else ANALYSIS),
+         "--evidence-b64", b64(json.dumps(ev if ev is not None else evidence_ok()))]
+    if meta is not None:
+        a += ["--meta-b64", b64(json.dumps(meta))]
+    if staging:
+        a += ["--staging", staging]
+    return a
+
+
+ROOT = ""
+
+
 def main():
-    global KB
+    global KB, ROOT
     ap = argparse.ArgumentParser()
     ap.add_argument("--kb", default=KB)
     ap.add_argument("--skip-network", action="store_true")
     args = ap.parse_args()
     KB = args.kb
+
     tmp = tempfile.mkdtemp(prefix="gh-kb-suite-")
     root = os.path.join(tmp, "kb")
     os.makedirs(root)
+    ROOT = root
     url = "https://github.com/example/demo-repo"
-    pid = "example__demo-repo"
-    pdir = os.path.join(root, "projects", pid)
+    pid = "demo-repo"                                   # 无 owner 前缀
+    incoming = os.path.join(root, ".incoming", pid)     # 抓取暂存
+    pdir = os.path.join(root, "devtools", pid)          # 归档后（meta.category=devtools）
 
     try:
         # ── 1. URL 解析 ──
@@ -117,15 +139,15 @@ def main():
         r = run("parse-url", "--url", "https://github.com/../etc/passwd")
         case("URL 解析: 穿越段拒绝", not r.get("ok"))
 
-        # ── 2. fixture 抓取 ──
+        # ── 2. fixture 抓取（先进 .incoming） ──
         r = run("fetch", "--root", root, "--url", url, "--fixture", FIXTURE)
-        case("fixture 抓取: 四源完整", r.get("ok") and r.get("complete") and len(r.get("fetched", [])) == 4,
+        case("fixture 抓取: 四源完整落 .incoming", r.get("ok") and r.get("complete") and len(r.get("fetched", [])) == 4
+             and os.path.isfile(os.path.join(incoming, "raw", "fetch-manifest.json")),
              json.dumps(r, ensure_ascii=False)[:160])
-        case("fixture 抓取: manifest 落盘", os.path.isfile(os.path.join(pdir, "raw", "fetch-manifest.json")))
 
         # ── T-B: 抓取中断续传 ──
-        os.unlink(os.path.join(pdir, "raw", "README.md"))
-        mf_path = os.path.join(pdir, "raw", "fetch-manifest.json")
+        os.unlink(os.path.join(incoming, "raw", "README.md"))
+        mf_path = os.path.join(incoming, "raw", "fetch-manifest.json")
         mf = json.load(open(mf_path, encoding="utf-8"))
         mf["sources"]["readme"]["status"] = "failed"
         mf["complete"] = False
@@ -134,9 +156,9 @@ def main():
         case("T-B 中断续传: 只补 readme", r.get("ok") and r.get("fetched") == ["readme"]
              and r.get("skipped") == ["repo", "languages", "tree"], json.dumps(r, ensure_ascii=False)[:160])
 
-        # ── 2b. README 图片本地化（fixture：相对路径拷贝，绝对 URL 保留） ──
+        # ── 2b. README 图片本地化 ──
         r = run("fetch", "--root", os.path.join(tmp, "kb-img"), "--url", url, "--fixture", FIXTURE)
-        img_raw = os.path.join(tmp, "kb-img", "projects", pid, "raw")
+        img_raw = os.path.join(tmp, "kb-img", ".incoming", pid, "raw")
         case("图片本地化: 相对路径图下载到 imgs/",
              r.get("ok") and r.get("images", {}).get("downloaded", 0) >= 1
              and os.path.isfile(os.path.join(img_raw, "imgs", "001-arch.png")),
@@ -146,48 +168,78 @@ def main():
              "![架构图](imgs/001-arch.png)" in rd and "docs/arch.png" not in rd)
         case("图片本地化: 绝对 URL 保留远程引用",
              "https://example-cdn.example.com/banner.png" in rd)
-        # 补图子命令幂等：二次执行零下载零改写
         r2 = run("download-images", "--root", os.path.join(tmp, "kb-img"), "--project-id", pid, "--fixture", FIXTURE)
-        rd2 = open(os.path.join(img_raw, "README.md"), encoding="utf-8").read()
-        case("download-images 幂等: 二次零改写",
-             r2.get("ok") and r2.get("rewritten", 0) == 0 and rd2 == rd,
-             json.dumps(r2, ensure_ascii=False)[:120])
+        case("download-images: 未归档项目明确报错（索引无此档案）", not r2.get("ok"))
 
-        # ── 3. 查重 ──
+        # ── 3. 查重（归档前不存在） ──
         r = run("detect-duplicate", "--root", root, "--url", "https://github.com/EXAMPLE/DEMO-REPO")
         case("查重: 尚未归档时不存在", r.get("ok") and not r.get("exists"))
 
         # ── 4. 归档校验 ──
         bad = ANALYSIS.replace("## 风险与局限\n", "")
-        r = run("archive", "--root", root, "--project-id", pid,
-                "--analysis-b64", b64(bad), "--evidence-b64", b64(json.dumps(evidence_ok())))
+        r = run(*archive_args(pid, analysis=bad))
         case("归档校验: 缺段拒绝", not r.get("ok") and any("风险与局限" in i for i in r.get("issues", [])))
+        case("归档校验失败: .incoming raw 保留（重试不重抓）",
+             os.path.isfile(os.path.join(incoming, "raw", "repo.json")))
         ev = evidence_ok()
         ev["claims"] = ev["claims"][:3]
-        r = run("archive", "--root", root, "--project-id", pid,
-                "--analysis-b64", b64(ANALYSIS), "--evidence-b64", b64(json.dumps(ev)))
+        r = run(*archive_args(pid, ev=ev))
         case("归档校验: 证据不足拒绝", not r.get("ok") and any("证据" in i or "evidence" in i for i in r.get("issues", [])))
-        no_ev_num = ANALYSIS.replace("87", "99.9")  # 两处 87% 全换成本登记数字，应被启发式拦下
-        r = run("archive", "--root", root, "--project-id", pid,
-                "--analysis-b64", b64(no_ev_num), "--evidence-b64", b64(json.dumps(evidence_ok())))
+        no_ev_num = ANALYSIS.replace("87", "99.9")
+        r = run(*archive_args(pid, analysis=no_ev_num))
         case("归档校验: 无证据百分号拒绝", not r.get("ok") and any("99.9" in i for i in r.get("issues", [])))
 
-        # ── 5. 合法归档 ──
-        r = run("archive", "--root", root, "--project-id", pid,
-                "--analysis-b64", b64(ANALYSIS), "--evidence-b64", b64(json.dumps(evidence_ok())),
-                "--meta-b64", b64(json.dumps({"tags": ["自动化", "任务编排"], "category": "devtools"})))
-        case("归档: 合法通过", r.get("ok"), json.dumps(r, ensure_ascii=False)[:160])
+        # ── 5. 合法归档：落分类目录 + project.md ──
+        r = run(*archive_args(pid, meta=META))
+        case("归档: 落分类目录 <分类>/<repo>", r.get("ok") and os.path.normcase(r.get("projectDir", "")) == os.path.normcase(pdir)
+             and r.get("category") == "devtools", json.dumps(r, ensure_ascii=False)[:140])
+        case("归档: .incoming 已清空", not os.path.exists(incoming))
+        case("归档: project.md 存在", os.path.isfile(os.path.join(pdir, "project.md")))
+
+        import github_kb
+        md = github_kb.load_project_md(os.path.join(pdir, "project.md"))
+        case("project.md: frontmatter 解析（repoId/category/tags 类型正确）",
+             md.get("projectId") == pid and md.get("repoId") == 100200300 and md.get("category") == "devtools"
+             and md.get("tags") == META["tags"] and md.get("archived") is False and md.get("stars") == 42,
+             json.dumps({k: md.get(k) for k in ("projectId", "repoId", "category", "tags", "archived", "stars")}, ensure_ascii=False))
         idx = json.load(open(os.path.join(root, "projects.json"), encoding="utf-8"))
         ent = idx["projects"][0]
-        case("归档: 索引字段完整", all(k in ent for k in ("repoId", "treeSha", "license", "archived", "pushedAt", "tags", "category")))
-        case("归档: repoId 正确", ent.get("repoId") == 100200300)
+        case("归档: 索引字段完整（含 path）",
+             all(k in ent for k in ("repoId", "treeSha", "license", "archived", "pushedAt", "tags", "category", "path"))
+             and ent["path"] == "devtools/demo-repo")
+        case("归档: 索引 owner/repo 保留完整身份", ent.get("owner") == "example" and ent.get("repo") == "demo-repo")
 
         r = run("detect-duplicate", "--root", root, "--url", "https://github.com/EXAMPLE/DEMO-REPO")
-        case("查重: 归档后命中（大小写不敏感）", r.get("ok") and r.get("exists") and r.get("projectId") == pid)
+        case("查重: 归档后命中（repo 名大小写不敏感）", r.get("ok") and r.get("exists") and r.get("projectId") == pid)
         r = run("locate", "--root", root, "--project-id", pid)
-        case("定位: analysisReady", r.get("ok") and r.get("analysisReady"))
+        case("定位: analysisReady", r.get("ok") and r.get("analysisReady")
+             and os.path.normcase(r.get("projectDir", "")) == os.path.normcase(pdir))
 
-        # ── 6. register-article 幂等 + 一对多（T-E 的 kb 层） ──
+        # ── 6. 同名冲突守卫（不同作者同名仓库） ──
+        clash = os.path.join(tmp, "kb-clash")
+        os.makedirs(clash)
+        run("fetch", "--root", clash, "--url", url, "--fixture", FIXTURE)
+        ROOT = clash
+        run(*archive_args(pid, meta=META))  # 首次归档成功（repoId 100200300）
+        # 同名不同作者：detect-duplicate 报 nameClash 不误报复用
+        r = run("detect-duplicate", "--root", clash, "--url", "https://github.com/other-owner/demo-repo")
+        case("同名冲突: 查重报 nameClash 不误报 exists",
+             r.get("ok") and not r.get("exists") and r.get("nameClash") and r.get("existingOwner") == "example")
+        # force 重抓 → 篡改 repoId 模拟另一作者 → 归档被 repoId 守卫拒绝
+        r = run("fetch", "--root", clash, "--url", "https://github.com/other-owner/demo-repo", "--fixture", FIXTURE, "--force")
+        staging = r.get("projectDir", "")
+        rj = json.load(open(os.path.join(staging, "raw", "repo.json"), encoding="utf-8"))
+        rj["id"] = 987654321
+        rj["owner"]["login"] = "other-owner"
+        json.dump(rj, open(os.path.join(staging, "raw", "repo.json"), "w", encoding="utf-8"))
+        r = run(*archive_args(pid, meta=META, staging=staging))
+        case("同名冲突守卫: repoId 不一致拒绝且原档案完好",
+             not r.get("ok") and any("冲突" in i for i in r.get("issues", []))
+             and os.path.isfile(os.path.join(clash, "devtools", pid, "project.md")),
+             json.dumps(r.get("issues", []), ensure_ascii=False)[:160])
+        ROOT = root
+
+        # ── 7. register-article 幂等 + 一对多 ──
         r1 = run("register-article", "--root", root, "--project-id", pid, "--article-id", "gh20261026-demorepo-recommend",
                  "--angle", "recommend", "--article-dir", "E:/tmp/demo-repo-推荐")
         r2 = run("register-article", "--root", root, "--project-id", pid, "--article-id", "gh20261026-demorepo-recommend",
@@ -200,108 +252,71 @@ def main():
         mirror = json.load(open(os.path.join(pdir, "articles.json"), encoding="utf-8"))
         case("关联镜像: articles.json 同步", len(mirror["articles"]) == 2)
 
-        # ── 7. force 暂存替换（T-C） ──
+        # ── 8. force 更新（.incoming 暂存 → 替换分类目录） ──
         old_analysis = open(os.path.join(pdir, "analysis.md"), encoding="utf-8").read()
         r = run("fetch", "--root", root, "--url", url, "--fixture", FIXTURE, "--force")
-        case("force 抓取: 进 staging", r.get("ok") and r.get("staging"), json.dumps(r, ensure_ascii=False)[:160])
+        case("force 抓取: 进 .incoming", r.get("ok") and r.get("staging"), json.dumps(r, ensure_ascii=False)[:160])
         staging = r.get("projectDir", "")
         bad2 = ANALYSIS.replace("## 推荐角度建议", "## 推荐角度（改名）")
-        r = run("archive", "--root", root, "--project-id", pid, "--staging", staging,
-                "--analysis-b64", b64(bad2), "--evidence-b64", b64(json.dumps(evidence_ok())))
+        r = run(*archive_args(pid, analysis=bad2, meta=META, staging=staging))
         now_analysis = open(os.path.join(pdir, "analysis.md"), encoding="utf-8").read()
-        case("T-C force 失败: 原档案完好", not r.get("ok") and now_analysis == old_analysis and not os.path.isdir(staging))
+        case("T-C force 失败: 原档案完好", not r.get("ok") and now_analysis == old_analysis)
         idx = json.load(open(os.path.join(root, "projects.json"), encoding="utf-8"))
         case("T-C force 失败: 关联不丢", len(idx["projects"][0]["articles"]) == 2)
 
-        r = run("fetch", "--root", root, "--url", url, "--fixture", FIXTURE, "--force")
-        staging = r.get("projectDir", "")
-        r = run("archive", "--root", root, "--project-id", pid, "--staging", staging,
-                "--analysis-b64", b64(ANALYSIS + "\n（force 更新版）"), "--evidence-b64", b64(json.dumps(evidence_ok())))
-        idx = json.load(open(os.path.join(root, "projects.json"), encoding="utf-8"))
-        case("force 成功: 替换且保留关联", r.get("ok") and len(idx["projects"][0]["articles"]) == 2
-             and "force 更新版" in open(os.path.join(pdir, "analysis.md"), encoding="utf-8").read())
         fa = idx["projects"][0].get("firstArchived")
-        r2 = run("fetch", "--root", root, "--url", url, "--fixture", FIXTURE, "--force")
-        r3 = run("archive", "--root", root, "--project-id", pid, "--staging", r2.get("projectDir", ""),
-                 "--analysis-b64", b64(ANALYSIS), "--evidence-b64", b64(json.dumps(evidence_ok())))
-        idx2 = json.load(open(os.path.join(root, "projects.json"), encoding="utf-8"))
-        case("force 成功: firstArchived 不重置", r3.get("ok") and idx2["projects"][0].get("firstArchived") == fa)
+        r = run("fetch", "--root", root, "--url", url, "--fixture", FIXTURE, "--force")
+        r2 = run(*archive_args(pid, analysis=ANALYSIS + "\n（force 更新版）", meta=META, staging=r.get("projectDir", "")))
+        idx = json.load(open(os.path.join(root, "projects.json"), encoding="utf-8"))
+        case("force 成功: 替换且保留关联与 firstArchived",
+             r2.get("ok") and len(idx["projects"][0]["articles"]) == 2
+             and idx["projects"][0].get("firstArchived") == fa
+             and "force 更新版" in open(os.path.join(pdir, "analysis.md"), encoding="utf-8").read())
 
-        # ── 8. rebuild-index 崩溃恢复 ──
+        # ── 9. rebuild-index 崩溃恢复 ──
         os.unlink(os.path.join(root, "projects.json"))
         r = run("rebuild-index", "--root", root)
         idx = json.load(open(os.path.join(root, "projects.json"), encoding="utf-8"))
-        case("rebuild-index: 无损重建", r.get("ok") and len(idx["projects"]) == 1
-             and len(idx["projects"][0]["articles"]) == 2)
+        case("rebuild-index: 无损重建（含 path）", r.get("ok") and len(idx["projects"]) == 1
+             and len(idx["projects"][0]["articles"]) == 2 and idx["projects"][0]["path"] == "devtools/demo-repo")
 
-        # ── 9. 仓库改名迁移（repoId 匹配） ──
+        # ── 10. 仓库改名迁移（repoId 匹配） ──
         root2 = os.path.join(tmp, "kb2")
         os.makedirs(root2)
-        r = run("fetch", "--root", root2, "--url", "https://github.com/example/demo-repo", "--fixture", FIXTURE)
-        run("archive", "--root", root2, "--project-id", "example__demo-repo",
-            "--analysis-b64", b64(ANALYSIS), "--evidence-b64", b64(json.dumps(evidence_ok())))
-        run("register-article", "--root", root2, "--project-id", "example__demo-repo",
+        run("fetch", "--root", root2, "--url", "https://github.com/example/demo-repo", "--fixture", FIXTURE)
+        ROOT = root2
+        run(*archive_args(pid, meta=META))
+        run("register-article", "--root", root2, "--project-id", pid,
             "--article-id", "gh20261026-x", "--angle", "recommend", "--article-dir", "E:/tmp/x")
-        # 模拟改名：同 repoId（100200300）新 owner/repo。
-        # rename 场景 detect-duplicate 查不到新名 → 走普通 fetch（非 force）写新目录，
-        # archive 时 repoId 二次匹配合并（4.2/3.3.1）；旧目录清理与索引写入窗口极小，崩溃可 rebuild-index 自愈
+        # 同 repoId 新 owner/repo 名 → 归档时 repoId 二次匹配合并
         r = run("fetch", "--root", root2, "--url", "https://github.com/example2/demo-renamed", "--fixture", FIXTURE)
-        staging = r.get("projectDir", "")
-        r = run("archive", "--root", root2, "--project-id", "example2__demo-renamed", "--staging", staging,
-                "--analysis-b64", b64(ANALYSIS), "--evidence-b64", b64(json.dumps(evidence_ok())))
+        r = run(*archive_args("demo-renamed", meta=META, staging=r.get("projectDir", "")))
         idx = json.load(open(os.path.join(root2, "projects.json"), encoding="utf-8"))
         pids = [p["projectId"] for p in idx["projects"]]
         arts = idx["projects"][0].get("articles", []) if idx["projects"] else []
         case("改名迁移: repoId 命中合并且关联保留",
-             r.get("ok") and pids == ["example2__demo-renamed"] and len(arts) == 1,
-             json.dumps(pids, ensure_ascii=False))
-
-        # ── T-A: 并发归档不丢索引 ──
-        root3 = os.path.join(tmp, "kb3")
-        os.makedirs(root3)
-        procs = []
-        for i, name in enumerate(("projA", "projB")):
-            pd_ = os.path.join(root3, "projects", "example__" + name)
-            os.makedirs(os.path.join(pd_, "raw"), exist_ok=True)
-            for fn in ("repo.json", "README.md", "languages.json", "tree.json"):
-                shutil.copy(os.path.join(FIXTURE, fn), os.path.join(pd_, "raw", fn))
-            # 两个不同仓库必须用不同 repoId（否则被 repoId 改名合并逻辑正确合并）
-            rj = json.load(open(os.path.join(pd_, "raw", "repo.json"), encoding="utf-8"))
-            rj["id"] = 100200300 + i
-            rj["name"] = name
-            json.dump(rj, open(os.path.join(pd_, "raw", "repo.json"), "w", encoding="utf-8"), ensure_ascii=False)
-            # 补 manifest
-            mf = {"version": 1, "sources": {s: {"status": "ok", "fetchedAt": "t", "sha256": "x"} for s in ("repo", "readme", "languages", "tree")}, "complete": True}
-            json.dump(mf, open(os.path.join(pd_, "raw", "fetch-manifest.json"), "w", encoding="utf-8"))
-            ana = ANALYSIS.replace("demo-repo", name)
-            procs.append(subprocess.Popen(
-                [sys.executable, KB, "archive", "--root", root3, "--project-id", "example__" + name,
-                 "--analysis-b64", b64(ana), "--evidence-b64", b64(json.dumps(evidence_ok()))],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-        for p in procs:
-            p.wait(timeout=60)
-        idx = json.load(open(os.path.join(root3, "projects.json"), encoding="utf-8"))
-        names = sorted(p["projectId"] for p in idx["projects"])
-        case("T-A 并发归档: 索引两条都在", names == ["example__projA", "example__projB"], json.dumps(names))
+             r.get("ok") and pids == ["demo-renamed"] and len(arts) == 1
+             and idx["projects"][0]["path"] == "devtools/demo-renamed",
+             json.dumps({"pids": pids, "path": idx["projects"][0].get("path")}, ensure_ascii=False))
+        case("改名迁移: 旧目录已清理", not os.path.isdir(os.path.join(root2, "devtools", "demo-repo")))
+        ROOT = root
 
         # ── 11. resolve-root 回退链（70_KnowlegeBase/01_Github） ──
         vault = os.path.join(tmp, "vault")
         ws = os.path.join(vault, "60_Workspace", "写作", "单篇")
         os.makedirs(os.path.join(ws, ".aws-article"))
         json.dump({"article_workspace": ws}, open(os.path.join(ws, ".aws-article", "config.json"), "w", encoding="utf-8"))
-        os.makedirs(os.path.join(vault, "70_KnowlegeBase"))  # vault 级目录存在，01_Github 由解析器自动创建
+        os.makedirs(os.path.join(vault, "70_KnowlegeBase"))
         r = run("resolve-root", "--from", ws)
         want = os.path.join(vault, "70_KnowlegeBase", "01_Github")
         case("resolve-root 回退: vault 级 70_KnowlegeBase/01_Github",
              r.get("ok") and os.path.normcase(r.get("root", "")) == os.path.normcase(want)
              and os.path.isdir(want), json.dumps(r, ensure_ascii=False)[:120])
-        # 显式配置优先级最高
         json.dump({"article_workspace": ws, "github_knowledge_root": os.path.join(tmp, "explicit-kb")},
                   open(os.path.join(ws, ".aws-article", "config.json"), "w", encoding="utf-8"))
         r = run("resolve-root", "--from", ws)
         case("resolve-root 优先级: 显式 github_knowledge_root 胜出",
              r.get("ok") and os.path.normcase(r.get("root", "")) == os.path.normcase(os.path.join(tmp, "explicit-kb")))
-        # 无 70_KnowlegeBase → 明确失败不凭空发明
         vault2 = os.path.join(tmp, "vault2")
         ws2 = os.path.join(vault2, "60_Workspace", "单篇")
         os.makedirs(os.path.join(ws2, ".aws-article"))
@@ -309,15 +324,44 @@ def main():
         r = run("resolve-root", "--from", ws2)
         case("resolve-root 回退: 无 70_KnowlegeBase 时明确报错", not r.get("ok"))
 
+        # ── T-A: 并发归档不丢索引 ──
+        root3 = os.path.join(tmp, "kb3")
+        os.makedirs(root3)
+        procs = []
+        for i, name in enumerate(("projA", "projB")):
+            pd_ = os.path.join(root3, ".incoming", name, "raw")
+            os.makedirs(pd_, exist_ok=True)
+            for fn in ("repo.json", "README.md", "languages.json", "tree.json"):
+                shutil.copy(os.path.join(FIXTURE, fn), os.path.join(pd_, fn))
+            # 两个不同仓库必须用不同 repoId（否则被 repoId 改名合并逻辑正确合并）
+            rj = json.load(open(os.path.join(pd_, "repo.json"), encoding="utf-8"))
+            rj["id"] = 100200300 + i
+            rj["name"] = name
+            json.dump(rj, open(os.path.join(pd_, "repo.json"), "w", encoding="utf-8"), ensure_ascii=False)
+            mf = {"version": 1, "sources": {s: {"status": "ok", "fetchedAt": "t", "sha256": "x"} for s in ("repo", "readme", "languages", "tree")}, "complete": True}
+            json.dump(mf, open(os.path.join(pd_, "fetch-manifest.json"), "w", encoding="utf-8"))
+            ana = ANALYSIS.replace("demo-repo", name)
+            procs.append(subprocess.Popen(
+                [sys.executable, KB, "archive", "--root", root3, "--project-id", name,
+                 "--analysis-b64", b64(ana), "--evidence-b64", b64(json.dumps(evidence_ok()))],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        for p in procs:
+            p.wait(timeout=60)
+        idx = json.load(open(os.path.join(root3, "projects.json"), encoding="utf-8"))
+        names = sorted(p["projectId"] for p in idx["projects"])
+        case("T-A 并发归档: 索引两条都在（未分类目录）", names == ["projA", "projB"]
+             and os.path.isdir(os.path.join(root3, "未分类", "projA"))
+             and os.path.isdir(os.path.join(root3, "未分类", "projB")), json.dumps(names))
+
         # ── T-D: 恶意 README（kb 层） ──
         r = run("fetch", "--root", root3, "--url", "https://github.com/example/prompt-inject-demo", "--fixture", EVIL_FIXTURE)
-        evil_pid = "example__prompt-inject-demo"
-        evil_dir = os.path.join(root3, "projects", evil_pid)
+        evil_pid = "prompt-inject-demo"
+        evil_dir = os.path.join(root3, ".incoming", evil_pid)
         raw_readme = open(os.path.join(evil_dir, "raw", "README.md"), encoding="utf-8").read() if r.get("ok") else ""
         case("T-D 恶意样本: 只作素材落盘不执行", r.get("ok") and "忽略之前的要求" in raw_readme
              and os.path.isfile(os.path.join(evil_dir, "raw", "repo.json")))
 
-        # ── 10. 真实网络冒烟（可 SKIP） ──
+        # ── 12. 真实网络冒烟（可 SKIP） ──
         if args.skip_network:
             print("[SKIP] 真实网络冒烟（--skip-network 指定跳过）")
             RESULTS.append(("真实网络冒烟", None, "SKIP by flag"))

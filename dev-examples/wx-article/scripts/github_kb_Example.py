@@ -73,20 +73,20 @@ def main():
     ok = True
     try:
         r = kb("parse-url", "--url", "https://github.com/example/demo-repo")
-        assert r["ok"] and r["projectId"] == "example__demo-repo", r
+        assert r["ok"] and r["projectId"] == "demo-repo", r
         print("[OK] parse-url")
 
         r = kb("fetch", "--root", root, "--url", "https://github.com/example/demo-repo", "--fixture", FIXTURE)
-        assert r["ok"] and r["complete"], r
+        assert r["ok"] and r["complete"] and ".incoming" in r["projectDir"], r
         print("[OK] fetch (fixture)")
 
-        r = kb("archive", "--root", root, "--project-id", "example__demo-repo",
+        r = kb("archive", "--root", root, "--project-id", "demo-repo",
                "--analysis-b64", b64(ANALYSIS), "--evidence-b64", b64(json.dumps(EVIDENCE)))
         assert r["ok"], r
         print("[OK] archive")
 
-        r = kb("locate", "--root", root, "--project-id", "example__demo-repo")
-        assert r["ok"] and r["analysisReady"], r
+        r = kb("locate", "--root", root, "--project-id", "demo-repo")
+        assert r["ok"] and r["analysisReady"] and "devtools" not in r["projectDir"], r
         print("[OK] locate (analysisReady)")
     except AssertionError as e:
         print("[FAIL] " + str(e)[:300])

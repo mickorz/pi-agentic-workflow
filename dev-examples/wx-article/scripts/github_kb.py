@@ -164,14 +164,32 @@ class KbLock:
 # ── 目录布局 ──────────────────────────────────────────────
 
 def root_layout(root: str) -> Dict[str, str]:
-    return {
-        "index": os.path.join(root, "projects.json"),
-        "projects": os.path.join(root, "projects"),
-    }
+    return {"index": os.path.join(root, "projects.json")}
 
 
-def project_dir(root: str, project_id: str) -> str:
-    return os.path.join(root, "projects", project_id)
+INCOMING_DIR = ".incoming"      # 抓取暂存：分类在归档阶段才产生，fetch 先落这里
+DEFAULT_CATEGORY = "未分类"
+
+
+def sanitize_category(cat: str) -> str:
+    """分类目录名：仅保留中文/字母/数字/空格/连字符/下划线；空 → 未分类。"""
+    c = re.sub(r"[^\w\u4e00-\u9fff -]", "", str(cat or "")).strip().strip(".")
+    return c or DEFAULT_CATEGORY
+
+
+def idx_entry(idx: Dict[str, Any], pid: str) -> Optional[Dict[str, Any]]:
+    return next((p for p in idx.get("projects", []) if str(p.get("projectId", "")).lower() == str(pid).lower()), None)
+
+
+def final_dir_of(root: str, entry: Optional[Dict[str, Any]]) -> Optional[str]:
+    if entry and entry.get("path"):
+        return os.path.join(root, str(entry["path"]))
+    return None
+
+
+def resolve_project_dir(root: str, pid: str) -> Optional[str]:
+    """按索引定位项目档案目录（<分类>/<repo>，用户定版 2026-10-26）；找不到 None。"""
+    return final_dir_of(root, idx_entry(load_index(root), pid))
 
 
 def load_index(root: str) -> Dict[str, Any]:
@@ -213,7 +231,7 @@ def parse_one_url(url: str) -> Optional[Dict[str, str]]:
     for seg in (owner, repo):
         if not SEG_RE.match(seg) or len(seg) > 100 or seg in (".", ".."):
             return None
-    return {"owner": owner, "repo": repo, "projectId": owner + "__" + repo}
+    return {"owner": owner, "repo": repo, "projectId": repo}  # 目录名不带作者前缀（用户定版 2026-10-26）；同仓同名冲突由 repoId 守卫
 
 
 def cmd_parse_url(args: argparse.Namespace) -> None:
@@ -227,8 +245,9 @@ def cmd_parse_url(args: argparse.Namespace) -> None:
 # ── 子命令：detect-duplicate ─────────────────────────────
 
 def find_existing(root: str, owner: str, repo: str) -> Optional[Dict[str, Any]]:
-    """按 owner__repo 大小写不敏感查重；返回索引条目（含 projectId），未命中 None。"""
-    want = (owner + "__" + repo).lower()
+    """按 projectId（=repo 名）大小写不敏感查重；返回索引条目，未命中 None。
+    同名不同作者由 archive 阶段的 repoId 冲突守卫拦下。"""
+    want = repo.lower()
     for p in load_index(root).get("projects", []):
         if str(p.get("projectId", "")).lower() == want:
             return p
@@ -243,10 +262,16 @@ def cmd_detect_duplicate(args: argparse.Namespace) -> None:
     hit = find_existing(args.root, r["owner"], r["repo"])
     if hit is None:
         out({"ok": True, "exists": False, "projectId": r["projectId"]})
+    elif str(hit.get("owner", "")).lower() != r["owner"].lower():
+        # 同名不同作者：不能当同一项目复用，标记冲突（后续抓取归档时 repoId 守卫拒绝）
+        out({
+            "ok": True, "exists": False, "nameClash": True, "projectId": r["projectId"],
+            "existingOwner": hit.get("owner", ""), "existingRepoId": hit.get("repoId"),
+        })
     else:
         out({
             "ok": True, "exists": True, "projectId": hit["projectId"],
-            "projectDir": project_dir(args.root, hit["projectId"]),
+            "projectDir": final_dir_of(args.root, hit) or "",
             "status": hit.get("status", ""),
         })
 
@@ -495,12 +520,12 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         return
     owner, repo, pid = r["owner"], r["repo"], r["projectId"]
 
-    # 目标目录：force 更新走暂存目录（4.1：完整构建新版本，验证通过才替换）
-    if args.force and os.path.isdir(project_dir(args.root, pid)):
-        target = os.path.join(args.root, "projects", ".staging-%s-%d" % (pid, int(time.time())))
-        os.makedirs(os.path.join(target, "raw"), exist_ok=True)
+    # 目标目录：已有档案且非 force → 原目录续传（T-B）；否则先进 .incoming（分类归档时才定，用户定版 2026-10-26）
+    final = resolve_project_dir(args.root, pid)
+    if final and not args.force and os.path.isdir(os.path.join(final, "raw")):
+        target = final
     else:
-        target = project_dir(args.root, pid)
+        target = os.path.join(args.root, INCOMING_DIR, pid)
         os.makedirs(os.path.join(target, "raw"), exist_ok=True)
 
     manifest_path = os.path.join(target, "raw", "fetch-manifest.json")
@@ -565,7 +590,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     out({
         "ok": True, "projectId": pid, "projectDir": target,
         "fetched": fetched, "skipped": skipped, "complete": manifest["complete"],
-        "staging": bool(args.force and target != project_dir(args.root, pid)),
+        "staging": bool(final and target != final),
         "images": {k: img_stats.get(k, 0) for k in ("downloaded", "failed", "skipped", "rewritten")} if img_stats else {},
     })
 
@@ -577,7 +602,10 @@ def cmd_download_images(args: argparse.Namespace) -> None:
     if root is None:
         out({"ok": False, "issues": iss})
         return
-    pdir = project_dir(root, args.project_id)
+    pdir = resolve_project_dir(root, args.project_id)
+    if not pdir:
+        out({"ok": False, "issues": ["项目档案不存在: " + args.project_id]})
+        return
     raw_dir = os.path.join(pdir, "raw")
     try:
         repo_j = read_json(os.path.join(raw_dir, "repo.json"))
@@ -639,8 +667,93 @@ def verify_analysis(analysis_md: str, evidence: Dict[str, Any]) -> List[str]:
     return issues
 
 
+PROJECT_MD = "project.md"  # 项目元数据（YAML frontmatter 保存详细 GitHub 配置，用户定版 2026-10-26；Obsidian 友好）
+
+
+def _yaml_scalar(v: Any) -> str:
+    """受限子集 YAML 标量：bool/数字裸写，字符串 JSON 双引号转义（往返一致）。"""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if v is None or v == "":
+        return '""'
+    return json.dumps(str(v), ensure_ascii=False)
+
+
+def _parse_yaml_val(s: str) -> Any:
+    if s.startswith('"') and s.endswith('"') and len(s) >= 2:
+        try:
+            return json.loads(s)
+        except ValueError:
+            return s[1:-1]
+    if s == "true":
+        return True
+    if s == "false":
+        return False
+    if re.match(r"^-?\d+$", s):
+        return int(s)
+    if re.match(r"^-?\d+\.\d+$", s):
+        return float(s)
+    return s
+
+
+def write_project_md(path: str, data: Dict[str, Any]) -> None:
+    """项目档案元数据 project.md：YAML frontmatter（详细 GitHub 配置）+ 可读正文（Obsidian 友好）。
+
+    frontmatter 为受限子集（顶层标量 + 字符串列表），由 load_project_md 读回。
+    """
+    lines = ["---"]
+    for k, v in data.items():
+        if isinstance(v, list):
+            if v:
+                lines.append(str(k) + ":")
+                for item in v:
+                    lines.append("  - " + _yaml_scalar(item))
+            else:
+                lines.append(str(k) + ": []")
+        else:
+            lines.append(str(k) + ": " + _yaml_scalar(v))
+    lines.append("---")
+    lines.append("")
+    lines.append("# %s" % data.get("repo", data.get("projectId", "")))
+    lines.append("")
+    lines.append("> %s" % (data.get("description") or ""))
+    lines.append("")
+    lines.append("- 仓库: %s" % data.get("htmlUrl", ""))
+    lines.append("- 作者: %s · Stars: %s · License: %s" % (data.get("owner", ""), data.get("stars", ""), data.get("license") or "无"))
+    lines.append("- 分类: %s · 标签: %s" % (data.get("category", ""), ", ".join(data.get("tags") or [])))
+    lines.append("- 首次归档: %s · 最近研究: %s · 状态: %s" % (data.get("firstArchived", ""), data.get("lastResearched", ""), data.get("status", "")))
+    lines.append("")
+    lines.append("详细配置见上方 frontmatter；分析见 [analysis.md](analysis.md)；证据 [evidence.json](evidence.json)；原始抓取 raw/（README 图片已本地化到 raw/imgs/）。")
+    atomic_write(path, "\n".join(lines) + "\n")
+
+
+def load_project_md(path: str) -> Dict[str, Any]:
+    """读回 project.md 的 frontmatter（--- 包裹的受限 YAML 子集）。"""
+    text = open(path, encoding="utf-8-sig").read()
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end < 0:
+        return {}
+    block = text[4:end] if text[3] == "\n" else text[3:end]
+    data: Dict[str, Any] = {}
+    key: Optional[str] = None
+    for line in block.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        m = re.match(r"^([A-Za-z0-9_]+):\s*(.*)$", line)
+        if m and not line.startswith((" ", "\t")):
+            key, val = m.group(1), m.group(2).strip()
+            data[key] = [] if val == "" else _parse_yaml_val(val)
+        elif line.startswith("  - ") and key is not None and isinstance(data.get(key), list):
+            data[key].append(_parse_yaml_val(line[4:].strip()))
+    return data
+
+
 def build_project_json_from(workdir: str, pid: str, meta: Dict[str, Any]) -> Dict[str, Any]:
-    """从指定目录（正式或 staging）的 raw 组装 project.json 内容（camelCase，3.3 契约）。"""
+    """从指定目录（正式或 staging）的 raw 组装项目元数据（写入 project.yaml，3.3 契约）。"""
     repo_j = read_json(os.path.join(workdir, "raw", "repo.json"))
     tree_j = read_json(os.path.join(workdir, "raw", "tree.json"))
     now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
@@ -666,21 +779,18 @@ def build_project_json_from(workdir: str, pid: str, meta: Dict[str, Any]) -> Dic
     }
 
 
-def articles_of(idx: Dict[str, Any], pid: str) -> List[Dict[str, Any]]:
-    for p in idx.get("projects", []):
-        if p.get("projectId") == pid:
-            return p.setdefault("articles", [])
-    return []
-
-
 def cmd_archive(args: argparse.Namespace) -> None:
     pid = args.project_id
     root = args.root
-    pdir = project_dir(root, pid)
-    workdir = args.staging or pdir
+    workdir = args.staging or ""
+    # 未显式给 workdir：按索引定位（复用/续传场景）；否则用 .incoming
+    if not workdir:
+        entry0 = idx_entry(load_index(root), pid)
+        if entry0 and entry0.get("path"):
+            workdir = final_dir_of(root, entry0)
+        else:
+            workdir = os.path.join(root, INCOMING_DIR, pid)
 
-    # staging 内 raw 从真实项目目录软引用不可靠——要求 staging 自带完整 raw（fetch --force 已写入）
-    issues: List[str] = []
     if not os.path.isfile(os.path.join(workdir, "raw", "fetch-manifest.json")):
         out({"ok": False, "issues": ["目标目录缺少 raw/fetch-manifest.json（先执行 fetch）: " + workdir]})
         return
@@ -698,57 +808,68 @@ def cmd_archive(args: argparse.Namespace) -> None:
 
     issues = verify_analysis(analysis_md, evidence)
     if issues:
-        # 校验失败：staging 整目录清除，原档案分毫未动（T-C）
-        if args.staging:
-            shutil.rmtree(args.staging, ignore_errors=True)
-        out({"ok": False, "issues": ["归档校验失败"] + issues, "stagingRemoved": bool(args.staging)})
+        # 校验失败：不动任何目录（.incoming 的 raw 保留供重试，正式档案分毫未动，T-C）
+        out({"ok": False, "issues": ["归档校验失败"] + issues})
         return
 
-    # 崩溃恢复：上次 swap 中断（目录被挪去 .bak 后进程死）→ 先还原
-    bak = pdir + ".bak"
-    if not os.path.isdir(pdir) and os.path.isdir(bak):
-        os.rename(bak, pdir)
-
-    # 档案文件统一写入 workdir（staging 场景 = 暂存目录，验证通过后整体 swap）
     pj = build_project_json_from(workdir, pid, meta)
-    atomic_write(os.path.join(workdir, "analysis.md"), analysis_md if analysis_md.endswith("\n") else analysis_md + "\n")
-    write_json(os.path.join(workdir, "evidence.json"), evidence)
-    write_json(os.path.join(workdir, "project.json"), pj)
-
-    # force 暂存替换：旧 → .bak → staging → 正式 → 删 .bak（4.1）
-    # 同路径（rename 场景 fetch 未走 staging）时跳过 swap，只做原地归档
-    if args.staging and os.path.realpath(args.staging) != os.path.realpath(pdir):
-        if os.path.isdir(pdir):
-            os.rename(pdir, bak)
-        os.rename(args.staging, pdir)
-        if os.path.isdir(bak):
-            shutil.rmtree(bak, ignore_errors=True)
+    # 最终目录：<分类>/<repo>（分类来自分析 meta，用户定版 2026-10-26）
+    category = sanitize_category(meta.get("category", ""))
+    pj["category"] = category
+    final = os.path.join(root, category, pid)
+    bak = final + ".bak"
 
     with KbLock(root):
-        # 索引更新（保留已有 articles 关联；repoId 二次匹配防改名重复建档，3.3.1）
         idx = load_index(root)
-        entry = next((p for p in idx.get("projects", []) if p.get("projectId") == pid), None)
+        entry = idx_entry(idx, pid)
+        # 守卫：同名仓库但 repoId 不一致（不同作者的相同 repo 名）——明确报错不静默合并
+        if (entry is not None and entry.get("repoId") is not None and pj.get("repoId") is not None
+                and entry.get("repoId") != pj.get("repoId")):
+            out({"ok": False, "issues": [
+                "仓库名冲突: %s 已收录 %s/%s (repoId=%s)，新请求 %s/%s (repoId=%s)；同名不同仓库，请用 owner/repo 全称确认目标" % (
+                    pid, entry.get("owner", ""), entry.get("repo", ""), entry.get("repoId"),
+                    pj.get("owner", ""), pj.get("repo", ""), pj.get("repoId"))]})
+            return
+        # 仓库改名/迁移：repoId 命中旧条目 → 旧目录移除，条目改指新档案（articles 关联保留，3.3.1）
         if entry is None and pj.get("repoId") is not None:
             same = next((p for p in idx.get("projects", []) if p.get("repoId") == pj.get("repoId")), None)
             if same is not None:
-                # 仓库改名/迁移：档案目录以新 projectId 为准，旧目录移除，条目改指新档案（articles 关联保留）
-                old_dir = project_dir(root, same["projectId"])
-                if os.path.isdir(old_dir) and old_dir != pdir:
+                old_dir = final_dir_of(root, same)
+                if old_dir and os.path.isdir(old_dir) and os.path.normpath(old_dir) != os.path.normpath(final):
                     shutil.rmtree(old_dir, ignore_errors=True)
                 same["projectId"] = pid
                 entry = same
         if entry is None:
             entry = {"projectId": pid, "articles": []}
             idx.setdefault("projects", []).append(entry)
+
+        # 档案文件写入 workdir（incoming 场景随后整体移动到分类目录）
+        atomic_write(os.path.join(workdir, "analysis.md"), analysis_md if analysis_md.endswith("\n") else analysis_md + "\n")
+        write_json(os.path.join(workdir, "evidence.json"), evidence)
+        write_project_md(os.path.join(workdir, PROJECT_MD), pj)
+
+        # 崩溃恢复：上次 swap 中断（final 被挪去 .bak 后进程死）→ 先还原
+        if not os.path.isdir(final) and os.path.isdir(bak):
+            os.rename(bak, final)
+
+        if os.path.normpath(workdir) != os.path.normpath(final):
+            os.makedirs(os.path.dirname(final), exist_ok=True)
+            if os.path.isdir(final):
+                os.rename(final, bak)
+            shutil.move(workdir, final)
+            if os.path.isdir(bak):
+                shutil.rmtree(bak, ignore_errors=True)
+
         first_archived = entry.get("firstArchived")
         entry.update({k: v for k, v in pj.items() if k != "articles"})
+        entry["path"] = category + "/" + pid
         if first_archived:
             entry["firstArchived"] = first_archived  # 重研究不重置首次归档时间
         save_index(root, idx)
         # articles.json 派生镜像（权威源 projects.json，3.3.1）
-        write_json(os.path.join(pdir, "articles.json"), {"projectId": pid, "articles": entry.get("articles", [])})
+        write_json(os.path.join(final, "articles.json"), {"projectId": pid, "articles": entry.get("articles", [])})
 
-    out({"ok": True, "projectId": pid, "projectDir": pdir, "status": "researched"})
+    out({"ok": True, "projectId": pid, "projectDir": final, "category": category, "status": "researched"})
 
 
 # ── 子命令：locate ───────────────────────────────────────
@@ -761,8 +882,8 @@ def cmd_locate(args: argparse.Namespace) -> None:
             out({"ok": False, "issues": ["无法识别的 GitHub 地址"]})
             return
         pid = r["projectId"]
-    pdir = project_dir(args.root, pid)
-    if not os.path.isdir(pdir):
+    pdir = resolve_project_dir(args.root, pid)
+    if not pdir or not os.path.isdir(pdir):
         out({"ok": False, "issues": ["项目档案不存在: %s（先执行 github-research）" % pid]})
         return
     issues: List[str] = []
@@ -784,13 +905,13 @@ def cmd_locate(args: argparse.Namespace) -> None:
 
 def cmd_register_article(args: argparse.Namespace) -> None:
     root, pid = args.root, args.project_id
-    pdir = project_dir(root, pid)
-    if not os.path.isfile(os.path.join(pdir, "project.json")):
+    pdir = resolve_project_dir(root, pid)
+    if not pdir or not os.path.isfile(os.path.join(pdir, PROJECT_MD)):
         out({"ok": False, "issues": ["项目档案不存在: " + pid]})
         return
     with KbLock(root):
         idx = load_index(root)
-        entry = next((p for p in idx.get("projects", []) if p.get("projectId") == pid), None)
+        entry = idx_entry(idx, pid)
         if entry is None:
             entry = {"projectId": pid, "articles": []}
             idx.setdefault("projects", []).append(entry)
@@ -813,31 +934,34 @@ def cmd_register_article(args: argparse.Namespace) -> None:
 
 def cmd_rebuild_index(args: argparse.Namespace) -> None:
     root = args.root
-    proot = root_layout(root)["projects"]
-    if not os.path.isdir(proot):
-        out({"ok": False, "issues": ["知识库目录不存在: " + proot]})
+    if not os.path.isdir(root):
+        out({"ok": False, "issues": ["知识库目录不存在: " + root]})
         return
     entries: List[Dict[str, Any]] = []
-    for name in sorted(os.listdir(proot)):
-        if name.startswith("."):
+    # 布局：<分类>/<repo>（用户定版 2026-10-26）；跳过索引文件/隐藏目录/.incoming
+    for cat in sorted(os.listdir(root)):
+        cat_dir = os.path.join(root, cat)
+        if not os.path.isdir(cat_dir) or cat.startswith(".") or cat == INCOMING_DIR:
             continue
-        pdir = os.path.join(proot, name)
-        pj_path = os.path.join(pdir, "project.json")
-        if not os.path.isfile(pj_path):
-            continue
-        try:
-            pj = read_json(pj_path)
-        except (OSError, ValueError):
-            continue
-        arts = []
-        ap = os.path.join(pdir, "articles.json")
-        if os.path.isfile(ap):
+        for name in sorted(os.listdir(cat_dir)):
+            pdir = os.path.join(cat_dir, name)
+            md_path = os.path.join(pdir, PROJECT_MD)
+            if not os.path.isfile(md_path):
+                continue
             try:
-                arts = read_json(ap).get("articles", [])
+                pj = load_project_md(md_path)
             except (OSError, ValueError):
-                arts = []
-        pj["articles"] = arts
-        entries.append(pj)
+                continue
+            arts = []
+            ap = os.path.join(pdir, "articles.json")
+            if os.path.isfile(ap):
+                try:
+                    arts = read_json(ap).get("articles", [])
+                except (OSError, ValueError):
+                    arts = []
+            pj["articles"] = arts
+            pj["path"] = cat + "/" + name
+            entries.append(pj)
     with KbLock(root):
         save_index(root, {"version": 1, "projects": entries})
     out({"ok": True, "rebuilt": len(entries)})
@@ -919,7 +1043,7 @@ def cmd_read_raw(args: argparse.Namespace) -> None:
         out({"ok": False, "issues": iss})
         return
     pid = args.project_id
-    workdir = args.staging or project_dir(root, pid)
+    workdir = args.staging or resolve_project_dir(root, pid) or os.path.join(root, INCOMING_DIR, pid)
     try:
         repo_j = read_json(os.path.join(workdir, "raw", "repo.json"))
         langs = read_json(os.path.join(workdir, "raw", "languages.json"))

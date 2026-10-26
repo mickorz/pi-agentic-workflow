@@ -16,7 +16,7 @@
 | 评审用例 T-B 中断续传 | 通过 | 套件用例（只补失败源 readme，不重抓已有源）+ 真实网络 SSL 超时后重跑只补 readme |
 | 评审用例 T-C force 失败原档案完好 | 通过 | 套件用例（staging 清除、analysis/关联原样）+ force 成功路径（firstArchived 保留、staging 替换后目录消失） |
 | 评审用例 T-D 恶意 README 不执行 | 通过 | evil-readme fixture：注入文本只作素材落盘 raw；workflow 提示词含素材边界包裹 |
-| 测试套件 | 37 用例全 PASS（含真实网络冒烟 psf/requests 四源抓取；--skip-network 时 36 PASS + 1 SKIP） | `python run_github_kb_suite.py` |
+| 测试套件 | 42 用例全 PASS（含真实网络冒烟；--skip-network 时 41 PASS + 1 SKIP） | `python run_github_kb_suite.py` |
 | 证据等级契约 | 通过 | documented/inferred 区分落 evidence.json；无证据百分号被归档校验拒绝（套件用例） |
 | 索引并发与崩溃一致性 | 通过 | .kb-lock 互斥 + 临时文件原子替换 + rebuild-index 无损重建（套件用例） |
 
@@ -27,7 +27,7 @@
 | 知识库脚本 | `dev-examples/wx-article/scripts/github_kb.py` | 确定性域逻辑（零 LLM）：parse-url / fetch（白名单 api.github.com、拒跨域重定向、限流显式报错、**README 图片本地化到 raw/imgs 并改写引用**）/ detect-duplicate / archive（校验+锁+staging 暂存替换+repoId 改名迁移）/ locate / register-article / rebuild-index / resolve-root（vault 70_KnowlegeBase/01_Github 回退链）/ read-raw / download-images（补图） |
 | Workflow A | `dev-examples/wx-article/scripts/github_research.js` | 解析→查重→缓存状态机抓取→素材边界包裹的 LLM 分析（七段+证据+meta）→归档校验→返回 |
 | 抓取 fixture | `dev-examples/wx-article/scripts/fixtures/github/` | demo-repo（正常样本）+ evil-readme（指令注入样本） |
-| 测试套件 | `dev-examples/wx-article/scripts/run_github_kb_suite.py` | 37 用例：URL 解析 5、抓取/续传 3、README 图片本地化 4、查重 2、归档校验 4、关联登记 4、force 暂存 4、重建 1、改名迁移 1、resolve-root 回退链 3、并发 T-A 1、T-D 1、真实网络冒烟 1、其他 3 |
+| 测试套件 | `dev-examples/wx-article/scripts/run_github_kb_suite.py` | 42 用例（布局变更后重写）：URL 解析 5、抓取 .incoming/续传 2、README 图片本地化 4、查重 2、归档校验 4（含 .incoming raw 保留）、合法归档/分类目录/project.md frontmatter 6、同名冲突守卫 2、关联登记 3、force 暂存 4、重建 1、改名迁移 2、resolve-root 3、并发 T-A 1、T-D 1、真实网络冒烟 1、其他 1 |
 | 冒烟自检 | `dev-examples/wx-article/scripts/github_kb_Example.py` | 30 秒快速冒烟（解析→抓取→归档→定位） |
 | registry | `dev-examples/wx-article/registry.json` | 新增 `github-research`（write 级，enabled=true，url 必填 + force/fixture/kb_root 可选） |
 
