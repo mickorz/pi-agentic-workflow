@@ -560,7 +560,7 @@
       ]
     },
     "riskLevel": "external-side-effect",
-    "enabled": false,
+    "enabled": true,
     "keywords": [
       "生图",
       "批量生图",

@@ -211,4 +211,18 @@ if (result.budget_stopped) {
 if (result.capped_remaining > 0) {
   out.hint = (out.hint ? out.hint + ' ' : '') + '已达单次运行张数上限, ' + result.capped_remaining + ' 张留待下次运行继续。'
 }
+
+// ── P2-3 挑图编排引导（需求第八节验收 8：全量预览→挑出不满意单张→regenerate→进入排版）──
+if (MODE === 'batch' && ok && result.succeeded === result.total) {
+  const ids = plan.items.map((x) => x.id + '(' + (x.kind === 'cover' ? '封面' : '正文') + ')').join(', ')
+  out.images = ids
+  out.next = '全部 ' + result.total + ' 张已生成并核验通过: ' + ids +
+    '\n逐张查看 ' + args.article_dir + ' 下 cover 与 imgs/ 目录，挑出不满意的:' +
+    '\n  单张重做 → mode=regenerate only_ids=<id>（候选隔离，原图保底 bak）' +
+    '\n  全部满意 → 进入 article-prepare 完成语义插图与排版发布'
+  console.log('all images done: ' + result.total + ' 张; next=挑图重做或进入 prepare')
+}
+if (MODE === 'regenerate' && ok) {
+  out.next = '重做完成且原图已备份(bak); 可继续挑其它单张, 或全部满意后进入 article-prepare 插图排版'
+}
 return out
