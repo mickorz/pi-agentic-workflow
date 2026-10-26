@@ -31,3 +31,6 @@
 [submodule "thirdparties/wx-layout"]
 	path = thirdparties/wx-layout
 	url = https://github.com/fengdu2077/wx-layout
+[submodule "thirdparties/image-use"]
+	path = thirdparties/image-use
+	url = https://github.com/leeguooooo/image-use.git
