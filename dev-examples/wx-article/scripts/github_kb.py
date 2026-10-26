@@ -191,7 +191,7 @@ def load_categories(root: str) -> List[str]:
     """受控分类词表（用户定版 2026-10-26：LLM 只能从列表选，不合适归未分类）。
 
     <根>/categories.json {"version":1,"categories":[...]}；缺失时用内置种子列表（首次 archive 时自动落盘该文件，用户可直接编辑扩充）。"""
-    seed = ["游戏UI工作流", "Agent框架", "AI自动化测试", "AI绘图工具"]
+    seed = ["游戏UI工作流", "Agent框架", "AI自动化测试", "AI绘图工具", "后台模版"]
     p = os.path.join(root, "categories.json")
     if not os.path.isfile(p):
         try:
