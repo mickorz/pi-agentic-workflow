@@ -23,10 +23,16 @@ function probePath(name: string): string | undefined {
   const probe = process.platform === 'win32' ? 'where' : 'which';
   const r = runSyncArgs(probe, [name]);
   if (r.exitCode !== 0 || !r.stdout.trim()) return undefined;
-  return r.stdout
+  const hits = r.stdout
     .split(/\r?\n/)
     .map((s) => s.trim())
-    .filter(Boolean)[0];
+    .filter(Boolean);
+  // Windows：where 会把无扩展名的 sh 脚本排在 .cmd 前面，spawn 跑不了；优先选可执行扩展名
+  if (process.platform === 'win32') {
+    const exe = hits.find((h) => /\.(exe|cmd|bat)$/i.test(h));
+    if (exe) return exe;
+  }
+  return hits[0];
 }
 
 /**

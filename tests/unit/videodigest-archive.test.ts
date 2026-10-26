@@ -16,8 +16,17 @@ const SCRIPT = path.join(ROOT, "dev-examples/videodigest/scripts/archive_inspire
 const DSL = path.join(ROOT, "dev-examples/videodigest/scripts/videodigest_extract.js");
 const REGISTRY = path.join(ROOT, "dev-examples/videodigest/registry.json");
 
+// Windows 上 python3 是 Store 占位符，探测可用解释器（同 videodigest_extract.js PY_PROBE，见 experience/windows-python-subprocess-gbk-and-python3-alias.md）
+function pickPython(): string {
+  for (const c of ["python3", "python", "py"]) {
+    if (spawnSync(c, ["-c", "import sys"], { encoding: "utf8", timeout: 10_000 }).status === 0) return c;
+  }
+  return "python3";
+}
+const PY = pickPython();
+
 function runPy(args: string[]): { code: number; stdout: string } {
-  const r = spawnSync("python3", [SCRIPT, ...args], { encoding: "utf8", timeout: 30_000 });
+  const r = spawnSync(PY, [SCRIPT, ...args], { encoding: "utf8", timeout: 30_000 });
   return { code: r.status ?? -1, stdout: (r.stdout || "") + (r.stderr || "") };
 }
 

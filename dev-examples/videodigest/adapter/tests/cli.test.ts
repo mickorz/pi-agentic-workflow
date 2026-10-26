@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,7 +20,8 @@ function runCli(args: string[]): { stdout: string; exitCode: number } {
   }
 }
 
-const CLI = new URL('../dist/cli.js', import.meta.url).pathname;
+// Windows 下 URL.pathname 产生 /E:/... 双盘符路径，必须用 fileURLToPath（见 dev-docs/experience/windows-import-meta-url-pathname.md）
+const CLI = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 
 test('resolve 规范长链：确定性输出 sourceKey（无网络）', () => {
   const r = runCli(['resolve', '--url', 'https://www.douyin.com/video/7381234567890123456']);

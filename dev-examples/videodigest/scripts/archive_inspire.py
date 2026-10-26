@@ -28,6 +28,10 @@ import sys
 import time
 from pathlib import Path
 
+# Windows 控制台默认 GBK，ensure_ascii=False 输出中文会 UnicodeEncodeError（见 experience/windows-python-subprocess-gbk-and-python3-alias.md）
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 INSPIRE_DIR_DEFAULT = "60_Workspace/写作/灵感"
 LOCK_STALE_SEC = 30 * 60  # §4.2：30 分钟陈锁接管
 TITLE_MAX = 20  # §7.2：标题 ≤20 字，代码侧双保险
@@ -373,7 +377,8 @@ def cmd_archive(args) -> int:
     # 原子写入：tmp + os.replace
     tmp = md_file.with_name(md_file.name + f".tmp-{os.getpid()}")
     try:
-        tmp.write_text(content, encoding="utf-8")
+        # newline 显式 LF：Windows 文本模式默认会把 \n 转成 \r\n，破坏 frontmatter/幂等扫查与测试断言
+        tmp.write_text(content, encoding="utf-8", newline="\n")
         os.replace(tmp, md_file)
     except OSError as e:
         try:

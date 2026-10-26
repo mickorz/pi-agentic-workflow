@@ -18,11 +18,11 @@ export const CHROME_UA =
 /** 页内抓取脚本（与 dev-examples/videodigest/scripts/vd-cdp-grab.py 保持一致） */
 const GRAB_JS =
   "(() => { const urls = performance.getEntriesByType('resource').map(e => e.name);"
-  + " const au = urls.filter(u => u.includes('media-audio')).pop() || '';"
+  + " const au = urls.filter(u => u.includes('media-audio') || u.includes('douyinvod')).pop() || '';"
 
-  + " const vi = urls.filter(u => u.includes('media-video')).pop() || '';"
+  + " const vi = urls.filter(u => u.includes('media-video') || u.includes('douyinvod')).pop() || '';"
   + " const v = document.querySelector('video');"
-  + " const authorEl = document.querySelector('[data-e2e=\"video-author-name\"]') || null;"
+  + " const authorEl = document.querySelector(`[data-e2e='video-author-name']`) || null;" // 反引号+单引号：Windows 经 cmd 包装传参，参数内不得含双引号（proc.ts cmdQuote）
   + ' return JSON.stringify({au, vi, dur: v ? Math.round(v.duration) : null,'
   + " title: document.title.split(' - 抖音')[0],"
   + ' author: authorEl ? authorEl.textContent.trim().slice(0, 50) : \'\' }); })()';
@@ -87,7 +87,110 @@ async function waitForPageId(port: number, pageId: string, timeoutMs: number): P
   throw new CliError(`新开页面（${pageId.slice(0, 8)}…）未在 ${timeoutMs}ms 内可用`, 'CDP 抓取');
 }
 
-/** 抓媒体信息：开页 → 等加载 → play → 等资源累计 → eval 抓取（带重试） */
+/**
+ * CDP 网络层收集器：监听 Network.requestWillBeSent 抓 media-audio 请求 URL。
+ * Windows 实测：抖音页面 Service Worker 会拦截媒体分片请求，被拦请求不进 performance
+ * resource timing，也不进 page 会话的 Network 域，必须额外挂 SW target（/json 里
+ * type=service_worker 且同域）才能看到，故同时挂 page + SW 会话合并监听。
+ */
+async function openNetworkCollector(
+  port: number,
+  pageId: string,
+): Promise<{ takeAudioUrl: () => string; takeVideoUrl: () => string; refreshSws: () => Promise<void>; close: () => void }> {
+  const res = await fetch(`${cdpBaseUrl(port)}/json`);
+  const targets = (await res.json()) as Array<{ id: string; url?: string; type: string; webSocketDebuggerUrl?: string }>;
+  const page = targets.find((p) => p.id === pageId);
+  if (!page?.webSocketDebuggerUrl) throw new CliError('未找到页面 webSocketDebuggerUrl', 'CDP 抓取');
+  const pageUrl = page.url ?? '';
+  let audioUrl = '';
+  let videoUrl = '';
+  const sockets: WebSocket[] = [];
+  const attachedUrls = new Set<string>();
+  const listen = (ws: WebSocket) => {
+    ws.onmessage = (ev) => {
+      const raw = typeof ev.data === 'string' ? ev.data : String(ev.data);
+      let msg: { method?: string; params?: { request?: { url?: string } } };
+      try {
+        msg = JSON.parse(raw) as typeof msg;
+      } catch {
+        return;
+      }
+      if (msg.method === 'Network.requestWillBeSent') {
+        const u = msg.params?.request?.url ?? '';
+        if (isBetterAudioUrl(u, audioUrl)) audioUrl = u; // douyinvod 取最低码率 = 当前视频
+        if (u.includes('media-video')) videoUrl = u;
+      }
+    };
+    ws.send(JSON.stringify({ id: 1, method: 'Network.enable', params: {} }));
+    // 绕过 Service Worker：SW 缓存全命中时媒体请求不过网络（两通道都看不到，抓取随机失败）；
+    // bypass 后请求直连网络，page 会话 Network 域与 performance 记录均可见。旧版 Chrome 不支持则静默忽略（响应无 pending 处理器）
+    ws.send(JSON.stringify({ id: 2, method: 'Network.setBypassServiceWorker', params: { bypass: true } }));
+    sockets.push(ws);
+  };
+  const attach = async (wsUrl: string, required = false) => {
+    if (attachedUrls.has(wsUrl)) return;
+    const ws = new WebSocket(wsUrl);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ws.onopen = () => resolve();
+        ws.onerror = () => reject(new CliError('CDP WebSocket 连接失败', 'CDP 抓取'));
+      });
+    } catch (e) {
+      if (required) throw e; // page 会话是必需的，失败即败
+      return; // best-effort：SW 会话失败降级 performance 通道，refreshSws 下轮重试（idle SW 会被 Chrome 随时回收，连接竞态正常）
+    }
+    attachedUrls.add(wsUrl); // 成功才登记，失败的下轮可重试
+    listen(ws);
+  };
+  await attach(page.webSocketDebuggerUrl, true);
+  await attachSws();
+  /** 补挂后出现的同域 SW target（首次访问时 SW 晚于收集器注册，媒体请求会全部漏掉） */
+  async function attachSws(): Promise<void> {
+    const res2 = await fetch(`${cdpBaseUrl(port)}/json`);
+    const now = (await res2.json()) as Array<{ url?: string; type: string; webSocketDebuggerUrl?: string }>;
+    for (const t of now) {
+      if (t.type === 'service_worker' && t.webSocketDebuggerUrl && t.url && pageUrl && sameOrigin(t.url, pageUrl)) {
+        await attach(t.webSocketDebuggerUrl);
+      }
+    }
+  }
+  return {
+    takeAudioUrl: () => audioUrl,
+    takeVideoUrl: () => videoUrl,
+    refreshSws: () => attachSws().catch(() => undefined), // 补挂失败不阻断流程
+    close: () => {
+      for (const ws of sockets) {
+        try {
+          ws.close();
+        } catch {
+          // best effort
+        }
+      }
+    },
+  };
+}
+
+/** 音频流 URL 甄别：legacy media-audio 特征，或新版 douyinvod.com 媒体 URL（取更低码率，更小的音视混合流） */
+function isBetterAudioUrl(u: string, current: string): boolean {
+  const audioish = u.includes('media-audio') || u.includes('douyinvod.com');
+  if (!audioish) return false;
+  if (!current) return true;
+  const br = (s: string) => Number(/[?&]br=(\d+)/.exec(s)?.[1] ?? Number.MAX_SAFE_INTEGER);
+  return br(u) < br(current);
+}
+
+/** 判断两个 URL 是否同源（SW 归属判断用） */
+function sameOrigin(a: string, b: string): boolean {
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+}
+
+/** 抓媒体信息：开页 → 等加载 → play → 等资源累计 → eval 抓取。每次 attempt 换新 tab：
+ * 抖音风控会间歇性下发降级壳页（title 空、播放器恒 ready=0），坏页上重试无意义，
+ * 换新页 = 独立重掷（实测同 tab 三连败、新 tab 即中） */
 export async function grabMediaViaCdp(opts: {
   cdpPath: string;
   pageUrl: string;
@@ -97,63 +200,68 @@ export async function grabMediaViaCdp(opts: {
   logger?: { info?: (m: string) => void };
 }): Promise<{ port: number; pageId: string; info: CdpMediaInfo }> {
   const port = await cdpLaunch(opts.cdpPath);
-  // 直接使用 cdpOpenTabId 返回的新页 id：按 URL 搜 /json 会命中之前遗留的同 URL 旧页（实测踩坑），
-  // 旧页 media 资源已过期/未加载，导致抓取恒失败
-  const pageId = await waitForPageId(port, cdpOpenTabId(opts.cdpPath, port, opts.pageUrl), 15000);
-  opts.logger?.info?.(`视频页已打开（page=${pageId.slice(0, 8)}…）`);
-  // 页面一可用就扩容 resource 缓冲（比首次 play 更早，防早期打满）
-  try {
-    evalJs(opts.cdpPath, port, pageId, PLAY_JS);
-  } catch {
-    // 页面尚未可执行 JS，attempt 循环里会再试
-  }
-
   const loadWaitMs = opts.loadWaitMs ?? 5000;
   const playWaitMs = opts.playWaitMs ?? 7000;
   const attempts = opts.attempts ?? 3;
 
   let lastErr = '';
   for (let i = 0; i < attempts; i++) {
-    await new Promise((r) => setTimeout(r, loadWaitMs));
+    if (i > 0) await new Promise((r) => setTimeout(r, 4000)); // 风控冷却：连开同视频页易命中降级页
+    // 直接使用 cdpOpenTabId 返回的新页 id：按 URL 搜 /json 会命中之前遗留的同 URL 旧页（实测踩坑），
+    // 旧页 media 资源已过期/未加载，导致抓取恒失败
+    const pageId = await waitForPageId(port, cdpOpenTabId(opts.cdpPath, port, opts.pageUrl), 15000);
+    opts.logger?.info?.(`视频页已打开（page=${pageId.slice(0, 8)}…，第 ${i + 1} 次）`);
+    // 页面一可用就尽早接网络层收集器：media 请求可能早于 PLAY_JS 触发（预加载）
+    const net = await openNetworkCollector(port, pageId);
     try {
-      evalJs(opts.cdpPath, port, pageId, PLAY_JS);
-    } catch (e) {
-      lastErr = e instanceof Error ? e.message : String(e);
-      continue; // video 元素未就绪，继续等
-    }
-    await new Promise((r) => setTimeout(r, playWaitMs));
-    let raw: string;
-    try {
-      raw = evalJs(opts.cdpPath, port, pageId, GRAB_JS);
-    } catch (e) {
-      lastErr = e instanceof Error ? e.message : String(e);
-      continue;
-    }
-    // 页面返回 {au,vi,dur,title,author}(与 vd-cdp-grab.py 线上格式一致),
-    // 映射到 CdpMediaInfo{audioUrl,videoUrl,durationSeconds,...} —— 字段名不一致, 必须显式映射
-    let wire: { au?: string; vi?: string; dur?: number | null; title?: string; author?: string };
-    try {
-      wire = JSON.parse(raw) as typeof wire;
-    } catch {
-      lastErr = `eval 返回非 JSON：${raw.slice(0, 200)}`;
-      continue;
-    }
-    const info: CdpMediaInfo = {
-      audioUrl: wire.au || '',
-      videoUrl: wire.vi || '',
-      durationSeconds: typeof wire.dur === 'number' ? wire.dur : null,
-      title: wire.title || '',
-      author: wire.author || '',
-    };
-    if (info.audioUrl) {
-      // best-effort 关页（失败不影响结果）
+      // 页面一可用就扩容 resource 缓冲（比首次 play 更早，防早期打满）
+      try {
+        evalJs(opts.cdpPath, port, pageId, PLAY_JS);
+      } catch {
+        // 页面尚未可执行 JS，下面会再试
+      }
+      await net.refreshSws(); // SW 可能晚于收集器注册（首次访问），补挂
+      await new Promise((r) => setTimeout(r, loadWaitMs));
+      try {
+        evalJs(opts.cdpPath, port, pageId, PLAY_JS);
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+        continue; // video 元素未就绪，换新页重试
+      }
+      await new Promise((r) => setTimeout(r, playWaitMs));
+      let raw: string;
+      try {
+        raw = evalJs(opts.cdpPath, port, pageId, GRAB_JS);
+      } catch (e) {
+        lastErr = e instanceof Error ? e.message : String(e);
+        continue;
+      }
+      // 页面返回 {au,vi,dur,title,author}(与 vd-cdp-grab.py 线上格式一致),
+      // 映射到 CdpMediaInfo{audioUrl,videoUrl,durationSeconds,...} —— 字段名不一致, 必须显式映射
+      let wire: { au?: string; vi?: string; dur?: number | null; title?: string; author?: string };
+      try {
+        wire = JSON.parse(raw) as typeof wire;
+      } catch {
+        lastErr = `eval 返回非 JSON：${raw.slice(0, 200)}`;
+        continue;
+      }
+      const info: CdpMediaInfo = {
+        audioUrl: wire.au || net.takeAudioUrl(), // 优先页内 performance，回落 CDP 网络层（Windows SW 拦截场景）
+        videoUrl: wire.vi || net.takeVideoUrl(),
+        durationSeconds: typeof wire.dur === 'number' ? wire.dur : null,
+        title: wire.title || '',
+        author: wire.author || '',
+      };
+      if (info.audioUrl) {
+        return { port, pageId, info };
+      }
+      lastErr = '未抓到媒体资源（疑似风控降级页：title 空、播放器不初始化）';
+    } finally {
+      // best-effort 关页与收集器（失败不影响结果）
+      net.close();
       runSyncArgs(opts.cdpPath, ['--cdp-url', cdpBaseUrl(port), 'close', pageId]);
-      return { port, pageId, info };
     }
-    lastErr = '未抓到 media-audio 资源（播放未触发或资源未加载）';
   }
-  // best-effort 关页
-  runSyncArgs(opts.cdpPath, ['--cdp-url', cdpBaseUrl(port), 'close', pageId]);
   throw new CliError(`CDP 抓取音频 URL 失败（${attempts} 次尝试）：${lastErr}`, 'CDP 抓取');
 }
 
