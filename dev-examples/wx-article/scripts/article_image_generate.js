@@ -205,6 +205,9 @@ if (result.paused_unknown) {
   out.hint = '已暂停: 存在扣费不确定(超时/连接中断)条目 ' + (result.unknown_ids || []).join(',') +
     '。人工核对账单后: 确认未计费→重新运行并传 retry_unknown=true 补跑该张。'
 }
+if (result.budget_stopped) {
+  out.hint = (out.hint ? out.hint + ' ' : '') + '累计估算消耗（请求数×单价）已达预算 ¥' + (args.budget_cny ?? '?') + '，剩余条目留 pending；上调 budget_cny 后重跑即可续。'
+}
 if (result.capped_remaining > 0) {
   out.hint = (out.hint ? out.hint + ' ' : '') + '已达单次运行张数上限, ' + result.capped_remaining + ' 张留待下次运行继续。'
 }

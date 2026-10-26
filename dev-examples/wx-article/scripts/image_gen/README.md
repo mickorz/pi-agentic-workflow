@@ -1,6 +1,6 @@
 # image_gen — 公众号两阶段生图执行器（Node）
 
-需求来源：`dev-docs/planning/AI配图生成两阶段执行（article_image_generate）需求文档（V1.0）.md`（P1.5 已实现，见其第九节）。
+需求来源：`dev-docs/planning/AI配图生成两阶段执行（article_image_generate）需求文档（V1.1）.md`（P1.5 已实现，见其第九节）。
 语言例外已登记 CLAUDE.md「脚本语言约定」：本目录为 Node 例外区（依赖只在 Node 生态）。
 
 ## 两阶段模式（P1.5，缺省 require_style_approval 开启）

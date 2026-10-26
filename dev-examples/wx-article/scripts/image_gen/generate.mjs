@@ -283,6 +283,11 @@ async function main() {
     return;
   }
 
+  // ── 预算运行时口径（V1.1 评审建议 1）：requests_issued 累计请求数持久化（跨运行/分批累计）；
+  //  每次发请求前检查累计估算消耗（单价×请求数，估算口径——服务商未必实时返回费用，不代表实际账单）──
+  manifest0.requests_issued ??= 0;
+  const requestsIssuedStart = manifest0.requests_issued;
+
   // ── preview 代表条目（P1.5-A：固定只跑 1 张代表图；优先 --preview-id，否则首个 body，再退化首个条目）──
   let previewItem = null;
   if (args.mode === "preview") {
@@ -362,18 +367,28 @@ async function main() {
     };
   }
 
-  // ── 预算硬门（P1.5-C 验收 7：最坏估算超预算 → 不发任何请求）──
+  // ── 单次运行张数硬上限（P1.5-C 验收 4：超出部分留 pending，下次再跑）；
+  // 切片在预算门之前：预算门按本轮实际会跑的张数估算（cap 后），不误拦被 cap 挡住的部分 ──
+  let runQueue = toRun;
+  let cappedRemaining = 0;
+  if (args.maxImagesPerRun !== null && toRun.length > args.maxImagesPerRun) {
+    cappedRemaining = toRun.length - args.maxImagesPerRun;
+    runQueue = toRun.slice(0, args.maxImagesPerRun);
+  }
+
+  // ── 预算硬门（P1.5-C 验收 7：最坏估算超预算 → 不发任何请求；
+  //  另有运行时门：每次发请求前按累计请求数检查，见 runOne）──
   let cost = null;
-  if (price !== null && toRun.length > 0) {
+  if (price !== null && runQueue.length > 0) {
     cost = {
       price_cny: price,
-      images: toRun.length,
-      est_min_cny: round2(toRun.length * price),
-      est_max_cny: round2(toRun.length * price * maxAttempts),
+      images: runQueue.length,
+      est_min_cny: round2(runQueue.length * price),
+      est_max_cny: round2(runQueue.length * price * maxAttempts),
     };
     if (args.budgetCny !== null && cost.est_max_cny > args.budgetCny) {
       fail(
-        `预算拦截：${toRun.length} 张 × ¥${price}/张 × 最多 ${maxAttempts} 次尝试 = 最坏估算 ¥${cost.est_max_cny}，超出预算 ¥${args.budgetCny}（成功一次也要 ¥${cost.est_min_cny}）。` +
+        `预算拦截：${runQueue.length} 张 × ¥${price}/张 × 最多 ${maxAttempts} 次尝试 = 最坏估算 ¥${cost.est_max_cny}，超出预算 ¥${args.budgetCny}（成功一次也要 ¥${cost.est_min_cny}）。` +
           `可上调 --budget-cny、减少张数（--only-ids / --max-images-per-run）或降低 --max-attempts-per-image`,
       );
       return;
@@ -392,14 +407,6 @@ async function main() {
     return;
   }
 
-  // ── 单次运行张数硬上限（P1.5-C 验收 4：超出部分留 pending，下次再跑）──
-  let runQueue = toRun;
-  let cappedRemaining = 0;
-  if (args.maxImagesPerRun !== null && toRun.length > args.maxImagesPerRun) {
-    cappedRemaining = toRun.length - args.maxImagesPerRun;
-    runQueue = toRun.slice(0, args.maxImagesPerRun);
-  }
-
   // ── 生成阶段（持锁，D5：锁 PID=本进程，全程有效）──
   const summary = {
     ok: false,
@@ -416,6 +423,8 @@ async function main() {
     pending_ids: [],
     unknown_ids: [],
     paused_unknown: false,
+    requests_issued: 0,
+    budget_stopped: false,
     capped_remaining: cappedRemaining,
     cost,
   };
@@ -437,10 +446,16 @@ async function main() {
           modelFingerprint,
           referenceHash,
           summary,
+          price,
+          budgetCny: args.budgetCny,
         });
         if (outcome === "paused-unknown") {
           summary.paused_unknown = true;
           break; // 扣费不确定：暂停转人工，不因 --continue-on-error 继续
+        }
+        if (outcome === "budget-stopped") {
+          summary.budget_stopped = true;
+          break; // 累计估算超预算：剩余条目留 pending，提额后可续跑
         }
         if (outcome === "stopped" && !args.continueOnError) break;
         // 图间隔节流（限流防线：免费档 QPS 敏感，T1.10 实测 27 连发触发小时级配额封锁）
@@ -504,6 +519,8 @@ async function main() {
     }
   }
   summary.paused_unknown = summary.paused_unknown || summary.unknown_ids.length > 0;
+  summary.requests_issued = manifest0.requests_issued - requestsIssuedStart;
+  summary.requests_issued_total = manifest0.requests_issued;
   summary.ok = summary.failed === 0 && summary.pending === 0 && summary.unknown === 0;
 
   console.log(`[RESULT] ${JSON.stringify(summary)}`);
@@ -519,7 +536,7 @@ function round2(x) {
  * 每次 Manifest 状态转换即时落盘（running 即写，压双计费窗口到单图粒度）。
  */
 async function runOne(step, ctx) {
-  const { articleDir, manifestPath, manifest, provider, providerContext, args, modelFingerprint, summary, maxAttempts } = ctx;
+  const { articleDir, manifestPath, manifest, provider, providerContext, args, modelFingerprint, summary, maxAttempts, price, budgetCny } = ctx;
   const { item, entry } = step;
   const isCandidate = step.action === "run-candidate";
   const fullPrompt = step.__fullPrompt;
@@ -564,6 +581,17 @@ async function runOne(step, ctx) {
   try {
     for (let n = 1; n <= maxAttemptsResolved; n++) {
       if (interrupted) break;
+      // 预算运行时门（V1.1 评审建议 1）：每次发请求前检查累计估算消耗（估算口径，非实际账单）；
+      // 超限不发请求，条目保持原状态回 pending（走 finally 无副作用分支）
+      if (price !== null && price !== undefined && budgetCny !== null && budgetCny !== undefined) {
+        if ((manifest.requests_issued + 1) * price > budgetCny + 1e-9) {
+          console.log(
+            `[BUDGET] stop ${item.id}: 累计请求 ${manifest.requests_issued} 次 × ¥${price} + 本次 ¥${price} 将超预算 ¥${budgetCny}，停止（估算口径，剩余条目留 pending）`,
+          );
+          return "budget-stopped";
+        }
+      }
+      manifest.requests_issued += 1;
       // 状态置 running（候选链置 generating）并落盘
       if (isCandidate) {
         if (n === 1) {

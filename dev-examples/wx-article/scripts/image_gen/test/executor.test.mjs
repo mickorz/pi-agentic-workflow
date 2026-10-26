@@ -528,6 +528,35 @@ test("P15-7 验收7 预算拦截：最坏估算超预算 → exit 2 且零请求
   assert.equal(plan.cost.est_max_cny, 27);
 });
 
+test("P15-11 预算运行时门：累计请求数×单价超预算 → 发请求前停，提额后可续跑（跨运行累计）", () => {
+  const dir = mkArticleDir("p15-budget-rt", SAMPLE);
+  // 单次尝试 1、单价 1、预算 7、首轮 cap 4：
+  // R1 est_max=4≤7 放行 → 4 张成功（累计 4 次）
+  const r1 = runGen(dir, ["--max-attempts-per-image", "1", "--price-cny", "1", "--budget-cny", "7", "--max-images-per-run", "4"], { env: FAST });
+  assert.equal(r1.res.status, 1, r1.res.stdout); // capped → pending>0 → exit 1
+  let s = JSON.parse(lastLine(r1.res.stdout, "[RESULT] "));
+  assert.equal(s.succeeded, 4);
+  assert.equal(readManifest(dir).requests_issued, 4, "累计请求数持久化");
+  // R2 est_max=5≤7 放行，但运行中第 8 次请求前 (7+1)×1=8>7 → budget-stopped：5,6,7 成功后停
+  const r2 = runGen(dir, ["--max-attempts-per-image", "1", "--price-cny", "1", "--budget-cny", "7"], { env: FAST });
+  assert.equal(r2.res.status, 1, r2.res.stdout);
+  s = JSON.parse(lastLine(r2.res.stdout, "[RESULT] "));
+  assert.equal(s.budget_stopped, true, "运行时预算门触发");
+  assert.equal(s.succeeded, 7);
+  assert.equal(s.pending, 2, "第 8、9 张留 pending");
+  assert.equal(r2.calls.length, 3, "R2 只发了 3 次请求");
+  assert.equal(s.requests_issued, 3);
+  assert.equal(s.requests_issued_total, 7);
+  assert.match(r2.res.stdout, /\[BUDGET\] stop/);
+  // R3 提额到 9 → 补齐剩余 2 张，累计 9 次
+  const r3 = runGen(dir, ["--max-attempts-per-image", "1", "--price-cny", "1", "--budget-cny", "9"], { env: FAST });
+  assert.equal(r3.res.status, 0, r3.res.stdout);
+  s = JSON.parse(lastLine(r3.res.stdout, "[RESULT] "));
+  assert.equal(s.ok, true);
+  assert.equal(s.succeeded, 9);
+  assert.equal(s.requests_issued_total, 9);
+});
+
 test("P15-8 验收8 regenerate：单独重做走 candidate 链，原图隔离，旧图进 bak", () => {
   const dir = mkArticleDir("p15-regen", SAMPLE);
   runGen(dir, [], { env: FAST });
