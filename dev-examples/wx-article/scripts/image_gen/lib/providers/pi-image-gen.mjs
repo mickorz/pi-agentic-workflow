@@ -1,6 +1,7 @@
 // 真实 Provider：@amaster.ai/pi-image-gen（P0 T0.4 已真实验证 8.1s cogview-3-flash）。
-// 智谱兼容层：customProviders + fetchImpl 去掉固定 n:1（智谱对显式 n 报 HTTP 429 + code 1314，P0 实测坑）。
-// 配置来源：IMAGE_GEN_API_KEY / IMAGE_GEN_BASE_URL / IMAGE_GEN_MODEL 环境变量（缺省 zhipu cogview-3-flash）。
+// 通用 OpenAI 兼容层：任何 OpenAI API 格式的文生图端点用三件套接入——
+//   IMAGE_GEN_API_KEY / IMAGE_GEN_BASE_URL / IMAGE_GEN_MODEL（缺省智谱 cogview-3-flash）。
+// 智谱特化补丁（去 n:1、1314 错误码识别）仅智谱域名生效，非智谱端点走标准 wire format。
 import { generateImage, loadImageGenSettings } from "@amaster.ai/pi-image-gen";
 import path from "node:path";
 import fsp from "node:fs/promises";
@@ -8,6 +9,7 @@ import fsp from "node:fs/promises";
 export const providerId = "pi-image-gen";
 
 const ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
+const CUSTOM_PROVIDER_KEY = "custom-openai";
 
 export function buildSettings(env = process.env) {
   const apiKey = env.IMAGE_GEN_API_KEY;
@@ -20,25 +22,34 @@ export function buildSettings(env = process.env) {
   }
   return {
     cwd: process.cwd(),
+    baseUrl,
     settings: {
       ...loadImageGenSettings({ cwd: process.cwd() }),
       defaultModel: modelId,
-      customProviders: [
-        {
-          id: "zhipu",
+      // 库契约：customProviders 为 Record<string, CustomImageProvider>（pi-image-gen dist/types.d.ts）。
+      // 显式 models 列表 = 确定性路由（resolveModel 第 1 优先级命中，不会库内置 id 抢道）。
+      customProviders: {
+        [CUSTOM_PROVIDER_KEY]: {
           api: "openai",
           baseUrl,
           apiKey,
           models: [{ id: modelId }],
         },
-      ],
+      },
     },
     modelId,
   };
 }
 
-/** 去掉 pi-image-gen openai adapter 固定发送的 n:1（智谱 429 伪装业务错误，见 P0 报告） */
-function zhipuFetchPatch() {
+/** 智谱端点判定（仅域名匹配，用于特化补丁的开关；非智谱端点走标准 OpenAI wire format） */
+export function isZhipuEndpoint(baseUrl) {
+  return /bigmodel\.cn/i.test(String(baseUrl ?? ""));
+}
+
+/** 去掉 pi-image-gen openai adapter 固定发送的 n:1（智谱 429 伪装业务错误，见 P0 报告）。
+ *  仅智谱端点应用：非智谱端点保留原始请求体，不做任何改写。 */
+function zhipuFetchPatch(enabled) {
+  if (!enabled) return undefined; // 不注入 fetchImpl → 库内原生 fetch，请求体原样
   return async (url, init = {}) => {
     if (typeof init.body === "string" && init.body.includes('"n"')) {
       try {
@@ -93,7 +104,7 @@ export async function generate({ kind, prompt, outPath, model, signal, context =
       {
         cwd: cfg.cwd,
         settings: { ...cfg.settings, defaultModel: useModel },
-        fetchImpl: zhipuFetchPatch(),
+        fetchImpl: zhipuFetchPatch(isZhipuEndpoint(cfg.baseUrl ?? ZHIPU_BASE_URL)),
         signal: attemptSignal,
       },
     );

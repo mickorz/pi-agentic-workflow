@@ -81,7 +81,7 @@ batch 门（require_style_approval 默认开）: 非 approved 或指纹不匹配
 
 | 轨道 | 环境变量 | 说明 |
 |---|---|---|
-| pi-image-gen（缺省） | `IMAGE_GEN_API_KEY`（必填）、`IMAGE_GEN_BASE_URL`、`IMAGE_GEN_MODEL` | 智谱兼容层自动去掉固定 `n:1`（P0 坑） |
+| 真实 provider（缺省） | `IMAGE_GEN_API_KEY`（必填）、`IMAGE_GEN_BASE_URL`、`IMAGE_GEN_MODEL` | **任何 OpenAI API 格式端点即插即用**（三件套配置，无需改代码）；智谱缺省 cogview-3-flash，智谱兼容层自动去掉固定 `n:1`（仅智谱域名生效） |
 | fake | 无 | 确定性 PNG，零费用 |
 | pi-ai | `OPENROUTER_API_KEY` | EXPERIMENTAL（未真实调用） |
 | 自定义 | `--provider <module.mjs>` | 须导出 `generate()`（测试注入用） |

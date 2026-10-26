@@ -528,6 +528,27 @@ test("P15-7 验收7 预算拦截：最坏估算超预算 → exit 2 且零请求
   assert.equal(plan.cost.est_max_cny, 27);
 });
 
+test("P16-1 provider 配置面：任何 OpenAI 兼容端点即插即用，路由确定性命中 custom provider", async () => {
+  const { buildSettings, isZhipuEndpoint } = await import("../lib/providers/pi-image-gen.mjs");
+  const { resolveModel } = await import("@amaster.ai/pi-image-gen");
+  const cases = [
+    { name: "智谱缺省", env: { IMAGE_GEN_API_KEY: "k1" }, baseUrl: "https://open.bigmodel.cn/api/paas/v4" },
+    { name: "OpenAI官方(内置id)", env: { IMAGE_GEN_API_KEY: "sk-x", IMAGE_GEN_BASE_URL: "https://api.openai.com/v1", IMAGE_GEN_MODEL: "gpt-image-1" }, baseUrl: "https://api.openai.com/v1" },
+    { name: "自建网关", env: { IMAGE_GEN_API_KEY: "gw-x", IMAGE_GEN_BASE_URL: "https://my-gateway.example.com/v1", IMAGE_GEN_MODEL: "qwen-image-2.0" }, baseUrl: "https://my-gateway.example.com/v1" },
+  ];
+  for (const c of cases) {
+    const cfg = buildSettings(c.env);
+    assert.equal(cfg.baseUrl, c.baseUrl, c.name + " baseUrl");
+    const r = resolveModel(cfg.modelId, cfg.settings);
+    assert.ok(!r.error, c.name + " 路由失败: " + (r.error ?? ""));
+    assert.equal(r.provider?.baseUrl, c.baseUrl, c.name + " 必须命中 custom provider（不被库内置 id 抢道）");
+    assert.equal(r.remoteId, cfg.modelId, c.name + " remoteId");
+  }
+  assert.equal(isZhipuEndpoint("https://open.bigmodel.cn/api/paas/v4"), true);
+  assert.equal(isZhipuEndpoint("https://api.openai.com/v1"), false);
+  assert.equal(isZhipuEndpoint(undefined), false);
+});
+
 test("P15-11 预算运行时门：累计请求数×单价超预算 → 发请求前停，提额后可续跑（跨运行累计）", () => {
   const dir = mkArticleDir("p15-budget-rt", SAMPLE);
   // 单次尝试 1、单价 1、预算 7、首轮 cap 4：
