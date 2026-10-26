@@ -1,0 +1,13 @@
+{
+  "id": 900900900,
+  "name": "prompt-inject-demo",
+  "full_name": "example/prompt-inject-demo",
+  "html_url": "https://github.com/example/prompt-inject-demo",
+  "description": "README 内含伪装指令的对抗样本（T-D 用例）",
+  "stargazers_count": 7,
+  "default_branch": "main",
+  "archived": false,
+  "pushed_at": "2026-10-01T00:00:00Z",
+  "license": { "spdx_id": "Apache-2.0" },
+  "owner": { "login": "example" }
+}

@@ -1,0 +1,9 @@
+{
+  "sha": "f1xture5tree0000000000000000000000000000",
+  "tree": [
+    { "path": "README.md", "type": "blob" },
+    { "path": "src", "type": "tree" },
+    { "path": "tests", "type": "tree" },
+    { "path": "flow.yaml", "type": "blob" }
+  ]
+}

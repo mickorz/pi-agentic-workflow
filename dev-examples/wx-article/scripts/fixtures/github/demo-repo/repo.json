@@ -1,0 +1,13 @@
+{
+  "id": 100200300,
+  "name": "demo-repo",
+  "full_name": "example/demo-repo",
+  "html_url": "https://github.com/example/demo-repo",
+  "description": "示例仓库：用于 fixture 沙盒测试的抓取样本",
+  "stargazers_count": 42,
+  "default_branch": "main",
+  "archived": false,
+  "pushed_at": "2026-10-20T00:00:00Z",
+  "license": { "spdx_id": "MIT" },
+  "owner": { "login": "example" }
+}
