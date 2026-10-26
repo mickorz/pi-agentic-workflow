@@ -13,6 +13,7 @@
   article_dir / md{path,name} / frontmatter{title,description}
   yaml        {exists,title,digest,author,content_source,missing[]}
   imgs        {dir_exists, files, referenced}   files 不含 cover*；referenced 为正文引用数
+  imgs_numbering {applicable, missing[], out_of_range[], sections}  序号方案预检（全部唯一序号才适用）
   needs_insert   imgs 有图但正文引用数 < 图数（含 cover 前缀图排除）=> 需要插图
   cover       {state: root|imgs|none, path(相对 article_dir)}
   state       {exists, accounts:{appid:{status,draftMediaId,contentHash12}}}
@@ -36,6 +37,9 @@ if hasattr(sys.stdout, "reconfigure"):
 IMG_PREFIX_EXCLUDE = re.compile(r"^(article|draft|review)")
 NAME_ILLEGAL = ("审稿", "图片引用清单", "大纲", "配图建议")
 IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
+# 与 insert_images.py 的 NUM_RE 保持一致（序号方案契约同源）
+NUM_RE = re.compile(r"^(?:图\s*)?(\d{1,3})(?=[-_.\s]|$)")
+IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 
 
 def find_config_root(start: Path) -> Path | None:
@@ -70,6 +74,33 @@ def cover_state(article_dir: Path) -> dict:
             if p.is_file() and p.name.lower().startswith("cover"):
                 return {"state": "imgs", "path": f"imgs/{p.name}"}
     return {"state": "none", "path": ""}
+
+
+def number_of(image: str) -> int | None:
+    """从图片文件名提取序号：01-x.png / 1_x.png / 图1-x.png -> 1；无序号 -> None。"""
+    m = NUM_RE.match(Path(image).stem)
+    return int(m.group(1)) if m else None
+
+
+def numbering_precheck(img_files: list[str], md_text: str) -> dict:
+    """配图序号完整性预检（2026-10-26：numbered 方案缺号/越界要在 prepare 最先中断）。
+
+    仅当全部正文图（不含 cover 前缀）带唯一序号时适用（numbered 方案生效前提）。
+    - missing: 1..max 中的缺号（如 01-06,08,09 -> 缺 07）
+    - out_of_range: 序号 > 章节数（## 计数，映射无处安放）
+    混入无序号图/序号重复 -> applicable=False（走语义匹配，不做此检查）。
+    """
+    sections = sum(1 for line in md_text.splitlines() if line.strip().startswith("##"))
+    out = {"applicable": False, "missing": [], "out_of_range": [], "sections": sections}
+    if not img_files or any(Path(n).suffix.lower() not in IMG_EXTS for n in img_files):
+        return out
+    nums = [number_of(n) for n in img_files]
+    if any(n is None for n in nums) or len(set(nums)) != len(nums):
+        return out
+    out["applicable"] = True
+    out["missing"] = sorted(set(range(1, max(nums) + 1)) - set(nums))  # type: ignore[arg-type]
+    out["out_of_range"] = sorted(n for n in nums if n > sections)  # type: ignore[comparison-overlap]
+    return out
 
 
 def inspect_dir(article_dir: Path, account_slot: int, config_dir: str | None) -> dict:
@@ -116,6 +147,15 @@ def inspect_dir(article_dir: Path, account_slot: int, config_dir: str | None) ->
     referenced_imgs = [r for r in refs if r.startswith("imgs/")]
     out["imgs"] = {"dir_exists": imgs_dir.is_dir(), "files": len(img_files), "referenced": len(referenced_imgs)}
     out["needs_insert"] = bool(img_files) and len(referenced_imgs) < len(img_files)
+
+    # 配图序号完整性预检：缺号/越界由 article_prepare 在授权前中断并告知序号
+    numbering = numbering_precheck(img_files, md_text)
+    out["imgs_numbering"] = numbering
+    if numbering["applicable"] and numbering["missing"]:
+        out["issues"].append("配图序号缺失: " + "、".join(f"{n:02d}" for n in numbering["missing"]))
+    if numbering["applicable"] and numbering["out_of_range"]:
+        out["issues"].append("配图序号越界: " + "、".join(str(n) for n in numbering["out_of_range"])
+                              + f" 超出章节数 {numbering['sections']}")
 
     # 封面
     cov = cover_state(article_dir)

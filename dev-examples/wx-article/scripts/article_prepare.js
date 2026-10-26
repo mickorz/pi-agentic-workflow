@@ -1,6 +1,6 @@
 export const meta = {
   name: 'article_prepare',
-  description: '文章自动补齐入草稿箱: 定位目录 -> 确定性状态检查 -> 一次授权 -> 按需插图(语义匹配,默认不改写正文) -> 显式参数调 draft_manager/publish.py 建或更新草稿(同内容复用/变更更新)。对应需求文档 V1.2 prepare 模式。',
+  description: '文章自动补齐入草稿箱: 定位目录 -> 确定性状态检查(含配图序号预检,缺号/越界直接中断并告知序号) -> 一次授权 -> 按需插图(序号优先/语义匹配,默认不改写正文) -> 显式参数调 draft_manager/publish.py 建或更新草稿(同内容复用/变更更新)。默认必须走到草稿箱。对应需求文档 V1.2 prepare 模式。',
 }
 
 // 输入 args:
@@ -52,6 +52,22 @@ if (!articleDir && args.vault_ref) {
   articleDir = r.resolved_path
   log('vault 定位: ' + args.vault_ref + ' -> ' + r.resolved_rel)
 }
+// article_name 通道优先尝试 vault 确定性解析(2026-10-26): 免后缀话术「准备/处理文章 <标题>」
+// 路由常提取为 article_name,而文章实际在 Obsidian vault 且未配 article_workspace(裸 --locate 必败)。
+// vault 命中即用; 未命中回落原 --locate(workspace 模式),不影响纯工作区部署。
+if (!articleDir && !args.vault_ref && args.article_name) {
+  const vr = await vaultResolve(args.article_name, { scope: args.vault_scope, want: 'article' })
+  if (vr.ok === true) {
+    if (args.vault_ref_pinned_rel) {
+      await check(
+        () => vr.resolved_rel === args.vault_ref_pinned_rel,
+        '定位结果与批准目标不一致，请重新授权',
+      )
+    }
+    articleDir = vr.resolved_path
+    log('vault 定位(article_name 回落): ' + args.article_name + ' -> ' + vr.resolved_rel)
+  }
+}
 
 const checkArgs = (articleDir
   ? '--article-dir "' + articleDir + '"'
@@ -98,9 +114,26 @@ if (!inspectResult.ok) {
 
 articleDir = inspectResult.article_dir || articleDir
 const accs = inspectResult.state_accounts || {}
+const pendingAcc = Object.keys(accs).filter(k => accs[k].hasPending)
+
+// ---------- 配图序号预检（2026-10-26: 缺号/越界在授权前直接中断, 不消耗审批与后续步骤） ----------
+const numbering = (() => { try { return (JSON.parse(inspectResult.raw) || {}).imgs_numbering || null } catch { return null } })()
+const numMissing = (numbering && numbering.missing) || []
+const numOor = (numbering && numbering.out_of_range) || []
+if (inspectResult.needs_insert && numbering && numbering.applicable && (numMissing.length || numOor.length)) {
+  const why = []
+  if (numMissing.length) why.push('序号缺失: ' + numMissing.map(n => String(n).padStart(2, '0')).join('、'))
+  if (numOor.length) why.push('序号越界: ' + numOor.join('、') + ' 超出章节数 ' + numbering.sections)
+  const msg = '配图序号检查未通过（' + why.join('；') + '）。已中断，请在 Obsidian 补齐缺失配图或重命名序号后重试'
+  await notify('failed', '文章处理失败(序号预检):' + msg)
+  return {
+    ok: false, article_dir: articleDir, inserted: 0, media_id: '', draft_mode: '', reused: false,
+    report: msg, issues: ['配图序号缺失: ' + numMissing.join(','), '配图序号越界: ' + numOor.join(',')],
+  }
+}
+
 await notify('info', '检查完成:《' + (inspectResult.md && inspectResult.md.name ? inspectResult.md.name : articleDir) + '》' +
   (inspectResult.needs_insert ? '有未引用配图待插入' : '配图已就绪') + '，即将' + (inspectResult.needs_insert ? '插图并' : '') + '入草稿箱')
-const pendingAcc = Object.keys(accs).filter(k => accs[k].hasPending)
 
 // ---------- 一次授权（网关批准链生效时可 skip_confirm 透传） ----------
 if (args.skip_confirm !== true) {

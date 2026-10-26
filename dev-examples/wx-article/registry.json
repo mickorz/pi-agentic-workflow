@@ -208,7 +208,7 @@
     "workflowId": "article-prepare",
     "scriptPath": "wx-article/scripts/article_prepare.js",
     "name": "文章处理入草稿箱",
-    "description": "自动补齐文章并入草稿箱:文章定位(定位三选一: article_dir 绝对路径 / vault_ref(Obsidian 逻辑引用:文章名或 vault 相对路径,跨设备免绝对路径,如《AI提问技巧》或 公众号/AI入门/AI提问技巧) / article_name 工作区名称唯一命中) -> 一次授权 -> 按需插图(语义匹配,默认不改写正文) -> 建/更新草稿(同内容复用,变更更新,不产生重复草稿)。修改文件并调微信 API。话术:「准备文章 <标题>」「处理文章 <标题>」「插图/入草稿箱 <标题>」。",
+    "description": "文章自动补齐入草稿箱:文章定位(定位三选一: article_dir 绝对路径 / vault_ref(Obsidian 逻辑引用:文章名或 vault 相对路径,跨设备免绝对路径,如《AI提问技巧》或 公众号/AI入门/AI提问技巧) / article_name 工作区名称唯一命中) -> 确定性状态检查(含配图序号预检:全部配图带唯一序号时,缺号/越界直接中断并告知序号) -> 一次授权 -> 按需插图(序号优先/语义匹配,默认不改写正文) -> 建/更新草稿(同内容复用,变更更新,不产生重复草稿)。修改文件并调微信 API。默认必须走到草稿箱:话术「准备文章 <标题>」「处理文章 <标题>」即完成插图+入草稿箱,无需附加「插图/入草稿箱」等字样。",
     "argsSchema": {
       "type": "object",
       "properties": {
@@ -218,7 +218,7 @@
         },
         "article_name": {
           "type": "string",
-          "description": "按名称在工作区定位(唯一命中才继续)"
+          "description": "按名称定位: 优先 Obsidian vault 确定性解析(文章名), 未命中再按 article_workspace 一级子目录唯一命中(须已配置工作区)"
         },
         "workspace_dir": {
           "type": "string",
@@ -259,6 +259,8 @@
       "文章配图"
     ],
     "examples": [
+      "准备文章 01｜一家轻食店的四个 AI 改造场景",
+      "处理文章《AI提问技巧》",
       "帮我检查一下《AI提问技巧》这篇公众号文章，然后放到草稿箱",
       "处理第一篇并放入草稿箱"
     ],

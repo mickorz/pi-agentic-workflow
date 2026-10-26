@@ -212,6 +212,33 @@ def main() -> int:
           and "skipped: 2" in r.stdout and "heading not found" not in r.stdout, r.stdout)
     (nart / "_bogus.json").unlink(missing_ok=True)
 
+    # ============ I3: 配图序号预检（缺号/越界 → check_state 报告, prepare 授权前中断依据） ============
+    gart = root / "P1序号文章"
+    (gart / "imgs").mkdir(parents=True)
+    (gart / "imgs" / "01-上.png").write_bytes(PNG_A)
+    (gart / "imgs" / "03-中.png").write_bytes(PNG_B)
+    (gart / "imgs" / "04-下.png").write_bytes(PNG_A)
+    (gart / "正文.md").write_text(MD, encoding="utf-8")  # 正文 2 个章节, 序号 03/04 越界且缺 02
+    r = run_py(CHECK, "--article-dir", str(gart))
+    j = json.loads(r.stdout)
+    check("I3.numbering-gap-and-oor",
+          j["imgs_numbering"] == {"applicable": True, "missing": [2], "out_of_range": [3, 4], "sections": 2}
+          and any("配图序号缺失: 02" in i for i in j["issues"])
+          and any("配图序号越界: 3、4 超出章节数 2" in i for i in j["issues"]), r.stdout)
+    (gart / "imgs" / "插画.png").write_bytes(PNG_B)  # 混入无序号图 → numbered 方案不适用, 不检
+    r = run_py(CHECK, "--article-dir", str(gart))
+    j = json.loads(r.stdout)
+    check("I3.numbering-not-applicable-mixed",
+          j["imgs_numbering"]["applicable"] is False
+          and not any(i.startswith("配图序号") for i in j["issues"]), r.stdout)
+    (gart / "imgs" / "插画.png").unlink()
+    r = run_py(CHECK, "--article-dir", str(gart).replace("P1序号文章", "P1编号文章"))  # 序号连续且在范围内 → 无告警
+    j = json.loads(r.stdout)
+    check("I3.numbering-clean-pass",
+          j["imgs_numbering"]["applicable"] is True and j["imgs_numbering"]["missing"] == []
+          and j["imgs_numbering"]["out_of_range"] == []
+          and not any(i.startswith("配图序号") for i in j["issues"]), r.stdout)
+
     # ============ 首次发布（add）+ 复用（reuse）+ 变更更新（update，场景 D） ============
     r = run_pub(art, cfg)
     check("PUB.add-exit0", r.returncode == 0 and "=== ALL DONE" in r.stdout, r.stdout + r.stderr)
