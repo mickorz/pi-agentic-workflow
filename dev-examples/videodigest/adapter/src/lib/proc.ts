@@ -28,13 +28,34 @@ export interface SyncRunResult {
 
 /** 同步执行（不经 shell），返回退出码与捕获的输出 */
 export function runSyncArgs(file: string, args: string[]): SyncRunResult {
-  const r = spawnSync(file, args, { encoding: 'utf-8' });
+  let f = file;
+  let a = args;
+  // Windows：Node 不允许 spawnSync 直跑 .cmd/.bat（EINVAL），需 cmd /d /s /c 包装；
+  // 含空格/特殊字符的参数套双引号（调用方须保证参数内无双引号，见 GRAB_JS 注释）
+  if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(file)) {
+    f = 'cmd';
+    a = ['/d', '/s', '/c', [file, ...args].map(cmdQuote).join(' ')];
+    // verbatim：禁止 Node 自动转义内嵌引号（\" 会被 CRT 当字面引号拆碎参数），引号完全由 cmdQuote 自管
+    const r = spawnSync(f, a, { encoding: 'utf-8', windowsVerbatimArguments: true });
+    return {
+      exitCode: r.status ?? -1,
+      stdout: r.stdout ?? '',
+      stderr: r.stderr ?? '',
+      error: r.error,
+    };
+  }
+  const r = spawnSync(f, a, { encoding: 'utf-8' });
   return {
     exitCode: r.status ?? -1,
     stdout: r.stdout ?? '',
     stderr: r.stderr ?? '',
     error: r.error,
   };
+}
+
+/** cmd /c 参数加引号：含空白或 cmd 元字符的参数套双引号（参数内不得含双引号） */
+function cmdQuote(s: string): string {
+  return /^[^\s|&^%<>"()=!;,+]+$/.test(s) ? s : `"${s}"`;
 }
 
 /**
