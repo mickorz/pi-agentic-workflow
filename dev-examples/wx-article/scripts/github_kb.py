@@ -1059,6 +1059,29 @@ def cmd_list_categories(args: argparse.Namespace) -> None:
     out({"ok": True, "root": root, "categories": load_categories(root)})
 
 
+def cmd_add_category(args: argparse.Namespace) -> None:
+    """新增受控分类（去重追加 categories.json；缺失则按种子落盘后追加）。
+
+    用于：用户预指定分类（github-research --category）或批准 AI 建议的新分类时自动调用。
+    """
+    root, iss = resolve_kb_root(args.root)
+    if root is None:
+        out({"ok": False, "issues": iss})
+        return
+    name = sanitize_category(args.name)
+    if name == DEFAULT_CATEGORY:
+        out({"ok": False, "issues": ["分类名非法（保留字「未分类」）"]})
+        return
+    p = os.path.join(root, "categories.json")
+    cats = load_categories(root)
+    if name in cats:
+        out({"ok": True, "alreadyExists": True, "category": name, "categories": cats})
+        return
+    cats.append(name)
+    write_json(p, {"version": 1, "categories": cats})
+    out({"ok": True, "alreadyExists": False, "category": name, "categories": cats})
+
+
 def cmd_recategorize(args: argparse.Namespace) -> None:
     """人工改派分类：移动 <旧分类>/<repo> → <新分类>/<repo>，同步 project.md 与索引。
 
@@ -1188,6 +1211,11 @@ def main() -> int:
     p = sub.add_parser("list-categories")
     p.add_argument("--root", default="")
     p.set_defaults(fn=cmd_list_categories)
+
+    p = sub.add_parser("add-category")
+    p.add_argument("--root", default="")
+    p.add_argument("--name", required=True)
+    p.set_defaults(fn=cmd_add_category)
 
     p = sub.add_parser("recategorize")
     p.add_argument("--root", default="")

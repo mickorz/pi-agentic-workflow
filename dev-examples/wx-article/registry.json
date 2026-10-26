@@ -791,6 +791,10 @@
         "kb_root": {
           "type": "string",
           "description": "知识库根(可选, 缺省读 GITHUB_KB_ROOT 或 .aws-article/config.json 的 github_knowledge_root)"
+        },
+        "category": {
+          "type": "string",
+          "description": "预指定分类(可选; AI 不确定分类时不问直接用它, 不在词表会自动追加)"
         }
       },
       "required": [

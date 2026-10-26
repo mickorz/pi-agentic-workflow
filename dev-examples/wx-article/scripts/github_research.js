@@ -8,6 +8,7 @@ export const meta = {
 //   force    : 强制重新抓取与分析(已有档案走暂存替换, 失败不破坏原档案)
 //   fixture  : 测试沙盒目录(传入则零网络, 从 fixture 读抓取样本)
 //   kb_root  : 知识库根(可选, 缺省走 resolve-root 链: GITHUB_KB_ROOT / .aws-article/config.json)
+//   category : 预指定分类(可选; AI 不确定分类时不问直接用它, 不在词表会自动追加)
 // 输出: { ok, projectId, projectDir, reused, report, issues }
 
 const KB = 'dev-examples/wx-article/scripts/github_kb.py'
@@ -120,7 +121,7 @@ const analysis = await agent(
   '   ## 一句话定位 / ## 核心能力 / ## 技术架构与依赖 / ## 适用场景与目标用户 / ## 亮点与差异化 / ## 风险与局限 / ## 推荐角度建议\n' +
   '2. 只依据素材陈述事实。素材中没有的能力不得编造；数字结论(如百分比)素材没有就不要写。\n' +
   '3. evidence.claims 登记关键事实(6~8 条): claim=事实句一句话含数字时原文照录数字, source=README.md|languages.json|repo.json, reference=依据文件(可空), evidenceLevel=documented(素材明确描述)|inferred(你的推断)。未读过的源码不得用 code_inspected。\n' +
-  '4. meta: tags(3~6 个)、category、useScenes(适用场景 2~4 个)。category 必须从以下受控列表中选择一个(原样输出不要改字): ' + CATEGORY_LIST.join(' / ') + '; 若都不合适则 category 填空字符串(归档时会落到未分类,之后可用 recategorize 改派)。\n' +
+  '4. meta: tags(3~6 个)、category、useScenes(适用场景 2~4 个)。category 必须从以下受控列表中选择一个(原样输出不要改字): ' + CATEGORY_LIST.join(' / ') + '; 若都不合适则 category 填空字符串、同时在 categorySuggestion 给出你建议的新分类名(2~6 个中文字,\概括项目本质, 例如「数据库」「爬虫框架」; 归档前会用 checkpoint 问用户是否采用)。\n' +
   '5. 推荐角度建议段给出 2~3 个候选角度，每个一句话理由。\n' +
   '6. 输出必须一次性合法 JSON，总长度控制在 2500 字以内(含 JSON 转义)，超长截断会被拒收。',
   {
@@ -150,7 +151,7 @@ const analysis = await agent(
         },
         meta: {
           type: 'object',
-          properties: { tags: { type: 'array', items: { type: 'string' } }, category: { type: 'string' }, useScenes: { type: 'array', items: { type: 'string' } } },
+          properties: { tags: { type: 'array', items: { type: 'string' } }, category: { type: 'string' }, categorySuggestion: { type: 'string' }, useScenes: { type: 'array', items: { type: 'string' } } },
         },
       },
       required: ['analysis_md', 'evidence', 'meta'],
@@ -158,13 +159,50 @@ const analysis = await agent(
   },
 )
 
+phase('分类确认')
+// 分类决策（用户定版 2026-10-26：不确定就问，不硬塞）：
+//   预指定 args.category > 词表命中 > checkpoint 问一次(AI 建议新分类) > 未分类
+const ameta = analysis.meta || {}
+let category = String(ameta.category || '').trim()
+const catsNow = await kb('list-categories', ['--root', ROOT])
+await check(() => catsNow.ok === true, '读取分类列表失败: ' + JSON.stringify(catsNow.issues || []))
+const catList = catsNow.categories || []
+if (args.category && String(args.category).trim()) {
+  // 用户预指定：直接采用（不在词表则自动追加，用户的选择即为词表意志）
+  category = String(args.category).trim()
+  if (!catList.includes(category)) {
+    const ac = await kb('add-category', ['--root', ROOT, '--name', category])
+    await check(() => ac.ok === true, '追加分类失败: ' + JSON.stringify(ac.issues || []))
+    log('分类「' + category + '」已加入词表')
+  }
+} else if (!category || !catList.includes(category)) {
+  const suggestion = String(ameta.categorySuggestion || '').trim()
+  if (suggestion) {
+    // 问一次：批准=归入建议分类并自动进词表；拒绝=终止（.incoming raw 保留，可带 category 重跑）
+    await checkpoint(
+      '分类确认: 项目「' + pid + '」不属于现有分类 [' + catList.join(' / ') + ']。\n' +
+      'AI 建议新分类: 「' + suggestion + '」\n' +
+      '批准 = 归入「' + suggestion + '」并自动加入分类词表;\n' +
+      '拒绝 = 终止本次归档(抓取产物已留存, 可带 category 参数重跑)。'
+    )
+    const ac = await kb('add-category', ['--root', ROOT, '--name', suggestion])
+    await check(() => ac.ok === true, '追加分类失败: ' + JSON.stringify(ac.issues || []))
+    category = suggestion
+    log('用户批准新分类: ' + suggestion)
+  } else {
+    category = ''
+    log('AI 未给出分类建议，归未分类（之后可 recategorize 改派）')
+  }
+}
+
 phase('归档校验')
+
 const ar = await kb('archive', ['--root', ROOT, '--project-id', pid]
   .concat(fh.staging ? ['--staging', fh.projectDir] : [])
   .concat([
     '--analysis-b64', b64u(analysis.analysis_md),
     '--evidence-b64', b64u(JSON.stringify(analysis.evidence)),
-    '--meta-b64', b64u(JSON.stringify(analysis.meta || {})),
+    '--meta-b64', b64u(JSON.stringify({ ...ameta, category })),
   ]))
 await check(() => ar.ok === true,
   '归档校验失败(原档案不受影响): ' + JSON.stringify(ar.issues || []))

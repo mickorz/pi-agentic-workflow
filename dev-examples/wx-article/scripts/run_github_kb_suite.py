@@ -225,6 +225,16 @@ def main():
              and not os.path.isdir(os.path.join(bad_root, "未分类")))
         r2 = run("recategorize", "--root", bad_root, "--project-id", pid, "--category", "游戏UI工作流")
         case("recategorize: 幂等（同分类零移动）", r2.get("ok") and r2.get("moved") is False)
+        # ── 5c. add-category（用户预指定/批准建议时自动追加词表） ──
+        r = run("add-category", "--root", bad_root, "--name", "AI绘图工具")
+        r2 = run("add-category", "--root", bad_root, "--name", "AI绘图工具")
+        r3 = run("add-category", "--root", bad_root, "--name", "未分类")
+        case("add-category: 追加与去重", r.get("ok") and not r.get("alreadyExists")
+             and "AI绘图工具" in r.get("categories", []))
+        case("add-category: 重复追加幂等", r2.get("ok") and r2.get("alreadyExists"))
+        case("add-category: 保留字拒绝", not r3.get("ok"))
+        r = run("recategorize", "--root", bad_root, "--project-id", pid, "--category", "AI绘图工具")
+        case("recategorize: 词表内新分类改派", r.get("ok") and r.get("moved") is True)
         idx = json.load(open(os.path.join(root, "projects.json"), encoding="utf-8"))
         ent = idx["projects"][0]
         case("归档: 索引字段完整（含 path）",
