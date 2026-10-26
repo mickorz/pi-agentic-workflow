@@ -10,6 +10,9 @@
  * 与 bot-adapter 同款变量路径 + 结构化类型写法）。
  */
 
+import fs from "node:fs";
+import path from "node:path";
+
 const QR_POLL_MS = 2000;
 const QR_MAX_REFRESH = 5;
 
@@ -39,6 +42,55 @@ async function restartServiceAfterRebind(): Promise<void> {
       // 持有者已死（陈锁）：无需动作
     }
   }
+}
+
+/** 定位服务数据目录（给绑定确认消息用）：优先 PM2 ecosystem args 的 --data；
+ *  兜底 cwd 相对 .pi-wechat（与 restartServiceAfterRebind 的锁检查同款假设） */
+async function resolveServiceDataDir(): Promise<string | null> {
+  try {
+    const { findPm2App, createShellPm2Runner } = await import("./wechat-service.js");
+    const app = findPm2App(createShellPm2Runner());
+    if (app) {
+      const i = app.args.indexOf("--data");
+      if (i >= 0 && app.args[i + 1]) return app.args[i + 1] ?? null;
+    }
+  } catch {
+    // PM2 不可用：走兜底
+  }
+  try {
+    const { readServiceLock } = await import("../../gateway/service-lock.js");
+    if (readServiceLock(".pi-wechat")) return path.resolve(".pi-wechat");
+  } catch {
+    // 无锁：无服务形态
+  }
+  return null;
+}
+
+/** 登录/重绑成功后：经服务 outbox 给绑定用户发确认消息（服务 5s flush 投递；尽力而为，绝不阻塞登录）。
+ *  无绑定用户（首次登录，绑定发生在首条入站消息）则跳过并提示。 */
+export async function notifyLoginBound(dataDir: string | null): Promise<void> {
+  if (!dataDir) {
+    process.stdout.write("[提示] 未定位到服务数据目录，跳过绑定确认消息\n");
+    return;
+  }
+  let userId = "";
+  try {
+    userId = (JSON.parse(fs.readFileSync(path.join(dataDir, "bound-user.json"), "utf8")) as { userId?: string })
+      .userId || "";
+  } catch {
+    // 无绑定用户
+  }
+  if (!userId) {
+    process.stdout.write("[提示] 暂无绑定用户（首条消息自动绑定），跳过绑定确认消息\n");
+    return;
+  }
+  const { Outbox } = await import("../../notify/outbox.js");
+  new Outbox(dataDir).enqueue({
+    userId,
+    kind: "info",
+    text: "✅ 微信 Bot 重新绑定成功，链路已恢复。可直接发送指令（如「帮助」或「任务列表」）。",
+  });
+  process.stdout.write("[OK] 已向绑定用户发送确认消息（服务 5s 内投递）\n");
 }
 
 interface LoginCredentials {
@@ -128,6 +180,12 @@ export async function wechatLogin(force = false): Promise<number> {
         // 服务形态自动优雅重启加载新凭据；前台形态提示手动重启（不能替用户杀前台终端进程）
         if (force) {
           await restartServiceAfterRebind();
+        }
+        // 扫码成功即向绑定用户推送确认消息（rebind 后链路自验证；首次登录无绑定用户自动跳过）
+        try {
+          await notifyLoginBound(await resolveServiceDataDir());
+        } catch (e) {
+          process.stdout.write(`[提示] 绑定确认消息发送跳过（${(e as Error).message?.slice(0, 80)}）\n`);
         }
         return 0;
       }

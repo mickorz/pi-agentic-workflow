@@ -54,3 +54,9 @@
 
 - publish 实建草稿留给用户微信实测「准备文章 用Manus改造Manus，AI Native组织的团队分享」（授权 → 规范化[SKIP 幂等] → 建稿）。
 - wiki 内嵌引用本目录 imgs/ 之外的图（vault 其它路径）不支持——按设计报「引用图缺失」不猜（如需可后续扩展跨目录解析）。
+
+## 增补二（同日）：真机全链路验证 + wechat rebind 绑定确认消息（m00746）
+
+- **Manus 文真机验证成功**：用户微信发送「准备文章 用Manus改造Manus，AI Native组织的团队分享」→ run-mvpfq5pf-ige5 completed：手动插图模式（本次检出 7 处 wiki 内嵌，用户验证期间又手动加过图——幂等规范化只处理新增的 wiki 链接）、跳过自动插图、新建草稿 draft_mode=add、manual_normalized=true、media_id 落盘、completed 通知送达。WX-P4 功能全链路（微信指令→路由→手动插图分支→建稿）验收通过。
+- **插曲：入站静默中断**：测试当晚 22:55 后 bot 收不到任何微信消息（出站正常、getupdates 持续空批、游标推进），出站发一条测试消息（23:51:28）后 14 秒入站即恢复（23:51:42 收到积压消息）。疑似 ilink 平台侧会话惰死、出站活动触发恢复；根因未定位，恢复手法（发一条出站消息"踢"链路）已验证有效。
+- **wechat rebind 确认消息（用户需求 m00746）**：src/cli/commands/wechat-login.ts——扫码登录成功（含 rebind）后，经服务 outbox 给绑定用户自动发送「✅ 微信 Bot 重新绑定成功，链路已恢复」；数据目录定位（PM2 ecosystem args 的 --data 优先，cwd 相对 .pi-wechat 兜底）；无绑定用户（首次登录）或无数据目录则跳过并提示；尽力而为绝不阻塞登录流程。tsc 构建通过 + 冒烟（临时数据目录 enqueue 正确 / null 跳过正确）。发消息通道复用 notify_bot.py 同款 Outbox 契约（已真机验证过投递）。
