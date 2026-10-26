@@ -73,7 +73,7 @@ ANALYSIS = """# demo-repo 项目研究档案
 - compare：与 cron/Make/轻量 CI 的对比评测
 """
 
-META = {"tags": ["自动化", "任务编排"], "category": "devtools", "useScenes": ["批量处理", "定时编排"]}
+META = {"tags": ["自动化", "任务编排"], "category": "游戏UI工作流", "useScenes": ["批量处理", "定时编排"]}
 
 
 def evidence_ok():
@@ -124,7 +124,7 @@ def main():
     url = "https://github.com/example/demo-repo"
     pid = "demo-repo"                                   # 无 owner 前缀
     incoming = os.path.join(root, ".incoming", pid)     # 抓取暂存
-    pdir = os.path.join(root, "devtools", pid)          # 归档后（meta.category=devtools）
+    pdir = os.path.join(root, "游戏UI工作流", pid)        # 归档后（受控分类，meta.category=游戏UI工作流）
 
     try:
         # ── 1. URL 解析 ──
@@ -192,21 +192,44 @@ def main():
         # ── 5. 合法归档：落分类目录 + project.md ──
         r = run(*archive_args(pid, meta=META))
         case("归档: 落分类目录 <分类>/<repo>", r.get("ok") and os.path.normcase(r.get("projectDir", "")) == os.path.normcase(pdir)
-             and r.get("category") == "devtools", json.dumps(r, ensure_ascii=False)[:140])
+             and r.get("category") == "游戏UI工作流", json.dumps(r, ensure_ascii=False)[:140])
         case("归档: .incoming 已清空", not os.path.exists(incoming))
         case("归档: project.md 存在", os.path.isfile(os.path.join(pdir, "project.md")))
 
         import github_kb
         md = github_kb.load_project_md(os.path.join(pdir, "project.md"))
         case("project.md: frontmatter 解析（repoId/category/tags 类型正确）",
-             md.get("projectId") == pid and md.get("repoId") == 100200300 and md.get("category") == "devtools"
+             md.get("projectId") == pid and md.get("repoId") == 100200300 and md.get("category") == "游戏UI工作流"
              and md.get("tags") == META["tags"] and md.get("archived") is False and md.get("stars") == 42,
              json.dumps({k: md.get(k) for k in ("projectId", "repoId", "category", "tags", "archived", "stars")}, ensure_ascii=False))
+        # ── 5b. 受控分类列表 + recategorize ──
+        r = run("list-categories", "--root", root)
+        case("受控分类: 种子词表可读", r.get("ok") and "游戏UI工作流" in r.get("categories", [])
+             and os.path.isfile(os.path.join(root, "categories.json")))
+        bad_root = os.path.join(tmp, "kb-badcat")
+        os.makedirs(bad_root)
+        run("fetch", "--root", bad_root, "--url", url, "--fixture", FIXTURE)
+        rb = run("archive", "--root", bad_root, "--project-id", pid,
+                 "--analysis-b64", b64(ANALYSIS), "--evidence-b64", b64(json.dumps(evidence_ok())),
+                 "--meta-b64", b64(json.dumps({"category": "乱七八糟不存在分类"})))
+        case("受控分类: 列表外分类归未分类并提示", rb.get("ok") and rb.get("category") == "未分类"
+             and os.path.isdir(os.path.join(bad_root, "未分类", pid))
+             and any("受控列表" in i for i in rb.get("issues", [])))
+        r = run("recategorize", "--root", bad_root, "--project-id", pid, "--category", "游戏UI工作流")
+        md2 = github_kb.load_project_md(os.path.join(bad_root, "游戏UI工作流", pid, "project.md"))
+        idx2 = json.load(open(os.path.join(bad_root, "projects.json"), encoding="utf-8"))
+        case("recategorize: 目录移动+frontmatter+索引同步",
+             r.get("ok") and md2.get("category") == "游戏UI工作流"
+             and idx2["projects"][0]["path"] == "游戏UI工作流/demo-repo"
+             and not os.path.isdir(os.path.join(bad_root, "未分类", pid))
+             and not os.path.isdir(os.path.join(bad_root, "未分类")))
+        r2 = run("recategorize", "--root", bad_root, "--project-id", pid, "--category", "游戏UI工作流")
+        case("recategorize: 幂等（同分类零移动）", r2.get("ok") and r2.get("moved") is False)
         idx = json.load(open(os.path.join(root, "projects.json"), encoding="utf-8"))
         ent = idx["projects"][0]
         case("归档: 索引字段完整（含 path）",
              all(k in ent for k in ("repoId", "treeSha", "license", "archived", "pushedAt", "tags", "category", "path"))
-             and ent["path"] == "devtools/demo-repo")
+             and ent["path"] == "游戏UI工作流/demo-repo")
         case("归档: 索引 owner/repo 保留完整身份", ent.get("owner") == "example" and ent.get("repo") == "demo-repo")
 
         r = run("detect-duplicate", "--root", root, "--url", "https://github.com/EXAMPLE/DEMO-REPO")
@@ -235,7 +258,7 @@ def main():
         r = run(*archive_args(pid, meta=META, staging=staging))
         case("同名冲突守卫: repoId 不一致拒绝且原档案完好",
              not r.get("ok") and any("冲突" in i for i in r.get("issues", []))
-             and os.path.isfile(os.path.join(clash, "devtools", pid, "project.md")),
+             and os.path.isfile(os.path.join(clash, "游戏UI工作流", pid, "project.md")),
              json.dumps(r.get("issues", []), ensure_ascii=False)[:160])
         ROOT = root
 
@@ -278,7 +301,7 @@ def main():
         r = run("rebuild-index", "--root", root)
         idx = json.load(open(os.path.join(root, "projects.json"), encoding="utf-8"))
         case("rebuild-index: 无损重建（含 path）", r.get("ok") and len(idx["projects"]) == 1
-             and len(idx["projects"][0]["articles"]) == 2 and idx["projects"][0]["path"] == "devtools/demo-repo")
+             and len(idx["projects"][0]["articles"]) == 2 and idx["projects"][0]["path"] == "游戏UI工作流/demo-repo")
 
         # ── 10. 仓库改名迁移（repoId 匹配） ──
         root2 = os.path.join(tmp, "kb2")
@@ -296,9 +319,9 @@ def main():
         arts = idx["projects"][0].get("articles", []) if idx["projects"] else []
         case("改名迁移: repoId 命中合并且关联保留",
              r.get("ok") and pids == ["demo-renamed"] and len(arts) == 1
-             and idx["projects"][0]["path"] == "devtools/demo-renamed",
+             and idx["projects"][0]["path"] == "游戏UI工作流/demo-renamed",
              json.dumps({"pids": pids, "path": idx["projects"][0].get("path")}, ensure_ascii=False))
-        case("改名迁移: 旧目录已清理", not os.path.isdir(os.path.join(root2, "devtools", "demo-repo")))
+        case("改名迁移: 旧目录已清理", not os.path.isdir(os.path.join(root2, "游戏UI工作流", "demo-repo")))
         ROOT = root
 
         # ── 11. resolve-root 回退链（70_KnowlegeBase/01_Github） ──

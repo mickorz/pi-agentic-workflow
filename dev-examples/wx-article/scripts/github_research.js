@@ -67,6 +67,11 @@ await check(() => rr.ok === true, '知识库根未配置: ' + JSON.stringify(rr.
 const ROOT = rr.root
 log('知识库根: ' + ROOT)
 
+// 受控分类词表（用户可编辑 <根>/categories.json 扩充）；不在列表的分类会被归到未分类
+const cats = await kb('list-categories', ['--root', ROOT])
+await check(() => cats.ok === true && Array.isArray(cats.categories) && cats.categories.length > 0, '读取分类列表失败: ' + JSON.stringify(cats.issues || cats))
+const CATEGORY_LIST = cats.categories
+
 phase('URL 解析')
 const pu = await kb('parse-url', ['--url', String(args.repoUrl || args.url || '')])
 await check(() => pu.ok === true, '无法识别的 GitHub 地址: ' + JSON.stringify(pu.issues || []))
@@ -115,7 +120,7 @@ const analysis = await agent(
   '   ## 一句话定位 / ## 核心能力 / ## 技术架构与依赖 / ## 适用场景与目标用户 / ## 亮点与差异化 / ## 风险与局限 / ## 推荐角度建议\n' +
   '2. 只依据素材陈述事实。素材中没有的能力不得编造；数字结论(如百分比)素材没有就不要写。\n' +
   '3. evidence.claims 登记关键事实(6~8 条): claim=事实句一句话含数字时原文照录数字, source=README.md|languages.json|repo.json, reference=依据文件(可空), evidenceLevel=documented(素材明确描述)|inferred(你的推断)。未读过的源码不得用 code_inspected。\n' +
-  '4. meta: tags(3~6 个)、category(一个分类词)、useScenes(适用场景 2~4 个)。\n' +
+  '4. meta: tags(3~6 个)、category、useScenes(适用场景 2~4 个)。category 必须从以下受控列表中选择一个(原样输出不要改字): ' + CATEGORY_LIST.join(' / ') + '; 若都不合适则 category 填空字符串(归档时会落到未分类,之后可用 recategorize 改派)。\n' +
   '5. 推荐角度建议段给出 2~3 个候选角度，每个一句话理由。\n' +
   '6. 输出必须一次性合法 JSON，总长度控制在 2500 字以内(含 JSON 转义)，超长截断会被拒收。',
   {

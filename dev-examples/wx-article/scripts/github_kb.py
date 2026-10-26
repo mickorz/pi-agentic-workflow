@@ -187,6 +187,25 @@ def final_dir_of(root: str, entry: Optional[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
+def load_categories(root: str) -> List[str]:
+    """受控分类词表（用户定版 2026-10-26：LLM 只能从列表选，不合适归未分类）。
+
+    <根>/categories.json {"version":1,"categories":[...]}；缺失时用内置种子列表（首次 archive 时自动落盘该文件，用户可直接编辑扩充）。"""
+    seed = ["游戏UI工作流", "Agent框架", "AI自动化测试"]
+    p = os.path.join(root, "categories.json")
+    if not os.path.isfile(p):
+        try:
+            write_json(p, {"version": 1, "categories": seed})
+        except OSError:
+            return seed
+        return seed
+    try:
+        cats = read_json(p).get("categories", [])
+        return [str(c) for c in cats if str(c).strip()] or seed
+    except (OSError, ValueError):
+        return seed
+
+
 def resolve_project_dir(root: str, pid: str) -> Optional[str]:
     """按索引定位项目档案目录（<分类>/<repo>，用户定版 2026-10-26）；找不到 None。"""
     return final_dir_of(root, idx_entry(load_index(root), pid))
@@ -813,9 +832,12 @@ def cmd_archive(args: argparse.Namespace) -> None:
         return
 
     pj = build_project_json_from(workdir, pid, meta)
-    # 最终目录：<分类>/<repo>（分类来自分析 meta，用户定版 2026-10-26）
-    category = sanitize_category(meta.get("category", ""))
+    # 最终目录：<分类>/<repo>；分类受控于 categories.json 词表（不在列表 → 未分类）
+    cats = load_categories(root)
+    want_cat = sanitize_category(meta.get("category", ""))
+    category = want_cat if want_cat in cats else DEFAULT_CATEGORY
     pj["category"] = category
+    cat_note = [] if category == want_cat or want_cat == DEFAULT_CATEGORY else ["提示: 分类「" + want_cat + "」不在受控列表，已归「" + DEFAULT_CATEGORY + "」；可编辑 categories.json 或 recategorize 改派"]
     final = os.path.join(root, category, pid)
     bak = final + ".bak"
 
@@ -869,7 +891,7 @@ def cmd_archive(args: argparse.Namespace) -> None:
         # articles.json 派生镜像（权威源 projects.json，3.3.1）
         write_json(os.path.join(final, "articles.json"), {"projectId": pid, "articles": entry.get("articles", [])})
 
-    out({"ok": True, "projectId": pid, "projectDir": final, "category": category, "status": "researched"})
+    out({"ok": True, "projectId": pid, "projectDir": final, "category": category, "status": "researched", "issues": cat_note})
 
 
 # ── 子命令：locate ───────────────────────────────────────
@@ -1029,6 +1051,63 @@ def _find_kb_under(start: str) -> Optional[str]:
     return None
 
 
+def cmd_list_categories(args: argparse.Namespace) -> None:
+    root, iss = resolve_kb_root(args.root)
+    if root is None:
+        out({"ok": False, "issues": iss})
+        return
+    out({"ok": True, "root": root, "categories": load_categories(root)})
+
+
+def cmd_recategorize(args: argparse.Namespace) -> None:
+    """人工改派分类：移动 <旧分类>/<repo> → <新分类>/<repo>，同步 project.md 与索引。
+
+    用于修正 LLM 分类不准（如 game-ui-design-workflow 应归 游戏UI工作流）；
+    新分类名做目录消毒；不在受控列表时提示可加入 categories.json 但不阻断。
+    """
+    root, iss = resolve_kb_root(args.root)
+    if root is None:
+        out({"ok": False, "issues": iss})
+        return
+    pid = args.project_id
+    with KbLock(root):
+        idx = load_index(root)
+        entry = idx_entry(idx, pid)
+        pdir = final_dir_of(root, entry) if entry else None
+        if not pdir or not os.path.isdir(pdir):
+            out({"ok": False, "issues": ["项目档案不存在: " + pid]})
+            return
+        category = sanitize_category(args.category)
+        final = os.path.join(root, category, pid)
+        if os.path.normpath(final) == os.path.normpath(pdir):
+            out({"ok": True, "projectId": pid, "projectDir": final, "category": category, "moved": False})
+            return
+        if os.path.isdir(final):
+            out({"ok": False, "issues": ["目标目录已存在: " + final + "（同名冲突，拒绝覆盖）"]})
+            return
+        # project.md: 改 category 后回写
+        md_path = os.path.join(pdir, PROJECT_MD)
+        pj = load_project_md(md_path)
+        pj["category"] = category
+        write_project_md(md_path, pj)
+        # 目录移动 + 索引/path 同步
+        os.makedirs(os.path.dirname(final), exist_ok=True)
+        shutil.move(pdir, final)
+        entry["path"] = category + "/" + pid
+        entry["category"] = category
+        save_index(root, idx)
+    cats = load_categories(root)
+    hints = [] if category in cats else ["提示: 分类「%s」不在 categories.json，可按需追加" % category]
+    # 旧分类目录空了顺手清理
+    old_parent = os.path.dirname(pdir)
+    try:
+        if os.path.isdir(old_parent) and not os.listdir(old_parent):
+            os.rmdir(old_parent)
+    except OSError:
+        pass
+    out({"ok": True, "projectId": pid, "projectDir": final, "category": category, "moved": True, "issues": hints})
+
+
 def cmd_resolve_root(args: argparse.Namespace) -> None:
     root, issues = resolve_kb_root(args.root, args.from_dir)
     if root is None:
@@ -1105,6 +1184,16 @@ def main() -> int:
     p.add_argument("--fixture", default="")
     p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_fetch)
+
+    p = sub.add_parser("list-categories")
+    p.add_argument("--root", default="")
+    p.set_defaults(fn=cmd_list_categories)
+
+    p = sub.add_parser("recategorize")
+    p.add_argument("--root", default="")
+    p.add_argument("--project-id", required=True)
+    p.add_argument("--category", required=True)
+    p.set_defaults(fn=cmd_recategorize)
 
     p = sub.add_parser("download-images")
     p.add_argument("--root", default="")
