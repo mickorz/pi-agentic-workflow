@@ -63,11 +63,14 @@ const scan = await agent(
   } }
 )
 
+// 正文 .md 文件名(去扩展名)即文章原标题——title 的确定性来源, 优先于 LLM 建议
+const mdStem = (scan.md_name || '').replace(/\.md$/i, '')
+
 if (!scan.images || scan.images.length === 0) {
   return {
     article_dir: args.article_dir, md_path: scan.md_path || '',
     inserted: 0, failed_count: 0, unmatched: scan.unmatched || [],
-    title: args.title || scan.suggested_title || '', digest: args.digest || scan.suggested_digest || '',
+    title: args.title || mdStem || scan.suggested_title || '', digest: args.digest || scan.suggested_digest || '',
     yaml_path: '', check_ok: false, sections_without_img: [], ok: false,
     error: '没有可插入的图片(imgs 为空或未匹配到章节)',
   }
@@ -117,9 +120,10 @@ const metaResult = await agent(
   '你是 article.yaml 元数据维护者。目标目录: ' + args.article_dir + '\n\n' +
   '1. 用 Read 读 ' + args.article_dir + '/article.yaml (若不存在则视为空文件)。保留其中已有的其它字段原值。\n\n' +
   '2. 确定字段值(优先用户传入, 其次保留原值, 最后用建议值):\n' +
-  '   - title : ' + (args.title ? '用户指定=' + args.title : '优先用原 title; 若原 title 明显与本文不符则用 ' + (scan.suggested_title || '')) + '\n' +
+  '   - title : ' + (args.title ? '用户指定=' + args.title + ' (必须使用, 不得改写)' : '按优先级确定: ①原 article.yaml 已有 title 则原样保留; ②没有原 title 则用「' + mdStem + '」(正文 .md 文件名即文章原标题)') + '\n' +
+  '     禁止用建议标题替换用户指定/原有/文件名标题; suggested_title 仅在以上来源全部缺失时才可使用, 不允许以「原标题与内容不符」等理由替换。\n' +
   '   - author: ' + (args.author ? '用户指定=' + args.author : '保留原 author; 没有则用 AI奇点') + '\n' +
-  '   - digest: ' + (args.digest ? '用户指定=' + args.digest : '优先用原 digest; 若与本文不符则用 ' + (scan.suggested_digest || '')) + '\n' +
+  '   - digest: ' + (args.digest ? '用户指定=' + args.digest : '优先用原 digest 原样保留; 原 digest 缺失或为空才用 ' + (scan.suggested_digest || '')) + '\n' +
   '   - content_source: ' + (scan.md_name || '') + ' (本篇 .md 文件名)\n' +
   '   - image_medium: 形如 "AI生成插画（正文 ' + (scan.images ? scan.images.length : 0) + ' 张）"(若原值描述了错误的图片数量则更新)\n' +
   '   - publish_completed: false (本次插图+改元数据后需重新发布)\n' +
