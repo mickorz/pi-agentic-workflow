@@ -86,7 +86,7 @@ def main() -> int:
 
         # ---- 3. fake 生图 ----
         env = dict(os.environ, IMAGE_GEN_INTER_DELAY_MS="0")
-        r = run(["node", str(GENERATE), "--article-dir", str(article), "--provider", "fake"], env=env)
+        r = run(["node", str(GENERATE), "--article-dir", str(article), "--provider", "fake", "--no-require-style-approval"], env=env)
         result_line = [l for l in r.stdout.splitlines() if l.startswith("[RESULT] ")]
         if r.returncode != 0 or not result_line:
             bad("generate", r.stdout[-800:] + r.stderr[-400:])

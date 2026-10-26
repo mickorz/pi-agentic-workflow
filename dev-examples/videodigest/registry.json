@@ -14,7 +14,7 @@
       },
       "required": ["url"]
     },
-    "riskLevel": "write",
+    "riskLevel": "read-only",
     "enabled": true,
     "urlArg": "url",
     "urlDomains": [

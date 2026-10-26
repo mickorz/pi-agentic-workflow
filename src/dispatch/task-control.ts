@@ -23,7 +23,7 @@ export interface TaskControlCheckpoint {
 /** RunApplicationService 的结构化子集（生产直传；测试 fake） */
 export interface TaskControlService {
   get(runId: string): Promise<{
-    snapshot: { status: string; effectiveStatus: string; result?: unknown };
+    snapshot: { status: string; effectiveStatus: string; result?: unknown; manifest?: { error?: string } | null };
     checkpoints: TaskControlCheckpoint[];
   } | null>;
   cancel(runId: string): Promise<unknown>;

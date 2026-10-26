@@ -1,6 +1,7 @@
 // 真实 Provider：@amaster.ai/pi-image-gen（P0 T0.4 已真实验证 8.1s cogview-3-flash）。
-// 智谱兼容层：customProviders + fetchImpl 去掉固定 n:1（智谱对显式 n 报 HTTP 429 + code 1314，P0 实测坑）。
-// 配置来源：IMAGE_GEN_API_KEY / IMAGE_GEN_BASE_URL / IMAGE_GEN_MODEL 环境变量（缺省 zhipu cogview-3-flash）。
+// 通用 OpenAI 兼容层：任何 OpenAI API 格式的文生图端点用三件套接入——
+//   IMAGE_GEN_API_KEY / IMAGE_GEN_BASE_URL / IMAGE_GEN_MODEL（缺省智谱 cogview-3-flash）。
+// 智谱特化补丁（去 n:1、1314 错误码识别）仅智谱域名生效，非智谱端点走标准 wire format。
 import { generateImage, loadImageGenSettings } from "@amaster.ai/pi-image-gen";
 import path from "node:path";
 import fsp from "node:fs/promises";
@@ -8,6 +9,7 @@ import fsp from "node:fs/promises";
 export const providerId = "pi-image-gen";
 
 const ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
+const CUSTOM_PROVIDER_KEY = "custom-openai";
 
 export function buildSettings(env = process.env) {
   const apiKey = env.IMAGE_GEN_API_KEY;
@@ -20,25 +22,34 @@ export function buildSettings(env = process.env) {
   }
   return {
     cwd: process.cwd(),
+    baseUrl,
     settings: {
       ...loadImageGenSettings({ cwd: process.cwd() }),
       defaultModel: modelId,
-      customProviders: [
-        {
-          id: "zhipu",
+      // 库契约：customProviders 为 Record<string, CustomImageProvider>（pi-image-gen dist/types.d.ts）。
+      // 显式 models 列表 = 确定性路由（resolveModel 第 1 优先级命中，不会库内置 id 抢道）。
+      customProviders: {
+        [CUSTOM_PROVIDER_KEY]: {
           api: "openai",
           baseUrl,
           apiKey,
           models: [{ id: modelId }],
         },
-      ],
+      },
     },
     modelId,
   };
 }
 
-/** 去掉 pi-image-gen openai adapter 固定发送的 n:1（智谱 429 伪装业务错误，见 P0 报告） */
-function zhipuFetchPatch() {
+/** 智谱端点判定（仅域名匹配，用于特化补丁的开关；非智谱端点走标准 OpenAI wire format） */
+export function isZhipuEndpoint(baseUrl) {
+  return /bigmodel\.cn/i.test(String(baseUrl ?? ""));
+}
+
+/** 去掉 pi-image-gen openai adapter 固定发送的 n:1（智谱 429 伪装业务错误，见 P0 报告）。
+ *  仅智谱端点应用：非智谱端点保留原始请求体，不做任何改写。 */
+function zhipuFetchPatch(enabled) {
+  if (!enabled) return undefined; // 不注入 fetchImpl → 库内原生 fetch，请求体原样
   return async (url, init = {}) => {
     if (typeof init.body === "string" && init.body.includes('"n"')) {
       try {
@@ -57,11 +68,14 @@ function mapError(e) {
   const msg = String(e?.message ?? e);
   const err = new Error(msg);
   err.code = "E_PROVIDER";
-  // 限流/网关类 → 可重试；参数/鉴权类 → 不可重试（清单见 P0 报告错误分类表）。
+  // 限流/网关类 → 可重试（服务端明确拒绝，未计费）；参数/鉴权类 → 不可重试（清单见 P0 报告错误分类表）。
   // 智谱 1314「企业套餐已失效」实测是限流/配额伪装码（P0 报告）：映射为可恢复。
+  // P1.5-D：timeout/econnreset/econnaborteded → uncertain（请求可能已送达并计费，
+  // 由执行器禁自动重试、整跑暂停转人工，与需求第三节/第七节对齐）。
   err.recoverable =
     /\b(429|rate|limit|timeout|econnreset|econnrefused|etimedout|5\d\d)\b/i.test(msg) ||
     /1314|套餐已失效/.test(msg);
+  err.uncertain = /\b(timeout|econnreset|econnaborteded|etimedout)\b/i.test(msg);
   if (e?.name === "AbortError" || /abort/i.test(msg)) {
     err.code = "E_ABORTED";
     err.recoverable = true;
@@ -81,16 +95,18 @@ export async function generate({ kind, prompt, outPath, model, signal, context =
   const useModel = model ?? cfg.modelId;
   const started = Date.now();
   const deadlineMs = Number(context.timeoutMs ?? process.env.IMAGE_GEN_TIMEOUT_MS ?? 180_000);
+  // 尺寸提示（如 "1536x1024"）：未设置不发送该字段，走端点/模型缺省尺寸；provider 可忽略
+  const sizeHint = process.env.IMAGE_GEN_SIZE?.trim() || null;
   const attemptSignal = AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(deadlineMs)]);
   // pi-image-gen 把 filename 当 stem，实际扩展名由返回 MIME 决定（MIME_TO_EXT）
   const stem = path.basename(outPath).replace(/\.[a-z0-9]+$/i, "");
   try {
     const result = await generateImage(
-      { prompt, filename: stem, outputDir: path.dirname(outPath), image: reference ? [reference] : undefined },
+      { prompt, filename: stem, outputDir: path.dirname(outPath), image: reference ? [reference] : undefined, size: sizeHint ?? undefined },
       {
         cwd: cfg.cwd,
         settings: { ...cfg.settings, defaultModel: useModel },
-        fetchImpl: zhipuFetchPatch(),
+        fetchImpl: zhipuFetchPatch(isZhipuEndpoint(cfg.baseUrl ?? ZHIPU_BASE_URL)),
         signal: attemptSignal,
       },
     );
@@ -111,11 +127,12 @@ export async function generate({ kind, prompt, outPath, model, signal, context =
       durationMs: Date.now() - started,
     };
   } catch (e) {
-    // 外层 deadline 触发时把挂起请求转成可重试超时
+    // 外层 deadline 触发时把挂起请求转成超时：扣费不确定（P1.5-D）
     if (attemptSignal.aborted && !signal?.aborted && e?.name !== "AbortError") {
       const err = new Error(`attempt deadline ${deadlineMs}ms exceeded`);
       err.code = "E_TIMEOUT";
       err.recoverable = true;
+      err.uncertain = true;
       throw err;
     }
     throw mapError(e);

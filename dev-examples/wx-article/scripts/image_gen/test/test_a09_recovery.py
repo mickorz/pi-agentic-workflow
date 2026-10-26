@@ -60,7 +60,7 @@ def spawn_run(d: Path, slow_ms: int = 600, extra=()):
     out = d / ".run.log"
     f = out.open("wb")
     p = subprocess.Popen(
-        ["node", str(GEN), "--article-dir", str(d), "--provider", str(PROVIDER), "--continue-on-error", *extra],
+        ["node", str(GEN), "--article-dir", str(d), "--provider", str(PROVIDER), "--no-require-style-approval", "--continue-on-error", *extra],
         stdout=f, stderr=subprocess.STDOUT, env=env, cwd=str(IG),
     )
     return p, calls, out, env

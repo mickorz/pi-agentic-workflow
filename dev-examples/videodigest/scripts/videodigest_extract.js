@@ -81,6 +81,8 @@ const resolveResult = await agent(executorPrompt(resolveCmd, '{ raw(命令 stdou
   },
 })
 
+// agent 重试耗尽返回 null：提前退出，让阶段失败闸门以真实原因标记失败（防 null.raw TypeError 遮蔽真因）
+if (!resolveResult) return
 let resolveJson = {}
 try {
   resolveJson = JSON.parse(resolveResult.raw)
@@ -124,6 +126,7 @@ const checkResult = await agent(executorPrompt(checkCmd, '{ raw, ok, archived, t
     required: ['raw', 'ok', 'archived'],
   },
 })
+if (!checkResult) return // 同上：闸门报真因
 let idempotentState = {}
 try {
   idempotentState = JSON.parse(checkResult.raw)
@@ -165,6 +168,7 @@ const lockResult = await agent(executorPrompt(lockCmd, '{ raw, ok, locked, busy?
     required: ['raw', 'ok', 'locked'],
   },
 })
+if (!lockResult) return // 同上：闸门报真因
 let lockJson = {}
 try {
   lockJson = JSON.parse(lockResult.raw)
@@ -202,6 +206,7 @@ try {
       },
     }
   )
+  if (!extractResult) return // 同上：闸门报真因
   await check(
     () => extractResult.ok === true,
     '音频提取/转写失败(原始输出): ' + (extractResult.raw || '').slice(0, 400)
@@ -252,6 +257,7 @@ try {
       required: ['raw', 'ok'],
     } }
   )
+  if (!archiveResult) return // 同上：闸门报真因
   let archiveJson = {}
   try {
     archiveJson = JSON.parse(archiveResult.raw)
