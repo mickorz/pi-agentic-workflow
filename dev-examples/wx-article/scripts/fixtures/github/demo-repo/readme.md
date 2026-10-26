@@ -2,6 +2,10 @@
 
 一个用于测试的示例项目。提供基于配置的任务编排能力，支持常见自动化场景。
 
+![架构图](docs/arch.png)
+
+<img src="https://example-cdn.example.com/banner.png" width="200" alt="banner"/>
+
 ## 功能
 
 - 基于配置文件定义任务流程

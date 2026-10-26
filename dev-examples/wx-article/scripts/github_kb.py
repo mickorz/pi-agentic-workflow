@@ -324,6 +324,169 @@ def fetch_fixture(fixture_dir: str) -> Dict[str, Tuple[int, Any]]:
 
 RAW_FILES = {"repo": "repo.json", "readme": "README.md", "languages": "languages.json", "tree": "tree.json"}
 
+# ── README 图片本地化（用户需求 2026-10-26：图片丢失 → 下载到文档同目录 imgs/ 并改写引用） ──
+
+IMG_EXTS = ("png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico", "avif")
+MAX_IMAGES = 60        # 单仓库图片数上限（超出保留远程 URL）
+PER_IMAGE_CAP = 8 * 1024 * 1024   # 单图 8MB
+TOTAL_CAP = 50 * 1024 * 1024      # 单仓库总量 50MB
+UA = "pi-agentic-workflow/github-kb"
+
+MD_IMG_RE = re.compile(r'!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
+HTML_IMG_RE = re.compile(r'<img\s[^>]*?src=["\']([^"\']+)["\']', re.I)
+
+
+def _safe_img_name(seq: int, url: str) -> str:
+    """远程 URL → 安全本地名 imgs/00X-名字.ext（路径/穿越/特殊字符全部消除）。"""
+    base = url.split("?")[0].split("#")[0].rstrip("/")
+    name = base.rsplit("/", 1)[-1] if "/" in base else base
+    name = urllib.parse.unquote(name)
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", name)[:60].strip("._-") or "image"
+    if "." not in name or name.rsplit(".", 1)[-1].lower() not in IMG_EXTS:
+        name += ".png"  # 无扩展名/非图片扩展 → 统一 .png（content-type 已校验为图）
+    return "%03d-%s" % (seq, name)
+
+
+def _resolve_img_url(url: str, owner: str, repo: str, branch: str) -> Optional[str]:
+    """图片引用 → 可下载绝对 URL；不可处理（data:/协议相对/已是本地）返回 None。"""
+    u = url.strip()
+    if u.startswith("data:") or u.startswith("imgs/") or u.startswith("./imgs/"):
+        return None
+    if u.startswith("//"):
+        return "https:" + u
+    if u.lower().startswith("https://"):
+        return u
+    if u.lower().startswith("http://"):
+        return "https:" + u[len("http:"):]
+    if u.lower().startswith("https:/") or u.startswith("/"):
+        # 仓库绝对路径 /docs/x.png → raw.githubusercontent
+        rel = u.lstrip("/")
+        return "https://raw.githubusercontent.com/%s/%s/%s/%s" % (owner, repo, branch, rel)
+    if "://" not in u and not u.startswith("mailto:"):
+        # 仓库相对路径 docs/x.png 或 ./docs/x.png → raw.githubusercontent
+        rel = u.lstrip("./")
+        if ".." in rel.split("/"):
+            return None
+        return "https://raw.githubusercontent.com/%s/%s/%s/%s" % (owner, repo, branch, rel)
+    return None
+
+
+def _http_download(url: str, cap: int) -> Tuple[Optional[bytes], str]:
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "image/*,*/*"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            data = resp.read(cap + 1)
+    except Exception as e:  # noqa: BLE001 单图失败不影响整体
+        return None, "网络错误: %s" % str(e)[:80]
+    if len(data) > cap:
+        return None, "超过单图大小上限"
+    if ctype and not (ctype.startswith("image/") or ctype in ("application/octet-stream", "binary/octet-stream")):
+        return None, "非图片 Content-Type: " + ctype
+    if not data:
+        return None, "空内容"
+    return data, ""
+
+
+def download_readme_images(raw_dir: str, owner: str, repo: str, branch: str,
+                            fixture_dir: str = "") -> Dict[str, Any]:
+    """把 raw/README.md 里的远程图片下载到 raw/imgs/ 并把引用改写为本地相对路径。
+
+    幂等：已改写为 imgs/ 的引用不再处理；单图失败/超限保留原远程 URL（README 可读性优先）。
+    fixture 模式：仓库相对路径从 fixture 目录拷贝，绝对 URL 跳过（零网络）。
+    返回 {downloaded, failed, skipped, rewritten, imgsDir}。"""
+    md_path = os.path.join(raw_dir, "README.md")
+    if not os.path.isfile(md_path):
+        return {"ok": False, "issues": ["README.md 不存在"]}
+    text = open(md_path, encoding="utf-8", errors="replace").read()
+    urls: List[str] = []
+    for m in MD_IMG_RE.finditer(text):
+        if m.group(1) not in urls:
+            urls.append(m.group(1))
+    for m in HTML_IMG_RE.finditer(text):
+        if m.group(1) not in urls:
+            urls.append(m.group(1))
+    if not urls:
+        return {"ok": True, "downloaded": 0, "failed": 0, "skipped": 0, "rewritten": 0, "imgsDir": ""}
+
+    imgs_dir = os.path.join(raw_dir, "imgs")
+    os.makedirs(imgs_dir, exist_ok=True)
+    mapping: Dict[str, str] = {}  # 远程 URL → 本地相对引用（imgs/ 前缀，与 README 同目录）
+    stats = {"ok": True, "downloaded": 0, "failed": 0, "skipped": 0, "rewritten": 0, "imgsDir": imgs_dir}
+    total = 0
+    for seq, url in enumerate(urls, start=1):
+        local = _safe_img_name(seq, url)
+        dest = os.path.join(imgs_dir, local)
+        ref = "imgs/" + local
+        # 幂等：已下载过的直接复用并参与改写
+        if os.path.isfile(dest):
+            stats["downloaded"] += 1
+            mapping[url] = ref
+            continue
+        if url.startswith("data:") or url.startswith("imgs/") or url.startswith("./imgs/"):
+            stats["skipped"] += 1
+            continue
+        if seq > MAX_IMAGES or total >= TOTAL_CAP:
+            stats["skipped"] += 1
+            continue
+        if fixture_dir:
+            # fixture 零网络：仓库相对路径从 fixture 目录拷贝；绝对 URL 跳过保留远程引用
+            rel = url if ("://" not in url and not url.startswith("//")) else ""
+            if rel:
+                src = os.path.normpath(os.path.join(fixture_dir, rel.lstrip("./")))
+                if os.path.isfile(src) and os.path.abspath(src).startswith(os.path.abspath(fixture_dir) + os.sep):
+                    shutil.copyfile(src, dest)
+                    stats["downloaded"] += 1
+                    mapping[url] = ref
+                    continue
+            stats["skipped"] += 1
+            continue
+        abs_url = _resolve_img_url(url, owner, repo, branch)
+        if abs_url is None:
+            stats["skipped"] += 1
+            continue
+        data, err = _http_download(abs_url, PER_IMAGE_CAP)
+        if data is None:
+            stats["failed"] += 1
+            continue
+        atomic_write_bytes(dest, data)
+        total += len(data)
+        stats["downloaded"] += 1
+        mapping[url] = ref
+
+    if mapping:
+        def repl_md(m: "re.Match") -> str:
+            u = m.group(1)
+            return m.group(0).replace("(" + u + ")", "(" + mapping[u] + ")", 1) if u in mapping else m.group(0)
+
+        new_text = MD_IMG_RE.sub(repl_md, text)
+
+        def repl_html(m: "re.Match") -> str:
+            u = m.group(1)
+            return m.group(0).replace(u, mapping[u], 1) if u in mapping else m.group(0)
+
+        new_text = HTML_IMG_RE.sub(repl_html, new_text)
+        if new_text != text:
+            atomic_write(md_path, new_text)
+            stats["rewritten"] = len(mapping)
+    return stats
+
+
+def atomic_write_bytes(path: str, data: bytes) -> None:
+    d = os.path.dirname(path)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=d)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
 
 def cmd_fetch(args: argparse.Namespace) -> None:
     r = parse_one_url(args.url)
@@ -374,6 +537,20 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         manifest["complete"] = all(
             manifest.get("sources", {}).get(s, {}).get("status") == "ok" and os.path.isfile(os.path.join(target, "raw", RAW_FILES[s]))
             for s in SOURCES)
+        # README 图片本地化（尽力而为：失败保留远程 URL，不影响 complete）
+        img_stats: Dict[str, Any] = {}
+        if "readme" in fetched:
+            try:
+                repo_j = json.loads(open(os.path.join(target, "raw", "repo.json"), encoding="utf-8").read()) \
+                    if os.path.isfile(os.path.join(target, "raw", "repo.json")) else {}
+                branch = repo_j.get("default_branch") or "HEAD"
+                img_stats = download_readme_images(
+                    os.path.join(target, "raw"), owner, repo, branch,
+                    fixture_dir=args.fixture or "")
+                manifest.setdefault("sources", {}).setdefault("readme", {})["images"] = {
+                    k: img_stats.get(k, 0) for k in ("downloaded", "failed", "skipped", "rewritten")}
+            except (OSError, ValueError, RuntimeError) as e:
+                img_stats = {"ok": False, "issues": [str(e)]}
         write_json(manifest_path, manifest)
     except RuntimeError as e:
         # 失败也要把已成功源写回 manifest（T-B：中断可续）
@@ -389,7 +566,39 @@ def cmd_fetch(args: argparse.Namespace) -> None:
         "ok": True, "projectId": pid, "projectDir": target,
         "fetched": fetched, "skipped": skipped, "complete": manifest["complete"],
         "staging": bool(args.force and target != project_dir(args.root, pid)),
+        "images": {k: img_stats.get(k, 0) for k in ("downloaded", "failed", "skipped", "rewritten")} if img_stats else {},
     })
+
+
+# ── 子命令：download-images（已有档案补图/重试失败图） ──
+
+def cmd_download_images(args: argparse.Namespace) -> None:
+    root, iss = resolve_kb_root(args.root)
+    if root is None:
+        out({"ok": False, "issues": iss})
+        return
+    pdir = project_dir(root, args.project_id)
+    raw_dir = os.path.join(pdir, "raw")
+    try:
+        repo_j = read_json(os.path.join(raw_dir, "repo.json"))
+    except (OSError, ValueError):
+        out({"ok": False, "issues": ["项目档案 raw/repo.json 不存在: " + args.project_id]})
+        return
+    branch = repo_j.get("default_branch") or "HEAD"
+    stats = download_readme_images(raw_dir, str(repo_j.get("owner", {}).get("login", "")),
+                                   str(repo_j.get("name", "")), branch,
+                                   fixture_dir=args.fixture or "")
+    if stats.get("ok") and (stats.get("downloaded") or stats.get("rewritten")):
+        mf_path = os.path.join(raw_dir, "fetch-manifest.json")
+        try:
+            mf = read_json(mf_path)
+            mf.setdefault("sources", {}).setdefault("readme", {})["images"] = {
+                k: stats.get(k, 0) for k in ("downloaded", "failed", "skipped", "rewritten")}
+            write_json(mf_path, mf)
+        except (OSError, ValueError):
+            pass
+    stats["projectDir"] = pdir
+    out(stats)
 
 
 # ── 校验（3.4 / 3.4.1） ──────────────────────────────────
@@ -772,6 +981,12 @@ def main() -> int:
     p.add_argument("--fixture", default="")
     p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_fetch)
+
+    p = sub.add_parser("download-images")
+    p.add_argument("--root", default="")
+    p.add_argument("--project-id", required=True)
+    p.add_argument("--fixture", default="")
+    p.set_defaults(fn=cmd_download_images)
 
     p = sub.add_parser("archive")
     p.add_argument("--root", required=True)

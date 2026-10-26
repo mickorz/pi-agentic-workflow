@@ -134,6 +134,25 @@ def main():
         case("T-B 中断续传: 只补 readme", r.get("ok") and r.get("fetched") == ["readme"]
              and r.get("skipped") == ["repo", "languages", "tree"], json.dumps(r, ensure_ascii=False)[:160])
 
+        # ── 2b. README 图片本地化（fixture：相对路径拷贝，绝对 URL 保留） ──
+        r = run("fetch", "--root", os.path.join(tmp, "kb-img"), "--url", url, "--fixture", FIXTURE)
+        img_raw = os.path.join(tmp, "kb-img", "projects", pid, "raw")
+        case("图片本地化: 相对路径图下载到 imgs/",
+             r.get("ok") and r.get("images", {}).get("downloaded", 0) >= 1
+             and os.path.isfile(os.path.join(img_raw, "imgs", "001-arch.png")),
+             json.dumps(r.get("images", {}), ensure_ascii=False))
+        rd = open(os.path.join(img_raw, "README.md"), encoding="utf-8").read()
+        case("图片本地化: 引用改写为本地相对路径",
+             "![架构图](imgs/001-arch.png)" in rd and "docs/arch.png" not in rd)
+        case("图片本地化: 绝对 URL 保留远程引用",
+             "https://example-cdn.example.com/banner.png" in rd)
+        # 补图子命令幂等：二次执行零下载零改写
+        r2 = run("download-images", "--root", os.path.join(tmp, "kb-img"), "--project-id", pid, "--fixture", FIXTURE)
+        rd2 = open(os.path.join(img_raw, "README.md"), encoding="utf-8").read()
+        case("download-images 幂等: 二次零改写",
+             r2.get("ok") and r2.get("rewritten", 0) == 0 and rd2 == rd,
+             json.dumps(r2, ensure_ascii=False)[:120])
+
         # ── 3. 查重 ──
         r = run("detect-duplicate", "--root", root, "--url", "https://github.com/EXAMPLE/DEMO-REPO")
         case("查重: 尚未归档时不存在", r.get("ok") and not r.get("exists"))
