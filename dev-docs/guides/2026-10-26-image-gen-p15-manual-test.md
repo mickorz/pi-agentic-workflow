@@ -29,6 +29,7 @@
 | `IMAGE_GEN_BASE_URL` | 否 | `https://open.bigmodel.cn/api/paas/v4` | API 地址（智谱缺省）。换服务商时填其 OpenAI 兼容端点，如 `https://api.openai.com/v1` |
 | `IMAGE_GEN_MODEL` | 否 | `cogview-3-flash` | 模型 id。智谱可选 `cogview-3`/`cogview-3-flash`/`cogview-4` 等；换服务商填其文生图模型 id |
 | `IMAGE_GEN_PRICE_PER_IMAGE` | 否 | 无（不估算） | 单张单价（元），用于费用估算展示与预算门（也可每次命令传 `--price-cny`） |
+| `IMAGE_GEN_SIZE` | 否 | 不发送 | 尺寸提示（如 `1536x1024`），未设置不发送该字段走端点缺省尺寸；provider 可忽略 |
 | `IMAGE_GEN_TIMEOUT_MS` | 否 | 180000 | 单次尝试硬超时（毫秒）；超时按「扣费不确定」处理不自动重发 |
 | `IMAGE_GEN_INTER_DELAY_MS` | 否 | 1000 | 图间隔节流（限流防线）；测试提速可设 0 |
 
@@ -65,6 +66,54 @@ export IMAGE_GEN_API_KEY="sk-xxx"
 export IMAGE_GEN_BASE_URL="https://api.openai.com/v1"
 export IMAGE_GEN_MODEL="gpt-image-1"
 ```
+
+### 1.1 真实接入示例：OpenAI Images API 格式端点（含变量值对照）
+
+以如下接口文档为例（标准 OpenAI Images API，执行器**原生支持**）：
+
+```bash
+curl --location '/v1/images/generations' \
+--header 'Authorization: Bearer YOUR_API_KEY' \
+--header 'Content-Type: application/json' \
+--data '{
+  "model": "gpt-image-2",
+  "prompt": "...",
+  "n": 1,
+  "size": "1536x1024",
+  "quality": "auto",
+  "output_format": "png",
+  "response_format": "url"
+}'
+```
+
+基础地址 `https://apikiki.apifox.cn/` 时的变量填法：
+
+```bash
+export IMAGE_GEN_API_KEY="YOUR_API_KEY 对应的 key"
+export IMAGE_GEN_BASE_URL="https://apikiki.apifox.cn"    # 域名即可（库自动补 /v1）；写 .../v1 结尾也一样
+export IMAGE_GEN_MODEL="gpt-image-2"
+export IMAGE_GEN_SIZE="1536x1024"                        # 可选，对应 curl 里的 size；不设则不发送
+export IMAGE_GEN_PRICE_PER_IMAGE=0.2                      # 可选，按服务商实际单价
+```
+
+curl 字段与执行器行为的逐项对照（支持性结论）：
+
+| curl 字段 | 执行器行为 | 说明 |
+|---|---|---|
+| `POST /v1/images/generations` | 同路径 | 库拼 `{base}/images/generations`；base 无路径时自动补 `/v1` |
+| `Authorization: Bearer` | 同 | `IMAGE_GEN_API_KEY` 原样进 Bearer |
+| `model` | 同 | `IMAGE_GEN_MODEL` |
+| `prompt` | 同 | 每条目自动拼 `style_prefix + 提示词` |
+| `n: 1` | 同 | 库原生发 `n:1`（去 n 补丁仅智谱域名生效，此类端点不受影响） |
+| `size` | **支持透传** | `IMAGE_GEN_SIZE` 设置时发送（如 `1536x1024`）；未设置不发送该字段，走端点/模型缺省尺寸 |
+| `quality` / `output_format` / `moderation` | 不发送 | 可选参数走端点缺省 |
+| `response_format: "url"` | 两种响应都兼容 | 库对 `b64_json` 与 `url`（含 data: URI）都能解析落盘 |
+
+两个注意：
+1. **apifox.cn 是接口文档托管平台域名**——若服务商给的是 apifox 文档链接，真实调用域名以文档内说明为准（apifox 域名多为 mock/演示端点，有速率限制，生产需换正式域名）；
+2. 尺寸提醒：公众号封面理想比例 900x383（约 2.35:1）。端点缺省尺寸不含此比例时，用 `IMAGE_GEN_SIZE` 指定最接近的横幅尺寸（如 `1536x1024`），或在提示词里写明横幅构图。
+
+以上 wire format 契约由测试 P16-2 固化（本地 mock OpenAI 端点验证：URL 自动补 `/v1`、Bearer 鉴权、`n:1`、`size` 透传、`b64_json`/`url` 双响应格式解析落盘）。
 
 **配置验证**（无 key 快速失败，不进入生图、零计费）：
 

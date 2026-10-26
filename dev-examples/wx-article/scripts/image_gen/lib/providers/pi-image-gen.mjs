@@ -95,12 +95,14 @@ export async function generate({ kind, prompt, outPath, model, signal, context =
   const useModel = model ?? cfg.modelId;
   const started = Date.now();
   const deadlineMs = Number(context.timeoutMs ?? process.env.IMAGE_GEN_TIMEOUT_MS ?? 180_000);
+  // 尺寸提示（如 "1536x1024"）：未设置不发送该字段，走端点/模型缺省尺寸；provider 可忽略
+  const sizeHint = process.env.IMAGE_GEN_SIZE?.trim() || null;
   const attemptSignal = AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(deadlineMs)]);
   // pi-image-gen 把 filename 当 stem，实际扩展名由返回 MIME 决定（MIME_TO_EXT）
   const stem = path.basename(outPath).replace(/\.[a-z0-9]+$/i, "");
   try {
     const result = await generateImage(
-      { prompt, filename: stem, outputDir: path.dirname(outPath), image: reference ? [reference] : undefined },
+      { prompt, filename: stem, outputDir: path.dirname(outPath), image: reference ? [reference] : undefined, size: sizeHint ?? undefined },
       {
         cwd: cfg.cwd,
         settings: { ...cfg.settings, defaultModel: useModel },

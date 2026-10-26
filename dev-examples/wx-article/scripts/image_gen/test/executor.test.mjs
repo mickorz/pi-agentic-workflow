@@ -549,6 +549,48 @@ test("P16-1 provider 配置面：任何 OpenAI 兼容端点即插即用，路由
   assert.equal(isZhipuEndpoint(undefined), false);
 });
 
+test("P16-2 OpenAI 兼容端点 wire 契约：本地 mock 验证 URL/Bearer/请求体/size 透传/b64 响应落盘", async () => {
+  const http = await import("node:http");
+  const PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const captured = [];
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      captured.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(body) });
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ data: [{ b64_json: PNG_B64 }] }));
+    });
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  const provider = await import("../lib/providers/pi-image-gen.mjs");
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ig-wire-"));
+  dirs.push(tmp);
+  const env0 = { ...process.env };
+  try {
+    process.env.IMAGE_GEN_API_KEY = "test-key-123";
+    process.env.IMAGE_GEN_BASE_URL = "http://127.0.0.1:" + port;
+    process.env.IMAGE_GEN_MODEL = "gpt-image-2";
+    process.env.IMAGE_GEN_SIZE = "1536x1024";
+    const r = await provider.generate({ prompt: "测试", outPath: path.join(tmp, "01-term.png"), context: { settings: provider.buildSettings() } });
+    const req0 = captured[0];
+    assert.equal(req0.url, "/v1/images/generations", "base 无路径自动补 /v1");
+    assert.equal(req0.auth, "Bearer test-key-123");
+    assert.equal(req0.body.model, "gpt-image-2");
+    assert.equal(req0.body.n, 1);
+    assert.equal(req0.body.size, "1536x1024", "IMAGE_GEN_SIZE 透传");
+    assert.ok(fs.existsSync(r.path), "b64_json 响应解析落盘");
+    // 未设置 size：不发送该字段（走端点缺省）
+    delete process.env.IMAGE_GEN_SIZE;
+    await provider.generate({ prompt: "测试2", outPath: path.join(tmp, "02-term.png"), context: { settings: provider.buildSettings() } });
+    assert.equal(captured[1].body.size, undefined, "未设置 IMAGE_GEN_SIZE 不发送 size 字段");
+  } finally {
+    Object.assign(process.env, env0);
+    server.close();
+  }
+});
+
 test("P15-11 预算运行时门：累计请求数×单价超预算 → 发请求前停，提额后可续跑（跨运行累计）", () => {
   const dir = mkArticleDir("p15-budget-rt", SAMPLE);
   // 单次尝试 1、单价 1、预算 7、首轮 cap 4：
