@@ -69,7 +69,7 @@ export class IntentRouter {
       name: c.name,
       description: c.description,
       keywords: c.keywords,
-      requiredArgs: Object.keys((c.argsSchema as { required?: string[] }).required ?? []),
+      requiredArgs: ((c.argsSchema as { required?: string[] }).required ?? []) as string[],
     }));
     return [
       `用户消息：${text}`,

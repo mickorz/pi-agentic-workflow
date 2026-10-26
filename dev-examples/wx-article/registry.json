@@ -767,5 +767,49 @@
       "文章写完了 交接 微信自动化"
     ],
     "scriptPath": "scripts/idea_article_handoff.js"
+  },
+  {
+    "workflowId": "github-research",
+    "scriptPath": "wx-article/scripts/github_research.js",
+    "name": "GitHub 项目研究",
+    "description": "GitHub 项目研究与知识库归档: 解析URL -> 查重(命中即复用) -> 缓存状态机抓取/补齐 -> 素材边界包裹的LLM分析(七段模板+证据等级) -> 归档校验 -> 原子更新索引。可独立执行; 重复输入秒回复用, force=true 强制更新(暂存替换, 失败不破坏原档案)",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "repoUrl": {
+          "type": "string",
+          "description": "GitHub 仓库地址(github.com/owner/repo 或 owner/repo)"
+        },
+        "force": {
+          "type": "boolean",
+          "description": "强制重新抓取与分析(可选, 默认命中即复用)"
+        },
+        "fixture": {
+          "type": "string",
+          "description": "测试沙盒目录(内部测试用, 传入则零网络)"
+        },
+        "kb_root": {
+          "type": "string",
+          "description": "知识库根(可选, 缺省读 GITHUB_KB_ROOT 或 .aws-article/config.json 的 github_knowledge_root)"
+        }
+      },
+      "required": [
+        "repoUrl"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "github",
+      "研究",
+      "知识库",
+      "分析项目",
+      "项目档案"
+    ],
+    "examples": [
+      "研究这个 GitHub 项目 https://github.com/psf/requests",
+      "分析这个 GitHub 仓库并保存知识库 repoUrl=https://github.com/psf/requests",
+      "研究 github 项目 repoUrl=https://github.com/example/demo-repo force=true"
+    ]
   }
 ]
