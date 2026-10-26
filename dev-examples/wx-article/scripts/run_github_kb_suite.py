@@ -357,6 +357,49 @@ def main():
         r = run("resolve-root", "--from", ws2)
         case("resolve-root 回退: 无 70_KnowlegeBase 时明确报错", not r.get("ok"))
 
+        # ── P1: plan-article 幂等与 force 另一篇（T-E kb 层） ──
+        r = run("plan-article", "--root", root, "--project-id", pid, "--angle", "recommend")
+        case("T-E plan-article: 同角度幂等返回已有", r.get("ok") and r.get("exists")
+             and r.get("articleId") == "gh20261026-demorepo-recommend", json.dumps(r, ensure_ascii=False)[:140])
+        r2 = run("plan-article", "--root", root, "--project-id", pid, "--angle", "deep")
+        case("T-E plan-article: 新角度新 id", r2.get("ok") and not r2.get("exists") and r2["articleId"] != r["articleId"])
+        r3 = run("plan-article", "--root", root, "--project-id", pid, "--angle", "recommend", "--force")
+        case("T-E plan-article: force 另一篇（id 唯一）", r3.get("ok") and not r3.get("exists")
+             and r3["articleId"] != r["articleId"] and r3["articleId"] != r2["articleId"])
+        r4 = run("plan-article", "--root", root, "--project-id", "no-such", "--angle", "recommend")
+        case("plan-article: 未研究项目拒绝", not r4.get("ok"))
+
+        # ── P1: article-write 三件套 + check_state 兼容（T-F） ──
+        ws_t = os.path.join(tmp, "ws")
+        adir = os.path.join(ws_t, "测试推荐文")
+        MD = "# 测试推荐文\n\n正文。" * 1 + "\n" * 1 + ("这是一段足够长的正文内容，用来通过长度相关校验。" * 30) + "\n"
+        YML = "title: 测试推荐文\nauthor: AI奇点\ndigest: 一句话摘要测试。\ncontent_source: 测试推荐文.md\n"
+        r = run("article-write", "--dir", adir, "--md-name", "测试推荐文.md",
+                "--md-b64", b64(MD), "--yaml-b64", b64(YML),
+                "--advice-b64", b64("# 配图建议\n封面: 抽象科技感"), "--review-b64", b64("# 审稿记录\npass"))
+        case("article-write: 三件套落盘", r.get("ok") and all(os.path.isfile(os.path.join(adir, f)) for f in ("测试推荐文.md", "article.yaml", "配图建议.md", "审稿.md")))
+        r = run("article-write", "--dir", adir, "--md-b64", b64(MD), "--yaml-b64", b64(YML))
+        case("article-write: 已存在目录拒绝（O_EXCL）", not r.get("ok"))
+        # T-F: check_state 只读复检——缺封面 → article_ready（不裸 ok）
+        cs = subprocess.run([sys.executable, os.path.join(HERE, "draft_manager", "check_state.py"), "--article-dir", adir],
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        csj = json.loads(cs.stdout)
+        case("T-F check_state: 结构合规且报缺封面（article_ready 语义）",
+             csj.get("ok") and csj.get("prepare_ready") is False and csj.get("cover", {}).get("state") == "none"
+             and any("封面" in i for i in csj.get("issues", [])),
+             json.dumps({k: csj.get(k) for k in ("ok", "prepare_ready", "issues")}, ensure_ascii=False)[:160])
+        # 加封面后 → prepare_ready
+        import base64 as _b64
+        open(os.path.join(adir, "cover.png"), "wb").write(_b64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+        cs2 = subprocess.run([sys.executable, os.path.join(HERE, "draft_manager", "check_state.py"), "--article-dir", adir],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        cs2j = json.loads(cs2.stdout)
+        case("T-F check_state: 封面就绪后 prepare_ready", cs2j.get("ok") and cs2j.get("prepare_ready") is True)
+        # resolve-workspace
+        r = run("resolve-workspace", "--workspace", "E:/tmp/ws")
+        case("resolve-workspace: 显式参数直通", r.get("ok") and r.get("workspace") == "E:/tmp/ws")
+
         # ── T-A: 并发归档不丢索引 ──
         root3 = os.path.join(tmp, "kb3")
         os.makedirs(root3)

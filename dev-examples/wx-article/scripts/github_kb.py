@@ -1174,6 +1174,124 @@ def cmd_read_raw(args: argparse.Namespace) -> None:
     })
 
 
+
+
+# ── P1（github-article）子命令 ──────────────────────────
+
+def cmd_resolve_workspace(args: argparse.Namespace) -> None:
+    """文章工作区根解析：--workspace 显式 > .aws-article/config.json 的 article_workspace。"""
+    if args.workspace:
+        out({"ok": True, "workspace": args.workspace})
+        return
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(8):
+        cfg = os.path.join(d, ".aws-article", "config.json")
+        if os.path.isfile(cfg):
+            try:
+                c = read_json(cfg)
+                ws = str(c.get("article_workspace") or "")
+                if ws:
+                    out({"ok": True, "workspace": ws})
+                    return
+                out({"ok": False, "issues": ["config.json 未配置 article_workspace"]})
+                return
+            except (OSError, ValueError) as e:
+                out({"ok": False, "issues": ["config.json 解析失败: %s" % e]})
+                return
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    out({"ok": False, "issues": ["未找到 .aws-article/config.json；传 --workspace 或在 wx-article 配置 article_workspace"]})
+
+
+def _article_slug(pid: str) -> str:
+    """projectId → articleId 用的 ascii slug（小写字母数字连字符；非 ascii 丢弃）。"""
+    slug = re.sub(r"[^a-z0-9]+", "-", pid.lower()).strip("-")
+    return slug or "repo"
+
+
+def cmd_plan_article(args: argparse.Namespace) -> None:
+    """文章规划（幂等）：同 projectId+angle 已有文章 → 返回已有（exists=true）；否则生成确定性 articleId。
+
+    articleId = gh{yyyymmdd}-{slug}-{angle}；同日同 angle 冲突追加 -2/-3（force 二篇场景）。
+    """
+    root, iss = resolve_kb_root(args.root)
+    if root is None:
+        out({"ok": False, "issues": iss})
+        return
+    with KbLock(root):
+        idx = load_index(root)
+        entry = idx_entry(idx, args.project_id)
+        if entry is None:
+            out({"ok": False, "issues": ["项目档案不存在: " + args.project_id]})
+            return
+        arts = entry.get("articles", [])
+        if not args.force:
+            hit = next((a for a in arts if a.get("angle") == args.angle), None)
+            if hit is not None:
+                out({"ok": True, "exists": True, "articleId": hit.get("articleId", ""),
+                     "articleDir": hit.get("articleDir", ""), "angle": args.angle})
+                return
+        day = time.strftime("%Y%m%d")
+        base = "gh%s-%s-%s" % (day, _article_slug(args.project_id), args.angle)
+        aid = base
+        n = 2
+        while any(a.get("articleId") == aid for a in arts):
+            aid = "%s-%d" % (base, n)
+            n += 1
+    out({"ok": True, "exists": False, "articleId": aid, "angle": args.angle})
+
+
+def cmd_read_archive(args: argparse.Namespace) -> None:
+    """读取已归档项目档案（project.md frontmatter + analysis.md + evidence.json）供写作使用。"""
+    root, iss = resolve_kb_root(args.root)
+    if root is None:
+        out({"ok": False, "issues": iss})
+        return
+    pdir = resolve_project_dir(root, args.project_id)
+    if not pdir or not os.path.isdir(pdir):
+        out({"ok": False, "issues": ["项目档案不存在: " + args.project_id]})
+        return
+    try:
+        proj = load_project_md(os.path.join(pdir, PROJECT_MD))
+        analysis = open(os.path.join(pdir, "analysis.md"), encoding="utf-8").read()
+        evidence = read_json(os.path.join(pdir, "evidence.json"))
+    except (OSError, ValueError) as e:
+        out({"ok": False, "issues": ["读取档案失败: %s" % e]})
+        return
+    out({"ok": True, "projectDir": pdir, "project": proj, "analysisMd": analysis, "evidence": evidence})
+
+
+def cmd_article_write(args: argparse.Namespace) -> None:
+    """写入文章三件套（article.md + article.yaml + 配图建议.md[+ 审稿.md]）。
+
+    O_EXCL 语义：目录已存在即拒绝（--force 覆盖）；目录名由调用方定（标题已消毒）。
+    """
+    d = args.dir
+    if os.path.exists(d) and not args.force:
+        out({"ok": False, "issues": ["文章目录已存在: " + d + "（重跑用 force 或换标题）"]})
+        return
+    os.makedirs(d, exist_ok=True)
+    md_name = (args.md_name or "").strip() or "正文.md"
+    try:
+        files = []
+        atomic_write(os.path.join(d, md_name), b64decode_text(args.md_b64))
+        files.append(md_name)
+        atomic_write(os.path.join(d, "article.yaml"), b64decode_text(args.yaml_b64))
+        files.append("article.yaml")
+        if args.advice_b64:
+            atomic_write(os.path.join(d, "配图建议.md"), b64decode_text(args.advice_b64))
+            files.append("配图建议.md")
+        if args.review_b64:
+            atomic_write(os.path.join(d, "审稿.md"), b64decode_text(args.review_b64))
+            files.append("审稿.md")
+    except (ValueError, UnicodeDecodeError, OSError) as e:
+        out({"ok": False, "issues": ["写入失败: %s" % e]})
+        return
+    out({"ok": True, "articleDir": d, "files": files})
+
+
 # ── CLI ──────────────────────────────────────────────────
 
 def main() -> int:
@@ -1207,6 +1325,32 @@ def main() -> int:
     p.add_argument("--fixture", default="")
     p.add_argument("--force", action="store_true")
     p.set_defaults(fn=cmd_fetch)
+
+    p = sub.add_parser("resolve-workspace")
+    p.add_argument("--workspace", default="")
+    p.set_defaults(fn=cmd_resolve_workspace)
+
+    p = sub.add_parser("plan-article")
+    p.add_argument("--root", default="")
+    p.add_argument("--project-id", required=True)
+    p.add_argument("--angle", required=True)
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_plan_article)
+
+    p = sub.add_parser("read-archive")
+    p.add_argument("--root", default="")
+    p.add_argument("--project-id", required=True)
+    p.set_defaults(fn=cmd_read_archive)
+
+    p = sub.add_parser("article-write")
+    p.add_argument("--dir", required=True)
+    p.add_argument("--md-name", default="")
+    p.add_argument("--md-b64", required=True)
+    p.add_argument("--yaml-b64", required=True)
+    p.add_argument("--advice-b64", default="")
+    p.add_argument("--review-b64", default="")
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(fn=cmd_article_write)
 
     p = sub.add_parser("list-categories")
     p.add_argument("--root", default="")
