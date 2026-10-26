@@ -86,12 +86,13 @@ export class RunMonitor {
       } else if (eff === "failed") {
         this.deps.tasks.update(binding.runId, { status: "failed" });
         this.writeRunLink(binding, "failed");
+        const reason = summarizeFailure(detail.snapshot.manifest?.error);
         this.deps.outbox.enqueue({
           userId: binding.userId,
           kind: "failed",
           runId: binding.runId,
           taskBindingId: binding.taskBindingId,
-          text: `❌「${binding.workflowId}」失败（${binding.taskBindingId}）。可发「进度如何 tb…」查看详情。`,
+          text: `❌「${binding.workflowId}」失败（${binding.taskBindingId}）${reason ? `：\n${reason}` : ""}。可发「进度如何 tb…」查看详情。`,
         });
       } else if (eff === "cancelled") {
         this.deps.tasks.update(binding.runId, { status: "cancelled" });
@@ -172,4 +173,12 @@ function summarizeResult(result: unknown): string {
   if (result === null || result === undefined) return "（无返回值）";
   const text = typeof result === "string" ? result : JSON.stringify(result);
   return text.length <= 500 ? text : `${text.slice(0, 500)}…`;
+}
+
+/** 失败原因摘要：多行压单行（闸门错误是多行清单），微信文本单行更可读，超长截断 */
+function summarizeFailure(error: string | undefined | null): string {
+  if (!error) return "";
+  const oneLine = String(error).replace(/\s+/g, " ").trim();
+  if (!oneLine) return "";
+  return oneLine.length <= 300 ? oneLine : `${oneLine.slice(0, 300)}…`;
 }
