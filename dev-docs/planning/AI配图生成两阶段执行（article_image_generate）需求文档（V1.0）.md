@@ -3,7 +3,7 @@
 > 日期：2026-10-23
 > 需求来源：外部评审（针对"读取 N 条提示词 → 自动生成 N 张图 → 保存 → 插入文章"的 V1 生图执行方案的调整建议）
 > 关联文档：`dev-docs/planning/公众号文章统一处理流水线（article_pipeline）需求文档（V1.2）.md`（文章主流水线）
-> 状态：实现状态已盘点（2026-10-24 对照 git 记录，详见第九节）——P0/P1 已实现、P2 部分实现，**P1.5（本需求核心增量）未开发**；开发排序见第六节（P0 → P1 → P1.5 → P2，**P1.5 未完成前不允许微信一键批量生图**）
+> 状态：**P0/P1/P1.5 已实现、P2 部分实现**（P1.5 于 2026-10-26 完成，见 9.6；盘点基准 2026-10-24，详见第九节）；开发排序见第六节（P0 → P1 → P1.5 → P2，**P1.5 未完成前不允许微信一键批量生图**；P1.5 已完成并过验收，registry 重启启用属 P2 收尾项）
 
 ## 背景
 
@@ -128,12 +128,12 @@ flowchart TD
 
 原文章流水线 P0/P1/P2 不必推翻，生图能力独立增加一个阶段序列：
 
-| 阶段 | 开发内容 | 实现状态（2026-10-24 盘点） |
+| 阶段 | 开发内容 | 实现状态（2026-10-26 更新） |
 |------|---------|--------------------------|
 | P0 | 单图 Provider 验证、成本与取消机制验证 | 已完成（`631446b`，证据见 9.1） |
 | P1 | Manifest（生图状态文件）、批量执行、失败续跑 | 已完成（`8f74f19`，证据见 9.1） |
-| P1.5 | 首图试生成、风格审批（绑定 prompt_hash）、预算与请求次数控制 | **未开发**（缺口清单见 9.3） |
-| P2 | 微信路由、图片回传、插图与发布链路集成 | 部分完成（`a953a63` + `921f930`，见 9.1/9.4） |
+| P1.5 | 首图试生成、风格审批（绑定 prompt_hash）、预算与请求次数控制 | **已完成**（2026-10-26，见 9.6） |
+| P2 | 微信路由、图片回传、插图与发布链路集成 | 部分完成（`a953a63` + `921f930`，见 9.1/9.4；剩 registry 重启 + 图片回传 + 挑图编排） |
 
 **P1.5 必须完成以后，才允许微信一键批量生图。**
 
@@ -165,7 +165,7 @@ flowchart TD
 
 这套"付费操作前验证、阶段审批、预算控制"机制设计为可复用资产，未来其他 AI 内容生产工作流直接继承。
 
-## 九、实现状态盘点（2026-10-24，对照 git 记录）
+## 九、实现状态盘点（2026-10-24，对照 git 记录；P1.5 完成更新见 9.6）
 
 > 对照基准：image-gen 三连提交 `631446b`（P0）→ `8f74f19`（P1）→ `a953a63`（P2），以及网关 registry 收敛 `921f930`。
 > 代码位置：执行器 `dev-examples/wx-article/scripts/image_gen/`（generate.mjs + lib/），编排 workflow `dev-examples/wx-article/scripts/article_image_generate.js`，提示词转换 `article_image_prompts_convert.js`（convert.mjs）。
@@ -229,13 +229,28 @@ flowchart TD
 3. **registry enabled=false 的原因与 P1.5 门禁不是一回事**：`921f930` 因"8 条重叠工具收敛"禁用生图工具，客观上挡住了微信一键批量；重新启用的条件应显式写为"P1.5 完成并通过验收 2/3/4/7"，避免日后被误当纯路由问题直接打开。
 4. **执行方案文档缺失**：CLAUDE.md 与 image_gen/README.md 引用的 `dev-docs/planning/2026-10-23-公众号批量生图接入执行方案.md`（V1.1）当前不在工作区（dev-docs 不入 git，无法从历史恢复）；P1.5 开工前建议先补齐或确认该文档去向。
 
-### 9.5 下一步开发顺序（第六节基础上细化）
+### 9.5 下一步开发顺序（第六节基础上细化；2026-10-26 A~D 已全部完成，见 9.6）
 
 1. **P1.5-A 模式层**：generate.mjs / article_image_generate.js 增加 preview/batch/regenerate 模式参数与门禁（preview 固定只跑 1 张代表图并记录 preview_image_id）。
 2. **P1.5-B 审批状态机**：manifest 增加 style_approval 字段族（绑定 prompt_hash + 模型指纹 + 风格参数），提示词/风格变更自动回 pending；batch 前强制校验（require_style_approval 默认开启）。
 3. **P1.5-C 预算控制**：max_images_per_run / max_attempts_per_image（改名并纳入预算口径）/ 单价配置与 estimated_budget 估算拦截。
 4. **P1.5-D 超时语义改造**：9.4 冲突点 1 落地（扣费不确定 → 暂停转人工，不自动重发）。
 5. **P1.5 验收 2/3/4/6/7 全过后 → P2 剩余**：registry 重新启用 + 微信图片回传 + 全量预览挑图编排。
+
+### 9.6 P1.5 完成更新（2026-10-26）
+
+按 9.5 顺序全部交付，验收 1/2/3/4/6/7/8 全过（执行器测试 P15-1~8，23/23 绿；微信链路 e2e 仿真绿）。
+
+| 项 | 落地 |
+|---|---|
+| A 模式层 | generate.mjs `--mode preview/batch/regenerate`；preview 固定单次请求（硬约束不重试）、代表条目=首个 body（`--preview-id` 覆盖）、成功即写 style_approval；regenerate 隐含 force + 仅限 `--only-ids`；workflow（article_image_generate.js）按模式编排：preview→风格确认 checkpoint→`--approve-style`，batch→付费授权 checkpoint→门内批量，regenerate→候选隔离重做 |
+| B 审批状态机 | manifest.style_approval（none→preview_completed→approved）；绑定指纹=sha256(风格层+预览条目提示词+模型指纹+参考图)；任一因子变化→懒物化回 pending（验收 2）；batch 门默认开（验收 3），`--no-require-style-approval` 为测试/运维逃生口；风格确认 checkpoint 不因 skip_confirm 豁免（网关授权链注入的 skip_confirm 只免执行授权，内容审批仍走人工，与 4ea12a7「一次授权」契约衔接） |
+| C 预算控制 | `--max-images-per-run`（验收 4 分批，capped_remaining 报告）；`--max-attempts-per-image`（含首次，`--max-retries` 废弃别名）；`--price-cny`/`IMAGE_GEN_PRICE_PER_IMAGE` + `--budget-cny` 最坏估算硬门（验收 7 零请求拦截）；估算入 [PLAN]/[RESULT] 供 checkpoint 展示 |
+| D 超时语义 | 9.4 冲突点 1 解决：`E_TIMEOUT`/`ETIMEDOUT`/`ECONNRESET`/`ECONNABORTED` → uncertain（扣费不确定），单次尝试即停、整跑暂停转人工、条目置 unknown 禁自动重试（验收 6）；仅 429/限流/连接拒绝/5xx 等明确未计费错误自动重试（冲突点 2 收敛：默认上限 3 次但只限明确可恢复类）；unknown 人工核对后 `--retry-unknown` 解冻，文件恰好有效自动恢复 succeeded |
+
+冲突点 4（V1.1 执行方案文档缺失）：image_gen/README 需求来源引用已改指本需求文档（V1.0）第九节；V1.1 文档本体仍未找回，如需补齐另行处理。
+验收 5（单张补跑）沿用既有 `--only-ids`/`--retry-failed`，语义未变。
+P2 剩余（registry 重新启用需以本节验收记录为前提、微信图片回传、全量预览挑图编排）未动。
 
 ## 参考
 

@@ -8,13 +8,15 @@ import crypto from "node:crypto";
 export const MANIFEST_NAME = "image-manifest.json";
 export const MANIFEST_VERSION = 1;
 
-/** 主状态机：pending → running → succeeded | failed；stale = 输入变更待处理（旧图仍有效） */
+/** 主状态机：pending → running → succeeded | failed；stale = 输入变更待处理（旧图仍有效）；
+ *  unknown = 扣费不确定（超时/连接中断，请求可能已达服务端并计费）——禁自动重试，待人工（P1.5-D） */
 export const STATUS = {
   PENDING: "pending",
   RUNNING: "running",
   SUCCEEDED: "succeeded",
   FAILED: "failed",
   STALE: "stale",
+  UNKNOWN: "unknown",
 };
 
 /** 候选状态机：candidate_pending → candidate_generating → candidate_ready → (promoted)；失败 candidate_failed */
@@ -33,6 +35,51 @@ export function manifestPath(articleDir, override) {
 /** prompt_hash = sha256(style_prefix + "\n---\n" + prompt)（D7 定案分隔符） */
 export function promptHash(stylePrefix, prompt) {
   return crypto.createHash("sha256").update(`${stylePrefix ?? ""}\n---\n${prompt ?? ""}`).digest("hex");
+}
+
+// ── 风格审批绑定（P1.5-B，需求 V1.0 第四节）────────────────────────────
+// 审批必须绑定当时的提示词版本、模型及风格参数：绑定指纹任一因子变化 → 审批失效回 pending。
+// 因子：全局风格 style_prefix + 预览条目完整提示词 + 模型指纹 + 风格参考图。
+
+/** 风格层哈希：sha256(style_prefix)（全局画风，独立于具体条目构图） */
+export function styleHash(stylePrefix) {
+  return crypto.createHash("sha256").update(String(stylePrefix ?? "")).digest("hex");
+}
+
+/** 审批绑定指纹：sha256(风格哈希 + 预览条目哈希 + 模型指纹 + 参考图哈希) */
+export function styleBindingFingerprint({ styleHashV, previewPromptHash, modelFingerprint, referenceHash }) {
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        style_hash: styleHashV,
+        preview_prompt_hash: previewPromptHash,
+        model_fingerprint: modelFingerprint,
+        reference_hash: referenceHash ?? null,
+      }),
+    )
+    .digest("hex");
+}
+
+/** manifest.style_approval 缺省形态 */
+export function newStyleApproval() {
+  return {
+    status: "none", // none → preview_completed → approved；输入变化 → pending（失效）
+    preview_image_id: null,
+    preview_prompt_hash: null,
+    style_hash: null,
+    model_fingerprint: null,
+    reference_hash: null,
+    fingerprint: null,
+    preview_path: null,
+    approved_at: null,
+    updated_at: null,
+  };
+}
+
+/** 读取（兼容无该字段族的旧 manifest），返回有效对象（不落盘） */
+export function styleApprovalOf(manifest) {
+  return manifest.style_approval ?? newStyleApproval();
 }
 
 export function fileSha256(filePath) {
@@ -129,7 +176,7 @@ export function entryFor(manifest, item, modelFingerprint, referenceHash, hash) 
  *  - run-candidate   stale / force-regenerate 的 succeeded（走 candidate 链）
  * 遗留 running（上次进程死在落盘后未写终态）：先文件核验 → 有效则直接 succeeded（A09 恢复）。
  */
-export async function reconcileEntry(entry, { hash, modelFingerprint, referenceHash, verifyFile, retryFailed }) {
+export async function reconcileEntry(entry, { hash, modelFingerprint, referenceHash, verifyFile, retryFailed, retryUnknown }) {
   const inputChanged =
     entry.prompt_hash !== hash ||
     entry.model_fingerprint !== modelFingerprint ||
@@ -165,6 +212,19 @@ export async function reconcileEntry(entry, { hash, modelFingerprint, referenceH
 
   if (entry.status === STATUS.FAILED) {
     return { action: retryFailed ? "run-main" : "report-only", changed: false };
+  }
+
+  // unknown（P1.5-D）：扣费不确定，禁自动重试。文件恰好有效 → 直接恢复 succeeded（零额外费用）；
+  // 否则 report-only（人工显式 --retry-unknown 才重生成）。
+  if (entry.status === STATUS.UNKNOWN) {
+    const verdict = entry.path ? await verifyFile(entry.path) : { ok: false };
+    if (verdict.ok) {
+      entry.status = STATUS.SUCCEEDED;
+      entry.error_code = null;
+      entry.updated_at = new Date().toISOString();
+      return { action: "verify-recovered", changed: true };
+    }
+    return { action: retryUnknown ? "run-main" : "report-unknown", changed: false };
   }
 
   // pending

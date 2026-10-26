@@ -476,14 +476,23 @@
   {
     "workflowId": "article-image-generate",
     "scriptPath": "scripts/article_image_generate.js",
-    "name": "公众号批量生图",
-    "description": "按文章目录 image-prompts.json 批量生成封面与正文插图: 校验计划→一次授权→顺序生成(文章锁+manifest断点续跑+候选隔离)→零LLM双向核验→标准报告。provider 支持 fake(测试)/pi-image-gen(智谱等,缺省)/pi-ai(实验)",
+    "name": "公众号两阶段生图",
+    "description": "两阶段生图(P1.5): preview 试生成1张→风格确认(绑定提示词/模型指纹)→batch 批量(风格审批门+预算硬门+文章锁+manifest断点续跑)→零LLM核验; regenerate 单张重做(候选隔离)。provider 支持 fake(测试)/pi-image-gen(智谱等,缺省)/pi-ai(实验)",
     "argsSchema": {
       "type": "object",
       "properties": {
         "article_dir": {
           "type": "string",
           "description": "文章目录绝对路径(含 image-prompts.json)"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "preview",
+            "batch",
+            "regenerate"
+          ],
+          "description": "两阶段模式(默认 batch): preview 试生成1张代表图; batch 批量(需风格审批已通过); regenerate 单张重做(需 only_ids)"
         },
         "provider": {
           "type": "string",
@@ -493,13 +502,21 @@
           "type": "string",
           "description": "模型 id(可选)"
         },
+        "preview_id": {
+          "type": "string",
+          "description": "preview 模式代表条目 id(可选,默认首个 body)"
+        },
         "only_ids": {
           "type": "string",
-          "description": "只处理的条目 id 子集(逗号分隔)"
+          "description": "只处理的条目 id 子集(逗号分隔; regenerate 模式必填)"
         },
         "retry_failed": {
           "type": "boolean",
           "description": "重试 failed 条目"
+        },
+        "retry_unknown": {
+          "type": "boolean",
+          "description": "人工确认扣费后重试 unknown(超时扣费不确定)条目"
         },
         "force_regenerate": {
           "type": "boolean",
@@ -507,7 +524,23 @@
         },
         "continue_on_error": {
           "type": "boolean",
-          "description": "单图失败继续后续"
+          "description": "单图失败继续后续(扣费不确定例外:一律暂停转人工)"
+        },
+        "max_attempts_per_image": {
+          "type": "number",
+          "description": "单张最多请求次数含首次(默认 3)"
+        },
+        "max_images_per_run": {
+          "type": "number",
+          "description": "单次运行张数硬上限(超出留 pending 分批再跑)"
+        },
+        "price_cny": {
+          "type": "number",
+          "description": "单张单价元(默认环境变量 IMAGE_GEN_PRICE_PER_IMAGE)"
+        },
+        "budget_cny": {
+          "type": "number",
+          "description": "预算硬门: 最坏估算(张数×单价×尝试上限)超预算拒绝执行"
         },
         "dry_run": {
           "type": "boolean",
@@ -515,7 +548,11 @@
         },
         "skip_confirm": {
           "type": "boolean",
-          "description": "外层已授权时跳过 checkpoint(微信批准链)"
+          "description": "外层已授权时跳过付费执行授权 checkpoint(微信批准链); 不豁免风格确认"
+        },
+        "style_approved": {
+          "type": "boolean",
+          "description": "预批准风格(仅供自动化/测试; 正式链路应经风格确认 checkpoint)"
         }
       },
       "required": [
@@ -531,11 +568,14 @@
       "配图",
       "image",
       "image-generate",
-      "封面"
+      "封面",
+      "试生成",
+      "预览图"
     ],
     "examples": [
-      "给这篇文章生成全部插图 article_dir=/path/to/article",
-      "只重做术语三的图 force_regenerate=true only_ids=term-03"
+      "先试生成一张预览图看看风格 mode=preview article_dir=/path/to/article",
+      "风格可以,批量生成剩下的 mode=batch article_dir=/path/to/article",
+      "只重做术语三的图 mode=regenerate only_ids=term-03 article_dir=/path/to/article"
     ]
   },
   {

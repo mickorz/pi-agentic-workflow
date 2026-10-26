@@ -57,11 +57,14 @@ function mapError(e) {
   const msg = String(e?.message ?? e);
   const err = new Error(msg);
   err.code = "E_PROVIDER";
-  // 限流/网关类 → 可重试；参数/鉴权类 → 不可重试（清单见 P0 报告错误分类表）。
+  // 限流/网关类 → 可重试（服务端明确拒绝，未计费）；参数/鉴权类 → 不可重试（清单见 P0 报告错误分类表）。
   // 智谱 1314「企业套餐已失效」实测是限流/配额伪装码（P0 报告）：映射为可恢复。
+  // P1.5-D：timeout/econnreset/econnaborteded → uncertain（请求可能已送达并计费，
+  // 由执行器禁自动重试、整跑暂停转人工，与需求第三节/第七节对齐）。
   err.recoverable =
     /\b(429|rate|limit|timeout|econnreset|econnrefused|etimedout|5\d\d)\b/i.test(msg) ||
     /1314|套餐已失效/.test(msg);
+  err.uncertain = /\b(timeout|econnreset|econnaborteded|etimedout)\b/i.test(msg);
   if (e?.name === "AbortError" || /abort/i.test(msg)) {
     err.code = "E_ABORTED";
     err.recoverable = true;
@@ -111,11 +114,12 @@ export async function generate({ kind, prompt, outPath, model, signal, context =
       durationMs: Date.now() - started,
     };
   } catch (e) {
-    // 外层 deadline 触发时把挂起请求转成可重试超时
+    // 外层 deadline 触发时把挂起请求转成超时：扣费不确定（P1.5-D）
     if (attemptSignal.aborted && !signal?.aborted && e?.name !== "AbortError") {
       const err = new Error(`attempt deadline ${deadlineMs}ms exceeded`);
       err.code = "E_TIMEOUT";
       err.recoverable = true;
+      err.uncertain = true;
       throw err;
     }
     throw mapError(e);
