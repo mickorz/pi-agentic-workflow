@@ -371,7 +371,7 @@ test("agent 链路：裸抖音链接 → write 级审批卡（不经 Agent 会�
   // 批准（确定性通道）→ RunApplicationService 启动，参数完整
   await env.app.handleInbound(msg("m2", "批准"));
   assert.equal(env.service.started.length, 1);
-  assert.equal(env.service.started[0]!.scriptPath.includes("videodigest/extract.js"), true);
+  assert.equal(env.service.started[0]!.scriptPath.replaceAll("\\", "/").includes("videodigest/extract.js"), true, "路径分隔符归一后比对（Windows 预存问题顺手修）");
   assert.deepEqual(env.service.started[0]!.args, { url: "https://v.douyin.com/iRNBosU/" });
   assert.equal(env.openedSessions.n, 0, "审批决策走确定性通道，也不开 Agent 会话");
 });

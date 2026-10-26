@@ -183,12 +183,12 @@ test("DSL：videodigest_extract.js 通过确定性脚本校验（五阶段，无
   assert.match(body, /idempotent/);
 });
 
-test("registry：videodigest-extract 注册合法（write 级 + urlDomains 前置路由）", () => {
+test("registry：videodigest-extract 注册合法（read-only 免审批直启 + urlDomains 前置路由）", () => {
   const list = JSON.parse(rf(REGISTRY, "utf8"));
   const reg = new WorkflowRegistry(list);
   const wf = reg.get("videodigest-extract");
   assert.ok(wf, "未注册 videodigest-extract");
-  assert.equal(wf.riskLevel, "write");
+  assert.equal(wf.riskLevel, "read-only", "2026-10-26 用户定案：免审批直启（写 Vault 走 archive_inspire.py 子进程，不经 obsidianWrite 能力门）");
   assert.equal(wf.enabled, true);
   assert.deepEqual(wf.urlDomains ?? [], ["v.douyin.com", "www.douyin.com", "douyin.com", "www.iesdouyin.com", "iesdouyin.com"]);
   assert.equal(wf.urlArg, "url");
