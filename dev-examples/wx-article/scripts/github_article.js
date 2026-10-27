@@ -106,7 +106,13 @@ const evidenceText = (arc.evidence && Array.isArray(arc.evidence.claims))
   : '（无）'
 
 const ws = await kb('resolve-workspace', args.workspace_dir ? ['--workspace', String(args.workspace_dir)] : [])
-await check(() => ws.ok === true && !!ws.workspace, '文章工作区未配置: ' + JSON.stringify(ws.issues || []))
+if (ws.ok !== true || !ws.workspace) {
+  const NOTIFY_SCRIPT = 'dev-examples/wx-article/scripts/draft_manager/notify_bot.py'
+  const guide = '[GitHub 文章生成配置缺失] 文章工作区(article_workspace)未配置, 本次未执行。请配置: 在服务运行的工作树编辑 dev-examples/wx-article/.aws-article/config.json, 添加 "article_workspace": "E:/Obsidian/newsky/60_Workspace/写作/单篇"。配置后重发消息即可, 无需重启。'
+  const clean = guide.replace(/["%&|<>^]/g, ' ').replace(/\r?\n/g, ' ').slice(0, 1200)
+  await commandSuccess('python "' + NOTIFY_SCRIPT + '" --kind failed --text "' + clean + '" || python3 "' + NOTIFY_SCRIPT + '" --kind failed --text "' + clean + '"', 20000).catch(() => false)
+  await check(() => false, '文章工作区未配置(已推送配置指引到微信): ' + JSON.stringify(ws.issues || []))
+}
 const WORKSPACE = ws.workspace
 
 phase('写作')

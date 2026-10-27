@@ -62,9 +62,25 @@ function b64u(s) {
   return out
 }
 
+// 微信配置缺失指引推送（尽力而为: 复用 notify_bot outbox; 无绑定用户自动 SKIP 不阻塞）
+const NOTIFY_SCRIPT = 'dev-examples/wx-article/scripts/draft_manager/notify_bot.py'
+const notifyWechat = (kind, text) => {
+  const clean = String(text).replace(/["%&|<>^]/g, ' ').replace(/\r?\n/g, ' ').slice(0, 1200)
+  return commandSuccess('python "' + NOTIFY_SCRIPT + '" --kind ' + kind + ' --text "' + clean + '"' +
+    ' || python3 "' + NOTIFY_SCRIPT + '" --kind ' + kind + ' --text "' + clean + '"', 20000).catch(() => false)
+}
+
 phase('知识库定位')
 const rr = await kb('resolve-root', args.kb_root ? ['--root', String(args.kb_root)] : [])
-await check(() => rr.ok === true, '知识库根未配置: ' + JSON.stringify(rr.issues || rr))
+if (rr.ok !== true) {
+  // 前置检查失败: 先推送可操作配置指引到微信, 再终止（本次零副作用）
+  await notifyWechat('failed',
+    '[GitHub 工作流配置缺失] 知识库根未配置, 本次未执行。请配置(三选一): ' +
+    '1) 在服务运行的工作树编辑 dev-examples/wx-article/.aws-article/config.json, 添加 "github_knowledge_root": "E:/Obsidian/newsky/70_KnowlegeBase/01_Github"; ' +
+    '2) 或设环境变量 GITHUB_KB_ROOT 指向该目录; ' +
+    '3) 或在同 config.json 配 "article_workspace"(自动回退 vault 级 70_KnowlegeBase/01_Github)。配置后重发消息即可, 无需重启。')
+  await check(() => false, '知识库根未配置(已推送配置指引到微信): ' + JSON.stringify(rr.issues || []))
+}
 const ROOT = rr.root
 log('知识库根: ' + ROOT)
 
