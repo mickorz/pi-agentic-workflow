@@ -171,6 +171,66 @@ def main():
         r2 = run("download-images", "--root", os.path.join(tmp, "kb-img"), "--project-id", pid, "--fixture", FIXTURE)
         case("download-images: 未归档项目明确报错（索引无此档案）", not r2.get("ok"))
 
+        # ── 2c. 图片本地化总时间预算（慢滴流防拖死：单图 socket 超时挡不住限速慢传） ──
+        # 单图 2.5s 慢下载×4 图，预算 1s：第 1 图在预算内启动，其余全部跳过且快速返回；
+        # 预算需在 env 现读（_image_budget_s），monkeypatch _http_download 不碰网络。
+        import github_kb as gkb
+        import time as _time
+        os.environ["GITHUB_KB_IMG_BUDGET_S"] = "1"
+        orig_dl = gkb._http_download
+        def _slow_download(url, cap):
+            _time.sleep(2.5)
+            return b"PNGDATA", ""
+        gkb._http_download = _slow_download
+        try:
+            budget_raw = os.path.join(tmp, "kb-budget", "raw")
+            os.makedirs(budget_raw, exist_ok=True)
+            with open(os.path.join(budget_raw, "README.md"), "w", encoding="utf-8") as f:
+                f.write("# t\n" + "\n".join(
+                    "![i%d](https://img.example.com/slow-%d.png)" % (i, i) for i in range(4)))
+            t0 = _time.monotonic()
+            bstats = gkb.download_readme_images(budget_raw, "o", "r", "main")
+            bdt = _time.monotonic() - t0
+            case("图片预算: 超预算剩余图跳过且快速收敛",
+                 bstats.get("downloaded") == 1 and bstats.get("skipped") == 3 and bdt < 6,
+                 "stats=%s dt=%.1fs" % (json.dumps({k: bstats.get(k) for k in ("downloaded", "failed", "skipped", "rewritten")}), bdt))
+        finally:
+            gkb._http_download = orig_dl
+            del os.environ["GITHUB_KB_IMG_BUDGET_S"]
+
+        # ── 2d. 单图下载墙钟上限（慢滴流：每块都在读但整体无限拖长） ──
+        # 真实网络下 raw.githubusercontent 被限速 ~3KB/s 时，socket timeout=30 只限单次阻塞读，
+        # 持续慢传可无限拖长；墙钟上限需分块读逐块检查。monkeypatch urlopen 模拟慢滴流。
+        os.environ["GITHUB_KB_IMG_PER_IMAGE_S"] = "1"
+        orig_urlopen = gkb.urllib.request.urlopen
+        class _TrickleResp:
+            def __init__(self, *a, **k):
+                self.headers = {}
+            def read(self, n=-1):
+                _time.sleep(0.4)
+                return b"X" * 1024  # 每块 1KB，永不 EOF → 只能靠墙钟截止
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+        def _trickle_urlopen(req, timeout=30):
+            return _TrickleResp()
+        gkb.urllib.request.urlopen = _trickle_urlopen
+        try:
+            wall_raw = os.path.join(tmp, "kb-wall", "raw")
+            os.makedirs(wall_raw, exist_ok=True)
+            with open(os.path.join(wall_raw, "README.md"), "w", encoding="utf-8") as f:
+                f.write("# t\n![slow](https://img.example.com/trickle.png)")
+            t0 = _time.monotonic()
+            wstats = gkb.download_readme_images(wall_raw, "o", "r", "main")
+            wdt = _time.monotonic() - t0
+            case("单图墙钟: 慢滴流被墙钟截止且标记 failed",
+                 wstats.get("failed") == 1 and wdt < 6,
+                 "stats=%s dt=%.1fs" % (json.dumps({k: wstats.get(k) for k in ("downloaded", "failed", "skipped")}), wdt))
+        finally:
+            gkb.urllib.request.urlopen = orig_urlopen
+            del os.environ["GITHUB_KB_IMG_PER_IMAGE_S"]
+
         # ── 3. 查重（归档前不存在） ──
         r = run("detect-duplicate", "--root", root, "--url", "https://github.com/EXAMPLE/DEMO-REPO")
         case("查重: 尚未归档时不存在", r.get("ok") and not r.get("exists"))

@@ -24,11 +24,22 @@ async function resolvePy() {
   throw new Error('无可用的 python 解释器（python3/python/py）')
 }
 
-async function kb(action, flagArgs) {
+async function kb(action, flagArgs, timeoutMs = 180_000) {
   const py = await resolvePy()
-  const r = await command({ executable: py, args: [KB, action, ...flagArgs], timeoutMs: 180_000, label: 'github_kb ' + action })
+  // fetch 含图片本地化（预算60s+单图墙钟30s，见 github_kb.py），最坏 ~140s，调用侧给足余量
+  const r = await command({ executable: py, args: [KB, action, ...flagArgs], timeoutMs, label: 'github_kb ' + action })
   if (r.exitCode !== 0) {
-    return { ok: false, issues: ['exit=' + r.exitCode, (r.stderr || r.stdout || '').slice(0, 300)] }
+    // 错误可见性(2026-10-27): github_kb 失败时 stdout 是 {ok:false,issues:[...]}; 超时被杀时只有 stderr。
+    // 只取头部 300 字符会把真实原因截掉, 优先解 stdout JSON, 兜底 stderr 首尾拼接。
+    let issues = ['exit=' + r.exitCode]
+    try {
+      const j = JSON.parse(r.stdout)
+      if (j && j.ok === false && Array.isArray(j.issues)) issues = j.issues.map(String)
+    } catch {
+      const se = String(r.stderr || r.stdout || '').replace(/\s+/g, ' ').trim()
+      if (se) issues = [se.length <= 400 ? se : se.slice(0, 150) + ' … ' + se.slice(-250)]
+    }
+    return { ok: false, issues }
   }
   try { return JSON.parse(r.stdout) } catch (e) { return { ok: false, issues: ['bad_output: ' + String(r.stdout).slice(0, 300)] } }
 }
@@ -70,7 +81,13 @@ const notifyWechat = (kind, text) => {
     ' || python3 "' + NOTIFY_SCRIPT + '" --kind ' + kind + ' --text "' + clean + '"', 20000).catch(() => false)
 }
 
-phase('知识库定位')
+// 全局失败兑底(2026-10-27): 任何阶段抛错 -> 先微信推送人话原因再原样抛出
+// （run-monitor 仍会发 ❌ 状态回执；用户主动拒绝/停止不算失败不推送；已单独推送过指引的不再重复）
+const ctx = { pid: '', phase: '启动', notified: false }
+const ph = (t) => { ctx.phase = t; return phase(t) }
+async function main() {
+
+ph('知识库定位')
 const rr = await kb('resolve-root', args.kb_root ? ['--root', String(args.kb_root)] : [])
 if (rr.ok !== true) {
   // 前置检查失败: 先推送可操作配置指引到微信, 再终止（本次零副作用）
@@ -79,6 +96,7 @@ if (rr.ok !== true) {
     '1) 在服务运行的工作树编辑 dev-examples/wx-article/.aws-article/config.json, 添加 "github_knowledge_root": "E:/Obsidian/newsky/70_KnowlegeBase/01_Github"; ' +
     '2) 或设环境变量 GITHUB_KB_ROOT 指向该目录; ' +
     '3) 或在同 config.json 配 "article_workspace"(自动回退 vault 级 70_KnowlegeBase/01_Github)。配置后重发消息即可, 无需重启。')
+  ctx.notified = true
   await check(() => false, '知识库根未配置(已推送配置指引到微信): ' + JSON.stringify(rr.issues || []))
 }
 const ROOT = rr.root
@@ -89,13 +107,14 @@ const cats = await kb('list-categories', ['--root', ROOT])
 await check(() => cats.ok === true && Array.isArray(cats.categories) && cats.categories.length > 0, '读取分类列表失败: ' + JSON.stringify(cats.issues || cats))
 const CATEGORY_LIST = cats.categories
 
-phase('URL 解析')
+ph('URL 解析')
 const pu = await kb('parse-url', ['--url', String(args.repoUrl || args.url || '')])
 await check(() => pu.ok === true, '无法识别的 GitHub 地址: ' + JSON.stringify(pu.issues || []))
 const pid = pu.projectId
+ctx.pid = pid
 log('projectId: ' + pid)
 
-phase('查重')
+ph('查重')
 const dd = await kb('detect-duplicate', ['--root', ROOT, '--url', String(args.repoUrl || args.url)])
 await check(() => dd.ok === true, '查重失败: ' + JSON.stringify(dd.issues || []))
 if (dd.exists && !args.force) {
@@ -110,16 +129,16 @@ if (dd.exists && !args.force) {
   log('档案存在但不完整，走补齐链路: ' + JSON.stringify(lc.issues || []))
 }
 
-phase('抓取(缓存状态机)')
+ph('抓取(缓存状态机)')
 const fetchFlags = ['--root', ROOT, '--url', String(args.repoUrl || args.url)]
 if (args.force) fetchFlags.push('--force')
 if (args.fixture) fetchFlags.push('--fixture', String(args.fixture))
-const fh = await kb('fetch', fetchFlags)
+const fh = await kb('fetch', fetchFlags, 300_000)
 await check(() => fh.ok === true && fh.complete === true,
   '抓取失败或不完整: ' + JSON.stringify(fh.issues || ['complete=false']))
 if (fh.staging) log('force 更新: 抓取产物在暂存目录 ' + fh.projectDir)
 
-phase('项目分析')
+ph('项目分析')
 const raw = await kb('read-raw', ['--root', ROOT, '--project-id', pid].concat(fh.staging ? ['--staging', fh.projectDir] : []))
 await check(() => raw.ok === true, '读取抓取产物失败: ' + JSON.stringify(raw.issues || []))
 
@@ -175,7 +194,7 @@ const analysis = await agent(
   },
 )
 
-phase('分类确认')
+ph('分类确认')
 // 分类决策（用户定版 2026-10-26：不确定就问，不硬塞）：
 //   预指定 args.category > 词表命中 > checkpoint 问一次(AI 建议新分类) > 未分类
 const ameta = analysis.meta || {}
@@ -211,7 +230,7 @@ if (args.category && String(args.category).trim()) {
   }
 }
 
-phase('归档校验')
+ph('归档校验')
 
 const ar = await kb('archive', ['--root', ROOT, '--project-id', pid]
   .concat(fh.staging ? ['--staging', fh.projectDir] : [])
@@ -223,7 +242,7 @@ const ar = await kb('archive', ['--root', ROOT, '--project-id', pid]
 await check(() => ar.ok === true,
   '归档校验失败(原档案不受影响): ' + JSON.stringify(ar.issues || []))
 
-phase('完成')
+ph('完成')
 const lc2 = await kb('locate', ['--root', ROOT, '--project-id', pid])
 await check(() => lc2.ok === true, '归档后校验失败: ' + JSON.stringify(lc2.issues || []))
 
@@ -233,4 +252,18 @@ return {
   projectDir: lc2.projectDir,
   reused: false,
   report: '研究完成并归档: ' + pid + '（' + String(raw.repo.fullName || '') + ', stars=' + String(raw.repo.stars ?? '') + '）',
+}
+
+} // main 结束
+
+try {
+  return await main()
+} catch (e) {
+  const reason = String((e && e.message) || e).replace(/\s+/g, ' ').slice(0, 400)
+  if (!ctx.notified && !/拒绝|abort/i.test(reason)) {
+    await notifyWechat('failed',
+      'GitHub 研究失败[' + ctx.phase + ']' + (ctx.pid ? '（' + ctx.pid + '）' : '') + ': ' + reason +
+      '。多为网络受限或步骤超时, 可稍后重发消息重试; 重复失败可回复仓库链接并附「force」强制重抓。')
+  }
+  throw e
 }

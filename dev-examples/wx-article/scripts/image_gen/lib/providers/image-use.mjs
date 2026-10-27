@@ -32,6 +32,8 @@ const DEFAULT_SCRIPT = path.join(REPO_ROOT, "thirdparties", "image-use", "image-
 
 /** 缺省单次尝试预算：image-use 缺省 --timeout 300s + 落盘余量（方案 2.1） */
 const DEFAULT_DEADLINE_MS = 330_000;
+/** 后端：web=chrome-use 驱动已登录浏览器（Windows 主力）；codex=headless 复用 ~/.codex/auth.json（Mac 无 chrome-use 时用，计 Codex 订阅额度） */
+const DEFAULT_BACKEND = "web";
 /** --timeout flag 最小安全值：仅当 floor(deadline/1000)-5 ≥ 30 才传，防小 deadline 出负数（V3 细节修 1） */
 const MIN_CLI_TIMEOUT_S = 30;
 
@@ -45,12 +47,16 @@ export function buildSettings(env = process.env) {
     pythonBin: env.IMAGE_USE_PYTHON || (process.platform === "win32" ? "python" : "python3"),
     script,
     scriptExists: null, // generate() 内惰性检查；buildSettings 只锁配置
+    backend: env.IMAGE_USE_BACKEND || DEFAULT_BACKEND,
   };
+  if (cfg.backend !== "web" && cfg.backend !== "codex") {
+    throw new Error(`IMAGE_USE_BACKEND 非法（web|codex）: ${cfg.backend}`);
+  }
 }
 
 /** 命令拼装（纯函数，IU-2 断言对象）。deadlineMs=330000 时 timeout flag 为 325s。 */
-export function buildArgs({ prompt, outPath, size, reference, deadlineMs = DEFAULT_DEADLINE_MS }) {
-  const args = ["--backend", "web", "--quiet"];
+export function buildArgs({ prompt, outPath, size, reference, deadlineMs = DEFAULT_DEADLINE_MS, backend = DEFAULT_BACKEND }) {
+  const args = ["--backend", backend, "--quiet"];
   if (prompt !== undefined && prompt !== null) args.push(String(prompt));
   args.push("-o", outPath);
   if (size && String(size).trim()) args.push("--size", String(size).trim());
@@ -137,7 +143,7 @@ export async function generate({ prompt, outPath, model, signal, context = {}, r
   const started = Date.now();
   const deadlineMs = Number(context.timeoutMs ?? process.env.IMAGE_USE_TIMEOUT_MS ?? DEFAULT_DEADLINE_MS);
   const sizeHint = process.env.IMAGE_GEN_SIZE?.trim() || null;
-  const args = buildArgs({ prompt, outPath, size: sizeHint, reference, deadlineMs });
+  const args = buildArgs({ prompt, outPath, size: sizeHint, reference, deadlineMs, backend: cfg.backend });
 
   // fail-fast：脚本缺失（buildSettings 不做 IO，这里做一次存在性检查，E_NO_SCRIPT 语义）
   try {

@@ -37,10 +37,27 @@ for (const cand of ['python3', 'python', 'py']) {
 if (!PY) throw new Error('PATH 上无可用 Python 解释器(python3/python/py 均试运行失败)')
 
 // 确定性子进程执行 + stdout JSON 契约解析; 失败抛带原始输出的错误(通知直达用户)
+// 错误可见性契约(2026-10-27): adapter 失败时 stdout 是结构化 {ok:false,error:{step,message,details}},
+// 真实错误在 stderr 末尾(失败 [step] ...行)——只取头部 300 字符会把原因全部截掉,
+// 微信失败回执只剩过程日志。优先解 stdout JSON, 兜底 stderr 首尾拼接。
+function briefTail(s, head, tail) {
+  const one = String(s || '').replace(/\s+/g, ' ').trim()
+  if (!one) return ''
+  return one.length <= head + tail ? one : one.slice(0, head) + ' … ' + one.slice(-tail)
+}
 async function runJson(label, executable, argv, timeoutMs) {
   const r = await command({ executable, args: argv, label, ...(timeoutMs ? { timeoutMs } : {}) })
   if (r.exitCode !== 0) {
-    throw new Error(label + '失败(退出码 ' + r.exitCode + '): ' + ((r.stderr || r.stdout) || '').slice(0, 300))
+    let reason = ''
+    try {
+      const j = JSON.parse(r.stdout)
+      if (j && j.ok === false && j.error) {
+        reason = (j.error.step ? '[' + j.error.step + '] ' : '') + String(j.error.message || '')
+          + (j.error.details ? ' | ' + String(j.error.details).replace(/\s+/g, ' ').slice(0, 200) : '')
+      }
+    } catch { /* stdout 非 JSON(如超时被杀只有 stderr), 走兜底 */ }
+    if (!reason) reason = briefTail(r.stderr || r.stdout, 150, 250)
+    throw new Error(label + '失败(退出码 ' + r.exitCode + '): ' + reason)
   }
   try {
     return JSON.parse(r.stdout)
@@ -106,14 +123,20 @@ await check(
 
 try {
   // ③音频提取: 短链→cookie→音频下载(16kHz wav)→百炼 fun-asr 转写(2~5 分钟, 轮询上限 30 分钟)
+  // 瞬时容错(2026-10-27): CDP 打开视频页阶段偶发失败(抖音风控/页面慢载), 实测同链接 10 分钟后手动重跑成功——
+  // 失败后等 10s 重试一次; 缓存(transcript.json)与锁都在本工作流内, 重试安全。
   phase('音频提取')
   const workDir = WORK_ROOT + '/' + sourceKey.replace(/[^a-zA-Z0-9_-]/g, '_')
-  const extractJson = await runJson(
-    '音频提取 ',
-    'node',
-    [ADAPTER_CLI, 'extract', '--url', canonicalUrl, '--workdir', workDir],
-    40 * 60 * 1000 // 转写轮询上限 30 分钟 + 下载余量
-  )
+  const extractArgv = ['extract', '--url', canonicalUrl, '--workdir', workDir]
+  let extractJson
+  try {
+    extractJson = await runJson('音频提取 ', 'node', [ADAPTER_CLI, ...extractArgv], 40 * 60 * 1000)
+  } catch (firstErr) {
+    log('音频提取首次失败，暂停 10s 后重试一次（CDP/风控偶发）: ' + String(firstErr.message || firstErr).slice(0, 200))
+    // 沙箱无 sleep/setTimeout，用已探测的 PY 解释器暂停（跨平台）
+    await commandSuccess(PY + ' -c "import time; time.sleep(10)"', 20_000)
+    extractJson = await runJson('音频提取(重试) ', 'node', [ADAPTER_CLI, ...extractArgv], 40 * 60 * 1000)
+  }
   await check(
     () => typeof extractJson.transcriptText === 'string' && extractJson.transcriptText.trim().length > 0,
     '转写结果为空(疑似无音轨或图文笔记): ' + JSON.stringify(extractJson).slice(0, 300)

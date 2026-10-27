@@ -374,6 +374,22 @@ IMG_EXTS = ("png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico", "avif")
 MAX_IMAGES = 60        # 单仓库图片数上限（超出保留远程 URL）
 PER_IMAGE_CAP = 8 * 1024 * 1024   # 单图 8MB
 TOTAL_CAP = 50 * 1024 * 1024      # 单仓库总量 50MB
+# 图片本地化总时间预算（秒）：raw.githubusercontent 等域被限速时单图 socket 超时挡不住慢滴流，
+# 54 图×30s+ 会拖死整个 fetch（工作流命令 180s 超时被杀且 manifest 零落盘，见
+# dev-docs/experience/2026-10-27-github-kb-fetch-image-budget.md）。超预算剩余图保留远程 URL，
+# fetch 必然收敛，事后可用 download-images 子命令补图。每次调用现读 env（服务进程内改 env 即生效）。
+PER_IMAGE_TIME_S = 30  # 单图下载墙钟上限（秒）：socket timeout 只限单次阻塞读，持续慢滴流可无限拖长
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _image_budget_s() -> int:
+    return _env_int("GITHUB_KB_IMG_BUDGET_S", 60)
 UA = "pi-agentic-workflow/github-kb"
 
 MD_IMG_RE = re.compile(r'!\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)')
@@ -417,10 +433,26 @@ def _resolve_img_url(url: str, owner: str, repo: str, branch: str) -> Optional[s
 
 def _http_download(url: str, cap: int) -> Tuple[Optional[bytes], str]:
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "image/*,*/*"})
+    # 单图墙钟上限：socket timeout=30 只限单次阻塞读，持续慢滴流（3KB/s）可无限拖长；
+    # 分块读每块后查墙钟，确保总耗时 ≤ per-image 上限（2026-10-27 diagram-design 事故）
+    per_image_s = _env_int("GITHUB_KB_IMG_PER_IMAGE_S", PER_IMAGE_TIME_S)
+    deadline = time.monotonic() + per_image_s
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             ctype = (resp.headers.get("Content-Type") or "").split(";")[0].strip().lower()
-            data = resp.read(cap + 1)
+            chunks = []
+            got = 0
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                got += len(chunk)
+                if got > cap:
+                    return None, "超过单图大小上限"
+                if time.monotonic() > deadline:
+                    return None, "单图下载超时（墙钟 %ds，疑似限速慢滴流）" % per_image_s
+            data = b"".join(chunks)
     except Exception as e:  # noqa: BLE001 单图失败不影响整体
         return None, "网络错误: %s" % str(e)[:80]
     if len(data) > cap:
@@ -458,6 +490,7 @@ def download_readme_images(raw_dir: str, owner: str, repo: str, branch: str,
     mapping: Dict[str, str] = {}  # 远程 URL → 本地相对引用（imgs/ 前缀，与 README 同目录）
     stats = {"ok": True, "downloaded": 0, "failed": 0, "skipped": 0, "rewritten": 0, "imgsDir": imgs_dir}
     total = 0
+    budget_deadline = time.monotonic() + _image_budget_s()
     for seq, url in enumerate(urls, start=1):
         local = _safe_img_name(seq, url)
         dest = os.path.join(imgs_dir, local)
@@ -487,6 +520,10 @@ def download_readme_images(raw_dir: str, owner: str, repo: str, branch: str,
             continue
         abs_url = _resolve_img_url(url, owner, repo, branch)
         if abs_url is None:
+            stats["skipped"] += 1
+            continue
+        # 总时间预算闸（时间在 _http_download 之前检查；单图最长可超出一个 socket 超时的量，有界）
+        if time.monotonic() > budget_deadline:
             stats["skipped"] += 1
             continue
         data, err = _http_download(abs_url, PER_IMAGE_CAP)
