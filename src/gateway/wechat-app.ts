@@ -403,8 +403,16 @@ export class WechatApp {
     // 1) 确定性通道：执行前授权决策（PendingAction 存在时，批准/拒绝/序号不经 LLM；AM-5/AM-13）
     const pendings = this.pendingFlow!.listFor(message.userId);
     if (pendings.length > 0) {
-      const decision = parseApprovalDecision(message.text, pendings.length);
-      if (decision) {
+      const decision = parseApprovalDecision(message.text, pendings);
+      if (decision?.kind === "ambiguous") {
+        // 名称消歧 0/多命中：不猜，回清单要序号（避免 LLM 幻觉重提交轮换）
+        const list = pendings
+          .map((p, i) => `${i + 1}. ${p.workflowId}${p.resolvedTarget ? `（${p.resolvedTarget}）` : ""}`)
+          .join("\n");
+        this.enqueueReply(message.userId, `未匹配到唯一的待审批项，请回复「批准 序号」：\n${list}`);
+        return { duplicate: false, reply: "待审批项消歧" };
+      }
+      if (decision && decision.kind !== "approve_all") {
         const target = pendings[decision.index]!;
         let reply: string;
         if (decision.kind === "approve") {
@@ -423,6 +431,37 @@ export class WechatApp {
           outcome: "ok",
           detail: `待审批 ${pendings.length} 项，选中第 ${decision.index + 1} 项`,
         });
+        this.enqueueReply(message.userId, reply);
+        return { duplicate: false, reply };
+      }
+      if (decision?.kind === "approve_all") {
+        // 逐项批准（每轮重拉列表；seen 护栏防 validation_failed 类失败不消费 pending 导致死循环）
+        const lines: string[] = [];
+        const seen = new Set<string>();
+        while (true) {
+          const current = this.pendingFlow!.listFor(message.userId);
+          if (current.length === 0) break;
+          const target = current[0]!;
+          if (seen.has(target.actionId)) {
+            lines.push(`⚠️ 「${target.workflowId}」反复无法批准，已跳过（可单独重试）`);
+            break;
+          }
+          seen.add(target.actionId);
+          const out = await this.pendingFlow!.confirm(target.actionId, message.userId);
+          if (out.ok) {
+            lines.push(`✅ 已批准并启动「${target.workflowId}」（任务 ${out.taskBindingId}，runId ${out.runId}）`);
+          } else {
+            lines.push(`⚠️ 「${target.workflowId}」${out.message}`);
+          }
+          this.audit.record({
+            actor: message.userId,
+            action: "am.pending.approve",
+            target: { actionId: target.actionId, workflowId: target.workflowId },
+            outcome: out.ok ? "ok" : "failed",
+            detail: `approve_all（共 ${pendings.length} 项）`,
+          });
+        }
+        const reply = lines.join("\n");
         this.enqueueReply(message.userId, reply);
         return { duplicate: false, reply };
       }
@@ -602,16 +641,68 @@ export class WechatApp {
   }
 }
 
-/** 确定性审批决策解析：批准/拒绝[序号]/纯数字序号（AM-13 多项并存；越界交回 Agent） */
-function parseApprovalDecision(text: string, count: number): { kind: "approve" | "reject"; index: number } | undefined {
+/** 确定性审批决策解析（AM-13 多项并存）
+ * 支持：批准/拒绝[序号]、纯序号、都批准/全部批准、批准 <名称片段>（按 workflowId/resolvedTarget/args 消歧）、批准第N项/个。
+ * 长度 >40 或无法唯一消歧 → ambiguous/undefined（ambiguous 回清单要序号；undefined 交回 Agent）。
+ * 2026-10-27 真机教训：非精确「批准」（如「都批准」「批准 diagram-design」曾掉进 LLM，
+ * LLM 幻觉携带 approved/approvalActionId 重新提交导致 pending 无限轮换——故此处覆盖面必须足够宽。 */
+export type ApprovalDecision =
+  | { kind: "approve" | "reject"; index: number }
+  | { kind: "approve_all" }
+  | { kind: "ambiguous" };
+
+const APPROVAL_LEAD_FILLER = /^(?:请|麻烦|帮我|两个|三个|四个|几个|所有|全部|都|全|先)+/;
+const APPROVAL_TAIL_FILLER = /(?:都|全部|所有|一下|吧|啦|了|呗)+$/;
+const APPROVAL_VERBS = "批准|同意|通过|准许|approve";
+
+export function parseApprovalDecision(
+  text: string,
+  pendings: readonly { workflowId: string; resolvedTarget?: string; args?: unknown }[],
+): ApprovalDecision | undefined {
   const t = text.trim();
-  const approve = /^(批准|同意|通过|准许|approve)\s*([1-9]\d*)?$/i.exec(t);
-  const reject = /^(拒绝|驳回|不同意|否决|reject)\s*([1-9]\d*)?$/i.exec(t);
-  const number = /^([1-9]\d*)$/.exec(t);
-  if (!approve && !reject && !number) return undefined;
-  const kind: "approve" | "reject" = reject ? "reject" : "approve";
-  const n = approve?.[2] ?? reject?.[2] ?? number?.[1] ?? "1";
-  const index = parseInt(n, 10) - 1;
-  if (index < 0 || index >= count) return undefined; // 越界交回 Agent 解答（无授权通路，安全）
-  return { kind, index };
+  if (!t || t.length > 80) return undefined; // 长文本（真实指令）不劫持；80 内客纳「批准 https://github.com/owner/repo」形态
+  const s = t.replace(/[\s，。,.！!？?、]/g, "");
+  // 1) 精确形式：动词[序号] / 拒绝动词[序号] / 纯序号
+  const approve = new RegExp(`^(${APPROVAL_VERBS})([1-9]\d*)?$`, "i").exec(s);
+  const reject = /^(拒绝|驳回|不同意|否决|reject)\s*([1-9]\d*)?$/i.exec(s);
+  const number = /^([1-9]\d*)$/.exec(s);
+  if (approve || reject || number) {
+    const kind: "approve" | "reject" = reject ? "reject" : "approve";
+    const n = approve?.[2] ?? reject?.[2] ?? number?.[1] ?? "1";
+    const index = parseInt(n, 10) - 1;
+    if (index < 0 || index >= pendings.length) return undefined; // 越界交回 Agent（无授权通路，安全）
+    return { kind, index };
+  }
+  if (reject || number) return undefined; // 拒绝不猜意图（无副作用通路，安全）
+  // 2) 都批准 / 全部批准 / 批准全部（剥离填充词后仍是纯动词）
+  const base = s.replace(APPROVAL_LEAD_FILLER, "").replace(APPROVAL_TAIL_FILLER, "");
+  if (new RegExp(`^(?:${APPROVAL_VERBS})$`, "i").test(base)) {
+    return pendings.length > 1 ? { kind: "approve_all" } : { kind: "approve", index: 0 };
+  }
+  // 3) 批准 <名称片段> / <名称片段> 批准 / 批准第N项
+  const m = new RegExp(`^(?:${APPROVAL_VERBS})[:：]?(.+)$`, "i").exec(s)
+    ?? new RegExp(`^(.+?)(?:${APPROVAL_VERBS})$`, "i").exec(s);
+  if (!m) return undefined;
+  const fragment = (m[1] ?? "").replace(APPROVAL_LEAD_FILLER, "").replace(APPROVAL_TAIL_FILLER, "").replace(/第|项|个/g, "");
+  if (!fragment) return undefined;
+  const ordinal = /^(\d{1,2})$/.exec(fragment); // 序号形式优先（单字也在内）
+  if (ordinal) {
+    const index = parseInt(ordinal[1]!, 10) - 1;
+    if (index < 0 || index >= pendings.length) return undefined;
+    return { kind: "approve", index };
+  }
+  if (fragment.length < 2) return undefined; // 名称片段至少 2 字，避免噪声
+  if (fragment.length > 40) return undefined; // 「批准 + 长指令」是真实意图，交回 Agent，不劫持
+  const needle = fragment.toLowerCase().replace(/[\s.,，。]/g, "");
+  const hitIdx: number[] = [];
+  pendings.forEach((p, i) => {
+    const hay = `${p.workflowId} ${p.resolvedTarget ?? ""} ${JSON.stringify(p.args ?? {})}`
+      .toLowerCase()
+      .replace(/[\s.,，。]/g, "");
+    if (hay.includes(needle)) hitIdx.push(i);
+  });
+  if (hitIdx.length === 1) return { kind: "approve", index: hitIdx[0]! };
+  if (hitIdx.length > 1) return { kind: "ambiguous" }; // 多命中：回清单要序号，不猜
+  // 0 命中：短片段（像名称拼写不一致）→ 回清单要序号；长片段（像真实指令）交回 Agent
+  return fragment.length <= 12 ? { kind: "ambiguous" } : undefined;
 }

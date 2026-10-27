@@ -230,6 +230,30 @@ test("T3 execute（write）去重：同 userId+workflowId+args 重复发起复�
   assert.equal(f.pending.pendingFor("u1").length, 2);
 });
 
+test("T3 execute（write）去重：LLM 伪授权参数（approved/approvalActionId）剥除后不再轮换（2026-10-27 真机）", async () => {
+  const f = makeFixture();
+  const input = {
+    userId: "u1",
+    workflowId: "deploy-service",
+    args: { repoUrl: "https://github.com/a/b" },
+    agentTurnId: "turn-1",
+    originMessageId: "m1",
+  };
+  const r1 = await f.facade.executeWorkflow(input);
+  // LLM 幻觉携带 approved/approvalActionId 重新提交（未声明键）
+  const r2 = await f.facade.executeWorkflow({
+    ...input,
+    args: { repoUrl: "https://github.com/a/b", approved: true, approvalActionId: "pa-xxx" },
+    agentTurnId: "turn-2",
+    originMessageId: "m2",
+  });
+  assert.ok("needsApproval" in r1 && r1.needsApproval);
+  assert.equal(r1.actionId, r2.actionId, "伪授权参数剥除后 digest 一致 → 复用同一 actionId（不轮换）");
+  assert.equal(f.pending.pendingFor("u1").length, 1);
+  const action = f.pending.pendingFor("u1")[0]!;
+  assert.deepEqual(action.args, { repoUrl: "https://github.com/a/b" }, "快照不含伪授权键");
+});
+
 // ── task_status ──
 
 test("T3 status：真实服务状态 + run-links 产物引用（结构化，不靠记忆）", async () => {

@@ -219,3 +219,26 @@ test("T4：AM-13 多待审批并存——listFor 返回全部；按 actionId 精
   assert.equal(f.pending.get(a)?.status, "pending", "另一项不受影响");
   assert.equal(f.pending.get(b)?.status, "executed");
 });
+
+test("T4：过期 pending 不再占据待审批列表（2026-10-27 真机「批准永远过期」陷阱）", async () => {
+  const f = makeFixture();
+  const args = { env: "prod" };
+  const id = f.pending.create({
+    userId: "u1",
+    workflowId: "deploy-service",
+    args,
+    argsDigest: computeArgsDigest(args),
+    originMessageId: "m1",
+    riskLevel: "write",
+    registryDigest: computeRegistryDigest(f.registry),
+    ttlMs: 1, // 立即过期
+  }).actionId;
+  await new Promise((r) => setTimeout(r, 25)); // 时间推进到过期之后
+  const expired = f.pending.get(id)!;
+  assert.ok(new Date(expired.expiresAt).getTime() <= Date.now(), "已过期");
+  assert.equal(f.pending.pendingFor("u1").length, 0, "过期项从列表消失（不占首位劫持「批准」）");
+  assert.equal(f.pending.hasPending("u1"), false, "hasPending 同步为 false");
+  // 新建的活 pending 正常可见且序号不被死项挤位
+  const liveId = seedPending(f);
+  assert.equal(f.pending.pendingFor("u1")[0]!.actionId, liveId, "活 pending 独占首位，序号稳定");
+});

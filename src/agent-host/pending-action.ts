@@ -94,7 +94,13 @@ export class PendingActionStore {
   }
 
   pendingFor(userId: string): PendingAction[] {
-    return [...this.byId.values()].filter((a) => a.userId === userId && a.status === "pending");
+    // 2026-10-27 真机教训（审批死循环）：过期项若不滤除会永远占据列表首位，
+    // 用户后续每次「批准」都绑到死项 → claim 只会回「授权已过期」→ 永久卡死。
+    // 过滤在 pendingFor 层做（hasPending/审批卡/确定性通道全部受益），claim 处的过期兜底保留。
+    const now = new Date().toISOString();
+    return [...this.byId.values()].filter(
+      (a) => a.userId === userId && a.status === "pending" && a.expiresAt > now,
+    );
   }
 
   /** 原子认领：确认（重校验）→ executing。重复确认已 executed 项返回原始结果（幂等） */

@@ -138,6 +138,16 @@ export class TaskControlFacade implements AgentToolFacade {
     // 去重：同 userId+workflowId+argsDigest 已有 pending 项则复用（不刷新 TTL），
     // 避免 LLM 重试/重复发起时叠加多条 pending，导致用户「批准」绑定错位（批准走最老一条）。
     const args = { ...((input.args ?? {}) as Record<string, unknown>) };
+    // 2026-10-27 真机教训（审批 actionId 无限轮换）：LLM 把「批准」误解为携带
+    // approved/approvalActionId 重新提交；这些未声明键改变 argsDigest → 同参去重失效
+    // → 每次重提交都新建 pending（actionId 轮换）。服务端只接受 argsSchema 声明
+    // 的参数面：未声明键一律剥除后再进预检/digest/审批快照（注入发生在剥除之后，不受影响）。
+    if (reg.argsSchema?.properties) {
+      const declared = new Set(Object.keys(reg.argsSchema.properties as Record<string, unknown>));
+      for (const key of Object.keys(args)) {
+        if (!declared.has(key)) delete args[key];
+      }
+    }
     let resolvedTarget: string | undefined;
     // 网关授权链 → 脚本内 checkpoint 透传（「一次授权」契约）：
     //  workflow 声明了 skip_confirm 参数即表示它理解网关授权;
