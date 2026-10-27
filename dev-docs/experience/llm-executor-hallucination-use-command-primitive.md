@@ -55,3 +55,11 @@ const json = JSON.parse(r.stdout)
   方案迁移。
 - command() 非 Windows 注意：executable 走 PATH 解析；Windows 下 .cmd/.bat 需绝对路径
   或 cmd /c（本 DSL 只跑 node/python 实体 exe，无此问题）。
+
+## 关联坑：rebind 后确认消息"sent 但没收到"（2026-10-27）
+
+`wechat rebind` 成功后 CLI 提示"已向绑定用户发送确认消息"，outbox 也标 sent，但微信收不到。
+FAQ 明言："保存登录凭据不保证始终可以主动发送"——重登后对话不活跃，平台静默丢弃 Bot
+主动消息，直到绑定用户先发一条消息激活。此外 accountId 变了（换 Bot 微信号）时旧
+绑定会话整体失效，需删 bound-user.json 重新首条绑定。CLI"投递"措辞实际是 API sent，
+不等于微信送达。
