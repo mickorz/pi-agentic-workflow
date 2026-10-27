@@ -521,6 +521,36 @@ pi-workflow wechat status    # 确认 running；重启后生图工具对新消�
 | D0 服务重启+可见性 | | | | |
 | D1~D4 微信真机 | | | | |
 
+## Part G image-use 真实验收（P1.6 / T6，ChatGPT 订阅 web 后端）
+
+> 前置：新开终端（PATH 需含 chrome-use，安装后旧终端/长驻进程不含）；Chrome 登录 chatgpt.com。
+> 前置自检：`PYTHONUTF8=1 python thirdparties/image-use/image-use doctor` —— web backend 两项 [ok]
+> （`profiles none detected` 在 Windows 可忽略，见 image-use-windows-setup 技能坑5）。
+> 环境变量写法：Git Bash `IMAGE_GEN_INTER_DELAY_MS=30000 node ...`；
+> PowerShell `$env:IMAGE_GEN_INTER_DELAY_MS="30000"; node ...`；
+> CMD `set IMAGE_GEN_INTER_DELAY_MS=30000 && node ...`。
+> 注意：`--price-cny 0` 仅表示不计单次 API 单价（估算口径），不代表无配额消耗（ChatGPT 每日生图上限与日常使用共享）。
+
+### 用例矩阵（方案 V3 / T6）
+
+| # | 命令（在 image_gen/ 下） | 通过标准 | 记录 |
+|---|---|---|---|
+| G-V1 | 冒烟+真实参数：`PYTHONUTF8=1 python ../../../../thirdparties/image-use/image-use "测试提示词，一只橘猫" -o /tmp/iu-smoke.png --backend web --quiet --size 1536x1024`（路径含中文更佳）；再跑一次不带 --quiet 观察 stderr 的 size= 实际值 | PNG 落盘、stdout 仅路径；实际比例与请求一致或记录偏差 | |
+| G-V2 | 真文章 preview：`node generate.mjs --article-dir <真实文章> --mode preview --provider image-use --price-cny 0` | [IMG ok]、manifest 风格绑定 preview_completed；人工看图确认比例（封面重点） | |
+| G-V2b | （可选）`--style-reference <真实参考图>` 再 preview | 参考图上传在 vendored 版本真实可用 | |
+| G-V3 | approve + 小批量：`--approve-style` 后 `IMAGE_GEN_INTER_DELAY_MS=30000 node generate.mjs --article-dir <dir> --mode batch --provider image-use --price-cny 0 --max-images-per-run 2` | 2 张成功；记录单张耗时与是否限流 | |
+| G-V4 | `--verify-only` | 双向核验 ok | |
+| G-V5 | recover 受控演练：临时 `IMAGE_USE_TIMEOUT_MS=<小值>` 制造已提交超时 → unknown → 从执行器 stderr 全量日志取会话 URL → `PYTHONUTF8=1 python thirdparties/image-use/image-use recover <URL> -o <tmp>.png --quiet` → `node generate.mjs --article-dir <dir> --resolve-unknown <id> --from <tmp>.png` → `--verify-only` | 导入后 succeeded、零重复请求、全程无 --retry-unknown | |
+| G-V6 | 中断恢复：批量中途 Ctrl-C → 按执行器 stderr 提示检查 ChatGPT imagegen 项目最新对话（提交后中断的条目会进 unknown，重跑前先人工核对/补捞） → 重跑续齐 | running/pending 续跑语义不变、无重复生成 | |
+| G-V7 | 跨文章并发：两个文章目录同时 batch（各 1 张） | stderr 出现 waiting for a free web slot（上游全局锁串行化）；两任务先后完成无串图；排队等待不计入 --timeout | |
+| G-V8 | 微信入口端到端：微信触发一篇 ≤2 张小文章 → preview 批准卡 → 风格确认卡 → batch → 汇总回执 | 全链路绿；连发两任务时排队行为与 G-V7 一致 | |
+
+### 账号安全与红线
+
+- image-use 走 chatgpt.com 未公开内部接口 + 页面自动化：登录失效/弹窗/限流一律立即停止（执行器已按决策树停跑），**不自动刷新登录、不自动重试、不自动切回付费 provider**。
+- unknown 条目导入一律 `--resolve-unknown`；`--retry-unknown` 是放弃原图重新发请求。
+- 批量克制：`--max-images-per-run` 小步分批 + 30s 图间隔；不要循环刷变体（烧每日配额）。
+
 ## 附录 FAQ
 
 1. **Windows `python3` 报 "Python was not found"**：Store 别名拦截。真 Python 在 `C:\Program Files\Python314\python.exe`，套件执行用完整路径或 `py -3`；A09/A10 在 Windows 本就 SKIP。
@@ -536,5 +566,6 @@ pi-workflow wechat status    # 确认 running；重启后生图工具对新消�
 - 需求文档：`dev-docs/planning/AI配图生成两阶段执行（article_image_generate）需求文档（V1.1）.md`（第八节验收、9.6/9.7 完成与评审更新）
 - 执行报告：`dev-docs/progress-result/P1.5-执行报告.md`
 - 执行器 README：`dev-examples/wx-article/scripts/image_gen/README.md`
-- 自动化用例：`image_gen/test/executor.test.mjs`（A01–A15 + P15-1~8）、`tests/integration/article-image-wechat-e2e.test.ts`
+- 自动化用例：`image_gen/test/executor.test.mjs`（A01–A15 + P15 系列 + P1.6 IU 系列，43 例）、`tests/integration/article-image-wechat-e2e.test.ts`
+- P1.6 执行方案：`dev-docs/planning/2026-10-27-image-use-provider接入执行方案.md`（V3，含决策树与 vendoring 四件套）
 - 既有真机指南范式：`dev-docs/guides/2026-10-21-wx-article-agent-manual-test.md`（主检出）

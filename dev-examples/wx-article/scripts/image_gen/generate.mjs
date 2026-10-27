@@ -74,6 +74,8 @@ function parseArgs(argv) {
     model: null,
     styleReference: null,
     promote: null,
+    resolveUnknown: null,
+    resolveFrom: null,
     priceCny: null,
     budgetCny: null,
     help: false,
@@ -105,6 +107,8 @@ function parseArgs(argv) {
       case "--model": out.model = next(); break;
       case "--style-reference": out.styleReference = next(); break;
       case "--promote": out.promote = next(); break;
+      case "--resolve-unknown": out.resolveUnknown = next(); break;
+      case "--from": out.resolveFrom = next(); break;
       case "--price-cny": out.priceCny = Number(next()); break;
       case "--budget-cny": out.budgetCny = Number(next()); break;
       case "-h": case "--help": out.help = true; break;
@@ -133,7 +137,7 @@ const HELP = `用法：node generate.mjs --article-dir <dir> [选项]
   --price-cny <x>           单张单价（缺省读环境变量 IMAGE_GEN_PRICE_PER_IMAGE）
   --budget-cny <x>          预算硬门：最坏估算（张数×单价×尝试上限）超预算 → exit 2 不发请求
 可选：
-  --provider <p>            fake | pi-image-gen | pi-ai | <provider 模块 .mjs 路径>（缺省 pi-image-gen）
+  --provider <p>            fake | pi-image-gen | image-use | pi-ai | <provider 模块 .mjs 路径>（缺省 pi-image-gen）
   --model <id>              模型 id（缺省取 provider 配置）
   --manifest <path>         manifest 覆盖路径（缺省 <article-dir>/image-manifest.json）
   --only-ids id1,id2        只处理子集
@@ -142,6 +146,8 @@ const HELP = `用法：node generate.mjs --article-dir <dir> [选项]
   --force-regenerate        succeeded 也强制重生成（等价 regenerate 原语）
   --continue-on-error       单图失败继续后续图（缺省遇错即停；扣费不确定例外：一律暂停转人工）
   --style-reference <path>  风格参考图（参与哈希 + 传给支持的 provider）
+  --resolve-unknown <id> --from <path>  人工 recover 后的受控导入：核验源图 → 原子替换规范路径 →
+                            条目 unknown→succeeded，零 provider 请求（P1.6；禁止用 --retry-unknown 导入）
   --dry-run                 只输出 [PLAN] 不生成（batch 模式下风格门仍生效）
   --verify-only             Manifest↔文件双向核验（A13），不生成
   --promote <id>            提升指定条目的 ready 候选`;
@@ -161,6 +167,12 @@ async function loadProvider(name, opts) {
     // A08：缺 key 快速失败（不进入锁、不落任何状态）
     mod.buildSettings();
     return { ...mod, name: "pi-image-gen" };
+  }
+  if (name === "image-use") {
+    const mod = await import("./lib/providers/image-use.mjs");
+    // A08 对齐：fail-fast 锁配置（脚本存在性在 generate 内首查 E_NO_SCRIPT；此处不微 IO）
+    mod.buildSettings();
+    return { ...mod, name: "image-use" };
   }
   if (name === "pi-ai") {
     const mod = await import("./lib/providers/pi-ai.mjs");
@@ -241,6 +253,13 @@ async function main() {
     return;
   }
 
+  // ── --resolve-unknown：人工 recover 后的受控导入（P1.6，锁内原子替换，零 provider 请求）──
+  if (args.resolveUnknown) {
+    if (!args.resolveFrom) fail("--resolve-unknown 需配合 --from <path> 指定源图");
+    await runResolveUnknown(args, { articleDir, manifestPath });
+    return;
+  }
+
   // --verify-only：只读核验，不取锁
   if (args.verifyOnly) {
     const { doc, existed } = await loadManifest(articleDir, manifestPath);
@@ -272,7 +291,7 @@ async function main() {
     }
   }
 
-  const providerContext = provider.name === "pi-image-gen" ? { settings: provider.buildSettings() } : {};
+  const providerContext = ["pi-image-gen", "image-use"].includes(provider.name) ? { settings: provider.buildSettings() } : {};
 
   // ── 只读计划阶段（取锁前）：reconcile 全部条目 → 动作表 ──
   const { doc: manifest0 } = await loadManifest(articleDir, manifestPath);
@@ -333,7 +352,7 @@ async function main() {
       action = r.action;
       if (r.changed) await saveManifest(manifestPath, manifest0);
     }
-    plan.push({ item, entry, action });
+    plan.push({ item, entry, action, __hash: hash }); // __hash：候选链提升后回写 prompt_hash 用（IU-13）
   }
   enrichPlan(plan, prompts);
 
@@ -538,6 +557,7 @@ function round2(x) {
 async function runOne(step, ctx) {
   const { articleDir, manifestPath, manifest, provider, providerContext, args, modelFingerprint, summary, maxAttempts, price, budgetCny } = ctx;
   const { item, entry } = step;
+  const currentHash = step.__hash; // 当前输入哈希（候选链提升后回写，防 stale 循环重复生成）
   const isCandidate = step.action === "run-candidate";
   const fullPrompt = step.__fullPrompt;
 
@@ -634,6 +654,13 @@ async function runOne(step, ctx) {
           await saveManifest(manifestPath, manifest);
           // 自动提升：旧图 → bak，候选转正（D7：重生成失败原图不受影响 → 提升在成功之后）
           await promoteEntry({ articleDir, manifestPath, manifest, entry, candRecord });
+          // P1.6 修复（T6 真实验收发现）：提升后回写当前输入哈希。
+          // 否则改风格重 preview 走候选链的条目 prompt_hash 停留在旧输入，
+          // 下次 batch 时 inputChanged 恒真 → 已成功条目被永久重复生成（重复计费/耗配额）。
+          if (currentHash) {
+            entry.prompt_hash = currentHash;
+            await saveManifest(manifestPath, manifest);
+          }
           summary.generated_paths.push(path.join(articleDir, entry.path));
         } else {
           entry.status = STATUS.SUCCEEDED;
@@ -666,8 +693,20 @@ async function runOne(step, ctx) {
   } finally {
     // 终态落盘：失败/不确定/中断收敛
     if (interrupted) {
+      // P1.6（V3 P0-1）：中断时 provider 标了 uncertain（提交标记存在，无法证明未提交）→ unknown 而非 pending，
+      // 机制上禁止自动重发；其余中断保持 pending（可证明未提交，fake/pi-image-gen 的 abort 不带 uncertain）
+      const interruptUncertain = lastErr?.uncertain === true;
       if (isCandidate) {
-        candRecord.status = CAND_STATUS.PENDING;
+        if (interruptUncertain) {
+          candRecord.status = CAND_STATUS.FAILED;
+          candRecord.error_code = lastErr.code ?? "E_ABORTED";
+          entry.uncertain = true;
+        } else {
+          candRecord.status = CAND_STATUS.PENDING;
+        }
+      } else if (interruptUncertain) {
+        entry.status = STATUS.UNKNOWN;
+        entry.error_code = lastErr.code ?? "E_ABORTED";
       } else {
         entry.status = STATUS.PENDING;
       }
@@ -729,6 +768,86 @@ async function promoteEntry({ articleDir, manifestPath, manifest, entry, candRec
   entry.mime_type = v.ok ? `image/${v.format === "jpeg" ? "jpeg" : v.format}` : null;
   entry.updated_at = new Date().toISOString();
   await saveManifest(manifestPath, manifest);
+}
+
+/** --resolve-unknown <id> --from <path>：人工 recover 后的受控导入（P1.6，方案 V3 原子性约束）。
+ *  顺序：锁 → 条目/目标校验 → 同目录临时文件 → 核验 → （幂等快路径 | bak+原子 rename）→ manifest 落盘。
+ *  deps.saveManifest 可注入（失败注入测试 IU-12b）。目标路径由条目派生，--from 仅作源，绝不作为目标。 */
+async function runResolveUnknown(args, { articleDir, manifestPath }, deps = {}) {
+  const saveManifestDep = deps.saveManifest ?? saveManifest;
+  const { doc: manifest } = await loadManifest(articleDir, manifestPath);
+  const entry = Object.values(manifest.entries ?? {}).find((e) => e.id === args.resolveUnknown);
+  if (!entry) fail(`--resolve-unknown：未知 id ${args.resolveUnknown}`);
+  if (entry.candidate) fail(`--resolve-unknown：条目 ${entry.id} 存在候选链记录，导入仅支持主链 unknown（候选链请走 --promote/重生成流程）`);
+  if (entry.status !== STATUS.UNKNOWN) fail(`--resolve-unknown：条目 ${entry.id} 状态为 ${entry.status}，需为 unknown`);
+
+  const srcPath = path.resolve(args.resolveFrom);
+  const canonicalDir = entry.kind === "cover" ? articleDir : path.join(articleDir, "imgs");
+  const targetPath = path.join(canonicalDir, entry.filename);
+  const ext = path.extname(entry.filename) || ".png";
+  const tmpPath = path.join(canonicalDir, `.resolve-${entry.id}${ext}.tmp`);
+
+  try {
+    await withArticleLock(path.join(articleDir, LOCK_NAME), { runId: `resolve-${Date.now().toString(36)}`, scope: "image-generate" }, async () => {
+      await fsp.mkdir(canonicalDir, { recursive: true });
+      // 1. 源复制到目标同目录临时文件（同文件系统 → rename 原子）
+      try {
+        await fsp.copyFile(srcPath, tmpPath);
+      } catch {
+        fail(`--resolve-unknown：源文件不可读 ${srcPath}`);
+        return;
+      }
+      // 2. 临时文件核验（无效 → 清理，零状态变化）
+      const v = await verifyImageFile(tmpPath);
+      if (!v.ok) {
+        await fsp.unlink(tmpPath).catch(() => {});
+        fail(`--resolve-unknown：源图核验失败（${v.reason}）——manifest 与目标文件未变化`);
+        return;
+      }
+      // 3. 幂等快路径：目标已存在且同内容 → 跳过备份/替换（崩溃重入收敛，不产生第二条 bak 链）
+      let targetExisted = false;
+      try {
+        await fsp.access(targetPath);
+        targetExisted = true;
+      } catch {
+        /* 无目标文件，直接替换 */
+      }
+      if (targetExisted) {
+        const [tmpSha, tgtSha] = await Promise.all([fileSha256(tmpPath), fileSha256(targetPath)]);
+        if (tmpSha === tgtSha) {
+          await fsp.unlink(tmpPath).catch(() => {});
+        } else {
+          const bak = await nextBakPath(canonicalDir, entry.filename);
+          await fsp.rename(targetPath, bak);
+          entry.previous_path = rel(articleDir, bak);
+          await fsp.rename(tmpPath, targetPath);
+        }
+      } else {
+        await fsp.rename(tmpPath, targetPath);
+      }
+      // 4. manifest 更新（saveManifest 失败 → 不报成功，路径留作可恢复证据；重入走步骤 3 幂等）
+      entry.status = STATUS.SUCCEEDED;
+      entry.path = rel(articleDir, targetPath);
+      entry.mime_type = `image/${v.format === "jpeg" ? "jpeg" : v.format}`;
+      entry.error_code = null;
+      entry.resolved_from = rel(articleDir, srcPath);
+      entry.updated_at = new Date().toISOString();
+      try {
+        await saveManifestDep(manifestPath, manifest);
+      } catch (e) {
+        fail(`--resolve-unknown：manifest 落盘失败（${e.message}）——目标文件已就位 ${targetPath}，重跑本命令将幂等收敛，不产生新备份`);
+        return;
+      }
+      console.log(`[RESULT] ${JSON.stringify({ ok: true, resolved: entry.id, path: entry.path, mime_type: entry.mime_type, resolved_from: entry.resolved_from })}`);
+      process.exit(0);
+    });
+  } catch (e) {
+    if (e instanceof LockHeldError) {
+      console.log(`[LOCKED] pid=${e.info?.pid} runId=${e.info?.runId}`);
+      process.exit(3);
+    }
+    throw e;
+  }
 }
 
 /** --promote <id>：提升崩溃残留的 ready 候选 */
@@ -817,9 +936,13 @@ function enrichPlan(plan, prompts) {
   }
 }
 
-main().catch((e) => {
-  console.error(`[ERROR] ${e?.stack ?? e}`);
-  process.exit(1);
-});
+// CLI 入口守卫：import（如测试直调 runResolveUnknown）不触发 main
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  main().catch((e) => {
+    console.error(`[ERROR] ${e?.stack ?? e}`);
+    process.exit(1);
+  });
+}
 
-export { parseArgs, loadProvider, enrichPlan };
+export { parseArgs, loadProvider, enrichPlan, runResolveUnknown };

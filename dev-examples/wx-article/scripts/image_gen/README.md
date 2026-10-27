@@ -25,6 +25,7 @@ lib/verify.mjs            文件核验 + Manifest↔文件双向核验（A13）
 lib/lock.mjs              文章锁（与 Python draft_manager/article_lock.py 同协议，T0.7 5/5）
 lib/providers/fake.mjs    零依赖确定性 PNG（cover 900×383 / body 1024×576）
 lib/providers/pi-image-gen.mjs  真实轨：@amaster.ai/pi-image-gen（缺省智谱 cogview-3-flash）
+lib/providers/image-use.mjs   订阅轨（P1.6）：ChatGPT web 后端（vendored thirdparties/image-use，零 API 计费；决策树分类/提交标记判据/路径契约，方案 V3）
 lib/providers/pi-ai.mjs   实验轨：@earendil-works/pi-ai（openrouter，未真实调用）
 test/executor.test.mjs    A01–A15 + P15-1~8 验收用例（node --test）
 test/test_a09_recovery.py SIGKILL/SIGINT 中断恢复套件（真进程）
@@ -82,9 +83,22 @@ batch 门（require_style_approval 默认开）: 非 approved 或指纹不匹配
 | 轨道 | 环境变量 | 说明 |
 |---|---|---|
 | 真实 provider（缺省） | `IMAGE_GEN_API_KEY`（必填）、`IMAGE_GEN_BASE_URL`、`IMAGE_GEN_MODEL` | **任何 OpenAI API 格式端点即插即用**（三件套配置，无需改代码）；智谱缺省 cogview-3-flash，智谱兼容层自动去掉固定 `n:1`（仅智谱域名生效） |
+| image-use（P1.6，ChatGPT 订阅 web 后端，零 API 计费） | `IMAGE_USE_PYTHON`（缺省 win32 用 python 否则 python3）、`IMAGE_USE_SCRIPT`（缺省 thirdparties/image-use/image-use，**git submodule pin 7f97846=上游 v0.34.5**，检出 SHA256 a2ed5279；升级=重新 pin+四件套重登记+IU 回归）、`IMAGE_USE_TIMEOUT_MS`（缺省 330000）；`IMAGE_GEN_SIZE`/`IMAGE_GEN_INTER_DELAY_MS`（建议 30000）共用 | 前置：chrome-use + 登录 chatgpt.com 的 Chrome（长驻进程需在 chrome-use 安装后重启）；错误分类见方案 V3 决策树；**unknown 恢复红线：导入一律走 `--resolve-unknown`，禁止 `--retry-unknown`（那是放弃原图重新发请求）** |
 | fake | 无 | 确定性 PNG，零费用 |
 | pi-ai | `OPENROUTER_API_KEY` | EXPERIMENTAL（未真实调用） |
 | 自定义 | `--provider <module.mjs>` | 须导出 `generate()`（测试注入用） |
+
+## unknown 条目的受控导入（P1.6）
+
+image-use 的 web 后端存在"已提交未确认出图"（含提交后中断）：条目进 unknown 后，人工用
+`image-use recover <会话URL> -o <tmp>.png` 从原会话补捞图，再受控导入：
+
+```bash
+node image_gen/generate.mjs --article-dir <dir> --resolve-unknown <id> --from <tmp>.png
+```
+
+顺序：锁 → 条目/目标校验 → 同目录临时文件 → 核验 → 幂等快路径或 bak+原子替换 → manifest 落盘（失败保留证据，重入幂等收敛）。
+**红线：`--retry-unknown` 语义是放弃原图重新发请求，禁止用于导入恢复。**
 
 ## 锁与互斥矩阵（D5/T1.7）
 
@@ -103,7 +117,7 @@ batch 门（require_style_approval 默认开）: 非 approved 或指纹不匹配
 
 ```bash
 cd dev-examples/wx-article/scripts/image_gen
-node --test test/executor.test.mjs        # 23 用例（A01–A15 + P15-1~8，~2min Windows）
+node --test test/executor.test.mjs        # 43 用例（A01–A15 + P15 系列 + IU 系列，~2min Windows；IU-7c 真进程 SIGINT 用例 POSIX only，Windows 显式 SKIP）
 python3 test/test_a09_recovery.py         # SIGKILL/SIGINT 恢复（~2min；Windows SKIP）
 PI_WORKFLOW_INTEGRATION=1 npx tsx --test tests/integration/article-image-wechat-e2e.test.ts  # 微信链路两阶段仿真（仓根执行）
 ```

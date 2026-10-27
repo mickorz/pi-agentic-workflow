@@ -666,14 +666,19 @@
       }
     },
     "riskLevel": "external-side-effect",
-    "enabled": false,
+    "enabled": true,
     "keywords": [
       "批量生图",
       "生成插图",
       "生成配图",
       "生成封面",
       "文章配图",
-      "生图"
+      "生图",
+      "image",
+      "image-use",
+      "preview",
+      "画图",
+      "两阶段"
     ],
     "examples": [
       "给这篇文章生成所有插图",

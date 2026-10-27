@@ -635,3 +635,375 @@ test("P15-8 验收8 regenerate：单独重做走 candidate 链，原图隔离，
   assert.notEqual(sha256(path.join(dir, "imgs", "02-term.png")), oldHash);
   assert.equal(fs.readdirSync(path.join(dir, "imgs")).filter((f) => f.startsWith("02-term.png.bak-")).length, 1);
 });
+
+// ════════ P1.6 IU 系列：image-use provider（fake CLI 注入，方案 V3）════════
+const FAKE_IU_CLI = path.join(HERE, "helpers", "fake-image-use.mjs");
+const IU_ENV_BASE = { IMAGE_USE_PYTHON: process.execPath, IMAGE_USE_SCRIPT: FAKE_IU_CLI, IMAGE_GEN_INTER_DELAY_MS: "0" };
+function iuEnv(mode, extra = {}) {
+  return { ...IU_ENV_BASE, ...(mode ? { FAKE_MODE: mode } : {}), FAKE_CALLS_FILE: path.join(workRoot, `iu-calls-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jsonl`), ...extra };
+}
+function iuCalls(env) {
+  const p = env.FAKE_CALLS_FILE;
+  return fs.existsSync(p) ? fs.readFileSync(p, "utf8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l)) : [];
+}
+
+test("IU-1 classifyFailure 决策树全行（含中断三态与 URL 不泄漏）", async () => {
+  const { classifyFailure } = await import("../lib/providers/image-use.mjs");
+  // 1 ENOENT（区分解释器/脚本）
+  let c = classifyFailure({ spawnError: { message: "spawn python ENOENT" } });
+  assert.equal(c.code, "E_NO_PYTHON"); assert.equal(c.recoverable, false); assert.equal(c.uncertain, false);
+  c = classifyFailure({ spawnError: { message: "spawn node /x/fake ENOENT" } });
+  assert.equal(c.code, "E_NO_SCRIPT");
+  // 4 already submitted（含 URL 的 stderr 不得把 URL 带进 summary）
+  c = classifyFailure({ exitCode: 1, stderr: "timed out after 300s waiting to confirm the image\nThe prompt was already submitted; check the conversation before retrying: https://chatgpt.com/c/xyz" });
+  assert.equal(c.code, "E_TIMEOUT"); assert.equal(c.uncertain, true); assert.equal(c.recoverable, false);
+  assert.ok(!c.summary.includes("chatgpt.com"), "summary 不含会话 URL");
+  c = classifyFailure({ exitCode: 1, stderr: "chatgpt.com rate-limited this account ... The prompt was already submitted" });
+  assert.equal(c.code, "E_RATELIMIT_SUBMITTED"); assert.equal(c.uncertain, true);
+  // 5 未提交特征族
+  c = classifyFailure({ exitCode: 1, stderr: "chrome-use timed out: open" });
+  assert.equal(c.code, "E_ENV"); assert.equal(c.uncertain, false);
+  c = classifyFailure({ exitCode: 1, stderr: "chatgpt.com rate-limited this account ('Too many requests') — the page surface temporarily blocked" });
+  assert.equal(c.code, "E_RATE_LIMIT"); assert.equal(c.uncertain, false);
+  c = classifyFailure({ exitCode: 1, stderr: "ChatGPT reported an image-generation limit. reset in 4h" });
+  assert.equal(c.code, "E_QUOTA");
+  c = classifyFailure({ exitCode: 1, stderr: "browser is not logged in to chatgpt.com; please sign in" });
+  assert.equal(c.code, "E_LOGIN");
+  // 6/6b 外部中断按提交标记分流
+  c = classifyFailure({ exitCode: null, stderr: "[  3.1s] opening ChatGPT via relay", externalAbort: true });
+  assert.equal(c.code, "E_ABORTED"); assert.equal(c.recoverable, true); assert.equal(c.uncertain, false);
+  c = classifyFailure({ exitCode: null, stderr: "[  8.2s] pasting prompt\n[  8.5s] prompt submitted once", externalAbort: true });
+  assert.equal(c.code, "E_ABORTED"); assert.equal(c.uncertain, true); assert.equal(c.recoverable, false);
+  c = classifyFailure({ exitCode: null, stderr: "[  8.2s] verified prompt (12 characters) and 0 reference image(s)", externalAbort: true });
+  assert.equal(c.uncertain, true, "发送窗口标记也视为可能已提交");
+  // 7/8 自超时/crash 按标记分流
+  c = classifyFailure({ exitCode: null, stderr: "[  8.5s] prompt submitted once", selfTimeout: true });
+  assert.equal(c.code, "E_TIMEOUT"); assert.equal(c.uncertain, true);
+  c = classifyFailure({ exitCode: null, stderr: "[  3.1s] opening ChatGPT via relay", selfTimeout: true });
+  assert.equal(c.code, "E_TIMEOUT"); assert.equal(c.uncertain, false); assert.equal(c.recoverable, false, "未提交超时也不自动重试");
+  c = classifyFailure({ exitCode: 3, stderr: "weird internal crash" });
+  assert.equal(c.code, "E_CRASH"); assert.equal(c.uncertain, false);
+  c = classifyFailure({ exitCode: 3, stderr: "[  8.5s] prompt submitted once\nboom" });
+  assert.equal(c.code, "E_CRASH"); assert.equal(c.uncertain, true);
+});
+
+test("IU-2 buildArgs 参数拼装与小 deadline 负数防护", async () => {
+  const { buildArgs } = await import("../lib/providers/image-use.mjs");
+  const a = buildArgs({ prompt: "一只猫", outPath: "/tmp/x.png", size: "1536x1024", reference: "/tmp/ref.png" });
+  assert.deepEqual(a, ["--backend", "web", "--quiet", "一只猫", "-o", "/tmp/x.png", "--size", "1536x1024", "--style-ref", "/tmp/ref.png", "--timeout", "325"]);
+  // 小 deadline：不传非法 --timeout（V3 细节修 1）
+  const b = buildArgs({ prompt: "p", outPath: "/tmp/x.png", deadlineMs: 300 });
+  assert.ok(!b.includes("--timeout"), "300ms deadline 不产生负 timeout flag");
+  const d = buildArgs({ prompt: "p", outPath: "/tmp/x.png", deadlineMs: 34_000 });
+  assert.ok(!d.includes("--timeout"), "34000ms 得 29s 低于最小安全值 30s 时不传");
+  const e = buildArgs({ prompt: "p", outPath: "/tmp/x.png", deadlineMs: 40_000 });
+  assert.equal(e[e.indexOf("--timeout") + 1], "35");
+});
+
+test("IU-3 generate 正常路径：文件落盘、路径一致、返回契约", async () => {
+  const mod = await import("../lib/providers/image-use.mjs");
+  const out = path.join(workRoot, "iu3", "imgs", "01.png");
+  const r = await mod.generate({
+    kind: "body", prompt: "测试图", outPath: out,
+    context: { settings: { pythonBin: process.execPath, script: FAKE_IU_CLI } },
+  });
+  assert.equal(path.resolve(r.path), path.resolve(out), "路径契约：stdout 路径必须等于 outPath");
+  assert.equal(r.provider, "image-use"); assert.equal(r.model, "web");
+  assert.equal(r.mime, "image/png"); assert.ok(r.bytes > 0);
+  assert.ok(fs.existsSync(out));
+});
+
+test("IU-4 generate uncertain 路径：err.uncertain 且消息不含 URL", async () => {
+  const mod = await import("../lib/providers/image-use.mjs");
+  const prev = process.env.FAKE_MODE;
+  process.env.FAKE_MODE = "uncertain";
+  try {
+    await assert.rejects(
+      mod.generate({ kind: "body", prompt: "p", outPath: path.join(workRoot, "iu4.png"), context: { settings: { pythonBin: process.execPath, script: FAKE_IU_CLI } } }),
+      (e) => e.uncertain === true && e.code === "E_TIMEOUT" && !String(e.message).includes("chatgpt.com/c"),
+    );
+  } finally {
+    if (prev === undefined) delete process.env.FAKE_MODE; else process.env.FAKE_MODE = prev;
+  }
+});
+
+test("IU-5 执行器级 preview（image-use + fake CLI）：IMG ok + 风格绑定 preview_completed", () => {
+  const dir = mkArticleDir("iu5-preview", SAMPLE);
+  const env = iuEnv(null);
+  const { res } = runGen(dir, ["--mode", "preview", "--provider", "image-use"], { env, provider: "image-use" });
+  assert.equal(res.status, 0, res.stdout);
+  assert.match(res.stdout, /\[IMG ok\] term-01 attempts=1/);
+  const m = readManifest(dir);
+  assert.equal(m.style_approval.status, "preview_completed");
+  assert.equal(m.style_approval.model_fingerprint, "image-use:web");
+});
+
+test("IU-6 执行器级 batch 撞 uncertain：unknown + paused_unknown + 零自动重试", () => {
+  const dir = mkArticleDir("iu6-unknown", SAMPLE);
+  const env = iuEnv("uncertain");
+  const { res } = runGen(dir, ["--provider", "image-use", "--only-ids", "term-01"], { env, provider: "image-use" });
+  assert.equal(res.status, 1, res.stdout);
+  const s = JSON.parse(lastLine(res.stdout, "[RESULT] "));
+  assert.equal(s.unknown, 1); assert.equal(s.unknown_ids[0], "term-01"); assert.equal(s.paused_unknown, true);
+  assert.equal(readManifest(dir).entries["term-01"].status, "unknown");
+  assert.equal(iuCalls(env).length, 1, "单次尝试即停，无误重试");
+});
+
+test("IU-7a 提交前外部中断：E_ABORTED 可恢复（pending 语义前提）", async () => {
+  const mod = await import("../lib/providers/image-use.mjs");
+  const ac = new AbortController();
+  const prev = process.env.FAKE_MODE;
+  process.env.FAKE_MODE = "sleep-pre";
+  const p = mod.generate({ kind: "body", prompt: "p", outPath: path.join(workRoot, "iu7a.png"), signal: ac.signal, context: { settings: { pythonBin: process.execPath, script: FAKE_IU_CLI } } });
+  setTimeout(() => ac.abort(), 400);
+  try {
+    await assert.rejects(p, (e) => e.code === "E_ABORTED" && e.recoverable === true && e.uncertain === false);
+  } finally {
+    if (prev === undefined) delete process.env.FAKE_MODE; else process.env.FAKE_MODE = prev;
+  }
+});
+
+test("IU-7b 提交后外部中断：E_ABORTED + uncertain → unknown 语义（禁自动重发）", async () => {
+  const mod = await import("../lib/providers/image-use.mjs");
+  const ac = new AbortController();
+  const prev = process.env.FAKE_MODE;
+  process.env.FAKE_MODE = "sleep-post";
+  const p = mod.generate({ kind: "body", prompt: "p", outPath: path.join(workRoot, "iu7b.png"), signal: ac.signal, context: { settings: { pythonBin: process.execPath, script: FAKE_IU_CLI } } });
+  setTimeout(() => ac.abort(), 400);
+  try {
+    await assert.rejects(p, (e) => e.code === "E_ABORTED" && e.uncertain === true && e.recoverable === false);
+  } finally {
+    if (prev === undefined) delete process.env.FAKE_MODE; else process.env.FAKE_MODE = prev;
+  }
+});
+
+test("IU-7c 执行器级 SIGINT 提交后中断：条目进 unknown（真进程信号，POSIX only）", { skip: process.platform === "win32" ? "Windows 无 SIGINT 语义（同 A09 处理，见 dev-docs/experience/windows-signal-semantics-stop.md）" : false }, async () => {
+  const dir = mkArticleDir("iu7c-sigint", SAMPLE);
+  const env = iuEnv("sleep-post");
+  const child = spawn(process.execPath, [GEN, "--article-dir", dir, "--provider", "image-use", "--no-require-style-approval", "--only-ids", "term-01"], { env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+  let out = "";
+  child.stdout.on("data", (d) => (out += d));
+  await new Promise((r) => setTimeout(r, 1500)); // 等 fake CLI 打出提交标记并进入长睡
+  child.kill("SIGINT");
+  const code = await new Promise((r) => child.on("close", r));
+  assert.equal(code, 130, `exit 130（中断）：${out}`);
+  const e = readManifest(dir).entries["term-01"];
+  assert.equal(e.status, "unknown", "提交后中断 → unknown 禁自动重发（V3 P0-1）");
+  assert.equal(e.error_code, "E_ABORTED");
+  assert.equal(iuCalls(env).length, 1);
+});
+
+test("IU-8 自超时（极小 deadline）：不传负 timeout，E_TIMEOUT uncertain → unknown", () => {
+  const dir = mkArticleDir("iu8-selftimeout", SAMPLE);
+  const env = iuEnv("sleep-post", { IMAGE_USE_TIMEOUT_MS: "1500" });
+  const { res } = runGen(dir, ["--provider", "image-use", "--only-ids", "term-01"], { env, provider: "image-use" });
+  assert.equal(res.status, 1, res.stdout);
+  assert.match(res.stdout, /\[IMG fail\] term-01 attempts=1 code=E_TIMEOUT \(uncertain:扣费不确定\)/);
+  assert.equal(readManifest(dir).entries["term-01"].status, "unknown");
+  assert.equal(iuCalls(env).length, 1, "自超时单次即停");
+});
+
+test("IU-9 crash 兜底：无提交标记 → 不重试停跑（failed，可人工重跑）", () => {
+  const dir = mkArticleDir("iu9-crash", SAMPLE);
+  const env = iuEnv("crash");
+  const { res } = runGen(dir, ["--provider", "image-use", "--only-ids", "term-01"], { env, provider: "image-use" });
+  assert.equal(res.status, 1, res.stdout);
+  assert.match(res.stdout, /\[IMG fail\] term-01 attempts=1 code=E_CRASH/);
+  assert.equal(readManifest(dir).entries["term-01"].status, "failed");
+  assert.equal(iuCalls(env).length, 1);
+});
+
+test("IU-10 路径越界拒绝：stdout 路径与 outPath 不一致 → E_BAD_OUTPUT", async () => {
+  const mod = await import("../lib/providers/image-use.mjs");
+  const prev = process.env.FAKE_MODE;
+  process.env.FAKE_MODE = "path-mismatch";
+  const out = path.join(workRoot, "iu10", "imgs", "01.png");
+  try {
+    await assert.rejects(
+      mod.generate({ kind: "body", prompt: "p", outPath: out, context: { settings: { pythonBin: process.execPath, script: FAKE_IU_CLI } } }),
+      (e) => e.code === "E_BAD_OUTPUT",
+    );
+    assert.ok(!fs.existsSync(out), "规范路径不落盘");
+    const stray = out.replace(/(\.[a-z0-9]+)$/i, ".stray$1");
+    assert.ok(fs.existsSync(stray), "旁路文件由 fake CLI 制造（provider 侧只拒绝不清理）");
+    fs.rmSync(stray, { force: true });
+  } finally {
+    if (prev === undefined) delete process.env.FAKE_MODE; else process.env.FAKE_MODE = prev;
+  }
+});
+
+// ── --resolve-unknown 系列（IU-11/12）──
+function mkUnknownManifest(name) {
+  const dir = mkArticleDir(name, SAMPLE);
+  const m = {
+    version: 1, article_id: SAMPLE.article_id, requests_issued: 1,
+    style_approval: { status: "none" },
+    entries: {
+      "term-01": {
+        id: "term-01", kind: "body", filename: "01-term.png", prompt_hash: "x",
+        status: "unknown", error_code: "E_TIMEOUT", attempts: 1, path: null,
+        model_fingerprint: "image-use:web", reference_hash: null, candidate: null,
+      },
+    },
+  };
+  fs.writeFileSync(path.join(dir, "image-manifest.json"), JSON.stringify(m, null, 2));
+  return dir;
+}
+
+test("IU-11 --resolve-unknown 正常与拒绝路径", async () => {
+  const { encodePng } = await import("../lib/providers/fake.mjs");
+  // 正常：CLI 子进程
+  const dir = mkUnknownManifest("iu11-ok");
+  const src = path.join(workRoot, "iu11-src.png");
+  fs.writeFileSync(src, encodePng(32, 24, "resolve-src"));
+  const res = spawnSync(process.execPath, [GEN, "--article-dir", dir, "--resolve-unknown", "term-01", "--from", src], { encoding: "utf8" });
+  assert.equal(res.status, 0, res.stdout);
+  const m = readManifest(dir);
+  assert.equal(m.entries["term-01"].status, "succeeded");
+  assert.ok(fs.existsSync(path.join(dir, "imgs", "01-term.png")), "文件到规范路径");
+  assert.match(res.stdout, /\[RESULT\].*"resolved":"term-01"/);
+  // 拒绝：非 unknown 条目（已 succeeded）
+  const res2 = spawnSync(process.execPath, [GEN, "--article-dir", dir, "--resolve-unknown", "term-01", "--from", src], { encoding: "utf8" });
+  assert.equal(res2.status, 2); assert.match(res2.stdout, /\[FAIL\].*需为 unknown/);
+  // 拒绝：未知 id
+  const res3 = spawnSync(process.execPath, [GEN, "--article-dir", dir, "--resolve-unknown", "nope", "--from", src], { encoding: "utf8" });
+  assert.equal(res3.status, 2); assert.match(res3.stdout, /\[FAIL\].*未知 id/);
+  // 拒绝：缺 --from
+  const res4 = spawnSync(process.execPath, [GEN, "--article-dir", dir, "--resolve-unknown", "term-01"], { encoding: "utf8" });
+  assert.equal(res4.status, 2); assert.match(res4.stdout, /\[FAIL\].*--from/);
+});
+
+test("IU-12a 源图核验失败：零状态变化、临时文件清理", () => {
+  const dir = mkUnknownManifest("iu12a-badsrc");
+  const src = path.join(workRoot, "iu12a-corrupt.png");
+  fs.writeFileSync(src, "not an image at all");
+  const res = spawnSync(process.execPath, [GEN, "--article-dir", dir, "--resolve-unknown", "term-01", "--from", src], { encoding: "utf8" });
+  assert.equal(res.status, 2); assert.match(res.stdout, /\[FAIL\].*核验失败/);
+  const m = readManifest(dir);
+  assert.equal(m.entries["term-01"].status, "unknown", "manifest 不变");
+  assert.ok(!fs.existsSync(path.join(dir, "imgs", "01-term.png")), "目标未落盘");
+  assert.deepEqual(fs.readdirSync(path.join(dir, "imgs")), [], "临时文件已清理");
+});
+
+test("IU-12b saveManifest 失败注入：不报成功 + 重入幂等收敛（无新 bak）", async () => {
+  const { runResolveUnknown } = await import("../generate.mjs");
+  const { encodePng } = await import("../lib/providers/fake.mjs");
+  const dir = mkUnknownManifest("iu12b-savfail");
+  const src = path.join(workRoot, "iu12b-src.png");
+  fs.writeFileSync(src, encodePng(32, 24, "resolve-src"));
+  const args = { resolveUnknown: "term-01", resolveFrom: src };
+  // 注入 saveManifest 失败 + 拦截 process.exit（fail() 内部调用）
+  const origExit = process.exit;
+  let exitCode = null;
+  process.exit = (c) => { exitCode = c; throw new Error(`__EXIT_${c}__`); };
+  try {
+    await assert.rejects(
+      runResolveUnknown(args, { articleDir: dir, manifestPath: path.join(dir, "image-manifest.json") }, { saveManifest: async () => { throw new Error("injected save failure"); } }),
+      (e) => /__EXIT_2__/.test(e.message),
+    );
+  } finally {
+    process.exit = origExit;
+  }
+  assert.equal(exitCode, 2, "落盘失败 exit 2 不报成功");
+  assert.ok(fs.existsSync(path.join(dir, "imgs", "01-term.png")), "目标文件已就位（可恢复证据）");
+  assert.equal(readManifest(dir).entries["term-01"].status, "unknown", "manifest 仍 unknown");
+  // 重入（真实 saveManifest）：幂等快路径收敛，无第二条 bak 链
+  const bakCount = (d) => fs.readdirSync(path.join(d, "imgs")).filter((f) => f.includes(".bak-")).length;
+  assert.equal(bakCount(dir), 0, "首程未产生 bak（目标原本不存在）");
+  const origLog = console.log;
+  let captured = "";
+  console.log = (s) => { captured += s; };
+  process.exit = (c) => { exitCode = c; throw new Error(`__EXIT_${c}__`); };
+  try {
+    await assert.rejects(runResolveUnknown(args, { articleDir: dir, manifestPath: path.join(dir, "image-manifest.json") }), /__EXIT_0__/);
+  } finally {
+    console.log = origLog;
+    process.exit = origExit;
+  }
+  assert.match(captured, /\[RESULT\].*"resolved":"term-01"/);
+  assert.equal(readManifest(dir).entries["term-01"].status, "succeeded");
+  assert.equal(bakCount(dir), 0, "重入走幂等快路径，bak 不增长");
+});
+
+test("IU-12c 目标已存在且同内容：幂等快路径，不产生 bak", async () => {
+  const { runResolveUnknown } = await import("../generate.mjs");
+  const { encodePng } = await import("../lib/providers/fake.mjs");
+  const dir = mkUnknownManifest("iu12c-idem");
+  const src = path.join(workRoot, "iu12c-src.png");
+  fs.writeFileSync(src, encodePng(32, 24, "resolve-src"));
+  // 崩溃现场模拟：目标已在位（与源同内容）、manifest 仍 unknown
+  fs.mkdirSync(path.join(dir, "imgs"), { recursive: true });
+  fs.copyFileSync(src, path.join(dir, "imgs", "01-term.png"));
+  const args = { resolveUnknown: "term-01", resolveFrom: src };
+  const origLog = console.log; const origExit = process.exit;
+  let captured = "";
+  console.log = (s) => { captured += s; };
+  process.exit = (c) => { throw new Error(`__EXIT_${c}__`); };
+  try {
+    await assert.rejects(runResolveUnknown(args, { articleDir: dir, manifestPath: path.join(dir, "image-manifest.json") }), /__EXIT_0__/);
+  } finally {
+    console.log = origLog; process.exit = origExit;
+  }
+  assert.match(captured, /"resolved":"term-01"/);
+  assert.equal(fs.readdirSync(path.join(dir, "imgs")).filter((f) => f.includes(".bak-")).length, 0, "同内容跳过备份");
+  assert.equal(readManifest(dir).entries["term-01"].status, "succeeded");
+});
+
+test("IU-12d 目标已存在且内容不同：旧图 bak 后原子替换", async () => {
+  const { runResolveUnknown } = await import("../generate.mjs");
+  const { encodePng } = await import("../lib/providers/fake.mjs");
+  const dir = mkUnknownManifest("iu12d-replace");
+  const src = path.join(workRoot, "iu12d-src.png");
+  fs.writeFileSync(src, encodePng(32, 24, "resolve-src"));
+  fs.mkdirSync(path.join(dir, "imgs"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "imgs", "01-term.png"), encodePng(32, 24, "different-old")); // 旧图（内容不同）
+  const args = { resolveUnknown: "term-01", resolveFrom: src };
+  const origLog = console.log; const origExit = process.exit;
+  let captured = "";
+  console.log = (s) => { captured += s; };
+  process.exit = (c) => { throw new Error(`__EXIT_${c}__`); };
+  try {
+    await assert.rejects(runResolveUnknown(args, { articleDir: dir, manifestPath: path.join(dir, "image-manifest.json") }), /__EXIT_0__/);
+  } finally {
+    console.log = origLog; process.exit = origExit;
+  }
+  const m = readManifest(dir);
+  assert.equal(m.entries["term-01"].status, "succeeded");
+  assert.equal(m.entries["term-01"].previous_path, "imgs/01-term.png.bak-1", "旧图进 bak");
+  assert.equal(sha256(path.join(dir, "imgs", "01-term.png")), sha256(src), "新图原子替换到位");
+});
+
+// Gate A 断言集：原用例零回归由整套运行保证；无误重试/无越界写入在 IU-6/8/10/12 内联断言。
+
+test("IU-13 候选链提升后回写 prompt_hash：改风格重 preview 后二次 batch 零重复生成（T6 真实验收发现）", () => {
+  const dir = mkArticleDir("iu13-cand-hash", SAMPLE);
+  // 首轮批量（无门）：全部成功
+  let r = runGen(dir, [], { env: FAST });
+  assert.equal(r.res.status, 0, r.res.stdout);
+  // 改 style_prefix（等效改风格）→ 全部条目 inputChanged → stale → 候选链
+  const promptsPath = path.join(dir, "image-prompts.json");
+  const prompts = JSON.parse(fs.readFileSync(promptsPath, "utf8"));
+  prompts.style_prefix = "新风格：手绘黑白线稿";
+  fs.writeFileSync(promptsPath, JSON.stringify(prompts, null, 2));
+  // 风格门内重 preview（代表条目走候选链提升）
+  r = runGen(dir, ["--mode", "preview"], { env: FAST, gated: true });
+  assert.equal(r.res.status, 0, r.res.stdout);
+  const m1 = readManifest(dir);
+  const repId = m1.style_approval.preview_image_id;
+  // 修复点：候选链提升后 entry.prompt_hash 必须已回写为当前输入哈希
+  const repPrompt = prompts.items.find((it) => it.id === repId).prompt;
+  const expectedHash = crypto.createHash("sha256").update(prompts.style_prefix + "\n---\n" + repPrompt).digest("hex");
+  assert.equal(m1.entries[repId].prompt_hash, expectedHash, "提升后哈希已回写（promptHash = sha256(style_prefix+\\n---\\n+prompt)）");
+  // 批量补齐剩余条目
+  runGen(dir, ["--approve-style"], { env: FAST });
+  r = runGen(dir, [], { env: FAST });
+  assert.equal(r.res.status, 0, r.res.stdout);
+  // 关键断言：再次 batch（输入未变）应全 skip 零调用——修复前代表条目会因旧哈希被永久重生成
+  const callsBefore = fs.readFileSync(callsFile(dir), "utf8").trim();
+  fs.writeFileSync(callsFile(dir), "");
+  r = runGen(dir, [], { env: FAST });
+  assert.equal(r.res.status, 0, r.res.stdout);
+  const newCalls = fs.readFileSync(callsFile(dir), "utf8").trim();
+  assert.equal(newCalls, "", `输入未变的二次 batch 必须零请求（实际调用：${newCalls}）`);
+  void callsBefore;
+});

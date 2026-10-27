@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { WorkflowRegistry } from "../../dispatch/registry.js";
 import { WechatBotAdapter } from "../../gateway/wechat/bot-adapter.js";
+import { MockWechatClient } from "../../gateway/wechat/mock-client.js";
 import { WechatApp } from "../../gateway/wechat-app.js";
 import { createRunApplicationService } from "../../application/run-service.js";
 import { PiAgentAdapter } from "../../adapters/pi/pi-agent-adapter.js";
@@ -117,6 +118,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   const routingModeRaw = flag("--routing-mode");
   const routingMode = routingModeRaw === "legacy" ? "legacy" : "agent"; // 缺省 agent（AM-P0 目标模式；legacy 需显式指定）
   const allowAll = argv.includes("--allow-all"); // 接收所有用户（仅 AM-12 双账号用例；测试后务必移除）
+  const mockClient = argv.includes("--mock-client"); // 测试客户端：消息进出走 mock-inbox/outbox.jsonl（V8-mock，替代真机手动发消息）
   // --auto-approve id1,id2（CSV）：高风险流程跳过审批直接执行（预检照常；服务端声明，LLM 无法自加入）
   const autoApproveRaw = flag("--auto-approve");
   let autoApprove: string[] | undefined;
@@ -223,6 +225,8 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   const botStats = new BotStatsRecorder(dataDir);
   const bot = new WechatBotAdapter({
     ...botOptions,
+    // --mock-client：注入文件型测试客户端（除微信传输线协议外全链真实；绑定/幂等/授权门照常）
+    ...(mockClient ? { clientFactory: async () => new MockWechatClient(dataDir) } : {}),
     onStatus: (status, attempt) => botStatusMonitor.handleAdapterStatus(status, attempt),
     onPollOk: () => botStatusMonitor.handlePollOk(),
   });
@@ -254,7 +258,7 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   const serviceMode = process.env.PI_WECHAT_SERVICE === "1";
   process.stdout.write(
     [
-      `wechat-dispatch 已启动（routing-mode=${routingMode}，registry=${registry.all().length} 个流程，scripts=${scriptsRoot}，data=${dataDir}）`,
+      `wechat-dispatch 已启动（routing-mode=${routingMode}，registry=${registry.all().length} 个流程，scripts=${scriptsRoot}，data=${dataDir}${mockClient ? "，client=MOCK" : ""}）`,
       ...(routingMode === "agent"
         ? [
             `agent 模式：Conversational Agent（持久会话+五工具；高风险需「批准」确认；同用户消息排队串行）`,
