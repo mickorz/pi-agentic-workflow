@@ -110,6 +110,20 @@
    由 agent 直接执行验证，不依赖人工盯梢。平台语义差异（如 Windows 下 SIGINT/stop 行为、
    MSYS kill 限制）见 `dev-docs/experience/windows-signal-semantics-stop.md`。
 5. 新增手动测试文档/脚本沿用同样写法，参考 `dev-docs/guides/2026-10-19-v1-v2-manual-test.md`。
+6. **微信工作流验收门（WX-MOCK，2026-10-27）**：新工作流或涉及 Router/Registry/授权/执行器的改动，
+   必须先过 mock 验收（Gate B）再考虑真机抽检（Gate C）：
+   ① 场景文件 `dev-examples/manual-test/wechat-mock/scenarios/<workflowId>.json` 与工作流同 PR 提交；
+   ② registry 注册项必须 enabled 且 keywords 含 ≥2 个短词（检索语义为 query-contains-keyword，
+      P1.6 教训：长词/未启用会静默拦空）；
+   ③ 运行 `python3 dev-examples/manual-test/wechat-mock/engine.py --scenario <场景文件>`
+      全 PASS 才算 Gate B 过；失败时先读 report.json（caseId/expected/actual/stage）再动手；
+   ④ 超时纪律：单步 180s 硬上限，特殊步骤 ≤300s 且须在场景声明 special+理由；
+      超时是诊断信号不是重试信号——先看转储的 bot 最后回复与 pending 清单；
+   ⑤ deterministic 模式（Stub 路由，零 LLM）做高频回归；integration 模式（真实 LLM）
+      只用于语义路由/真实 Agent 链路验收；
+   ⑥ mock 实例用独立 `--data` 目录，与 pm2 生产服务并存互不触碰。
+   设计与场景规范见 `dev-docs/design/2026-10-27-wechat-mock-标准化验收流程设计.md`
+   与 `dev-examples/manual-test/wechat-mock/README.md`。
 
 <!-- 本项目为工作流研发项目（参考 opencode-dynamicworkflows），opencode run 联调约定适用；
      当前处于研究初期，暂以注释保留，待实际引入 opencode run 联调时启用。
