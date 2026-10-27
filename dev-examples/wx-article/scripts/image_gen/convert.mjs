@@ -12,9 +12,11 @@
 //   [NEED-LLM] <原因>                                 exit 3
 //   [FAIL] <原因>                                     exit 2（参数/校验失败）
 //   [VALID] ok / [VALID] errors=<n>                   (--validate-only)
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { validatePrompts, normalizePrompts } from "./lib/validate.mjs";
+import { promptHash } from "./lib/manifest.mjs";
+import { sha256Hex, writeJsonWithMeta, checkMetaConsistency, META_NAME } from "./lib/meta.mjs";
 
 const argv = process.argv.slice(2);
 function arg(name, def) {
@@ -61,9 +63,30 @@ const candidates = [
 const mdPath = candidates.find((p) => existsSync(p));
 if (!mdPath) fail(`未找到提示词 md（按序探测: ${candidates.join(", ")}）`);
 const outPath = outArg ?? path.join(articleDir, "image-prompts.json");
-if (existsSync(outPath) && !force) {
-  console.log(`[RESULT] exists ${outPath}（已存在，--force 覆盖）`);
+const md = readFileSync(mdPath, "utf8");
+
+// ---------- plan 驱动优先（P0-B）：plan 存在时应走 compile.mjs，md 链路不覆盖 plan 产物 ----------
+const planPath = path.join(articleDir, "image-design-plan.json");
+if (existsSync(planPath) && !force) {
+  console.log(`[SKIP] 检测到 image-design-plan.json，应走 compile.mjs（plan 驱动优先）；如确要 md 覆盖传 --force`);
   process.exit(0);
+}
+
+// ---------- 源变更检测（P0-C T7，方案 V2.1 §6.1）：未变复用 / 变了重编译+差异对比 ----------
+const metaPath = path.join(path.dirname(outPath), META_NAME);
+let prevEffective = null; // 非 null 时末尾输出逐条 [DIFF]
+if (existsSync(outPath) && !force) {
+  const cm = checkMetaConsistency(outPath, metaPath);
+  const srcHash = sha256Hex(md);
+  if (!cm.ok) {
+    console.log(`[STALE] 既有缓存无效（${cm.reason}），重编译`);
+  } else if (cm.meta.source_md_hash === srcHash) {
+    console.log(`[SKIP] ${outPath}（源 md 未变化，复用既有 JSON）`);
+    process.exit(0);
+  } else {
+    console.log(`[STALE] 源 md 已变化，重编译并对比逐条差异`);
+    prevEffective = cm.meta.items_effective_hash ?? {};
+  }
 }
 
 // ---------- 确定性解析 ----------
@@ -71,7 +94,6 @@ if (existsSync(outPath) && !force) {
 //   ##/### 章节式：  "## 标题" 下含 "提示词：xxx" / "- 提示词: xxx" / 代码块
 //   编号列表式：    "1. **标题**" + 缩进提示词行
 //   表格式：        | 标题 | 提示词 |（表头含"提示词"）
-const md = readFileSync(mdPath, "utf8");
 const lines = md.split(/\r?\n/);
 
 function slug(s) {
@@ -204,6 +226,21 @@ if (!v.ok) {
   console.log(`[FAIL] 转换产物未过 D6 校验: ${v.errors.join(" | ")}`);
   process.exit(2);
 }
-writeFileSync(outPath, JSON.stringify(normalizePrompts(doc), null, 2), "utf8");
+const finalDoc = normalizePrompts(doc);
+
+// effective 哈希（与 manifest.promptHash 同口径）+ 差异报告 + 配套写入（V2.1 §6.2）
+const effective = {};
+for (const it of finalDoc.items) effective[it.id] = promptHash(finalDoc.style_prefix, it.prompt);
+if (prevEffective) {
+  const changed = finalDoc.items.filter((it) => it.id in prevEffective && prevEffective[it.id] !== effective[it.id]).map((it) => it.id);
+  const added = finalDoc.items.filter((it) => !(it.id in prevEffective)).map((it) => it.id);
+  const removed = Object.keys(prevEffective).filter((id) => !(id in effective));
+  console.log(`[DIFF] changed=${changed.join(",") || "-"} added=${added.join(",") || "-"} removed=${removed.join(",") || "-"}`);
+}
+writeJsonWithMeta(outPath, finalDoc, {
+  source: "markdown",
+  source_md_hash: sha256Hex(md),
+  items_effective_hash: effective,
+});
 console.log(`[RESULT] ${outPath} items=${items.length}（确定性解析，零 LLM）`);
 console.log(`=== ALL DONE ===`);
