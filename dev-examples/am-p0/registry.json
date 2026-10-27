@@ -1,31 +1,5 @@
 [
   {
-    "workflowId": "github-review",
-    "scriptPath": "wx-p1/github-review.js",
-    "name": "GitHub 仓库分析",
-    "description": "分析 GitHub 仓库并输出评审报告",
-    "argsSchema": {
-      "type": "object",
-      "properties": {
-        "repoUrl": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "repoUrl"
-      ]
-    },
-    "riskLevel": "read-only",
-    "enabled": true,
-    "keywords": [
-      "分析",
-      "评审",
-      "review",
-      "github",
-      "仓库"
-    ]
-  },
-  {
     "workflowId": "translate",
     "scriptPath": "wx-p1/translate.js",
     "name": "文本翻译",
@@ -981,5 +955,166 @@
       "文章写完了 交接 微信自动化"
     ],
     "scriptPath": "wx-article/scripts/idea_article_handoff.js"
+  },
+  {
+    "workflowId": "github-research",
+    "scriptPath": "wx-article/scripts/github_research.js",
+    "name": "GitHub 项目研究",
+    "description": "GitHub 项目研究与知识库归档: 解析URL -> 查重(命中即复用) -> 缓存状态机抓取/补齐 -> 素材边界包裹的LLM分析(七段模板+证据等级) -> 归档校验 -> 原子更新索引。可独立执行; 重复输入秒回复用, force=true 强制更新(暂存替换, 失败不破坏原档案)",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "repoUrl": {
+          "type": "string",
+          "description": "GitHub 仓库地址(github.com/owner/repo 或 owner/repo)"
+        },
+        "force": {
+          "type": "boolean",
+          "description": "强制重新抓取与分析(可选, 默认命中即复用)"
+        },
+        "fixture": {
+          "type": "string",
+          "description": "测试沙盒目录(内部测试用, 传入则零网络)"
+        },
+        "kb_root": {
+          "type": "string",
+          "description": "知识库根(可选, 缺省读 GITHUB_KB_ROOT 或 .aws-article/config.json 的 github_knowledge_root)"
+        },
+        "category": {
+          "type": "string",
+          "description": "预指定分类(可选; AI 不确定分类时不问直接用它, 不在词表会自动追加)"
+        }
+      },
+      "required": [
+        "repoUrl"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "github",
+      "研究",
+      "知识库",
+      "分析项目",
+      "项目档案"
+    ],
+    "examples": [
+      "研究这个 GitHub 项目 https://github.com/psf/requests",
+      "分析这个 GitHub 仓库并保存知识库 repoUrl=https://github.com/psf/requests",
+      "研究 github 项目 repoUrl=https://github.com/example/demo-repo force=true"
+    ]
+  },
+  {
+    "workflowId": "github-article",
+    "scriptPath": "wx-article/scripts/github_article.js",
+    "name": "GitHub 推荐文章生成",
+    "description": "从知识库档案生成公众号推荐文章(Workflow B): 定位档案 -> 幂等规划(同角度已有即复用) -> 素材边界写作(证据核验) -> 审稿修复循环 -> 三件套落盘(article.md/article.yaml/配图建议) -> 关联登记 -> check_state 复检两级状态(article_ready/prepare_ready)。定位: projectId 或 repoUrl 二选一",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "projectId": {
+          "type": "string",
+          "description": "项目 ID(=repo 名, 定位通道之一)"
+        },
+        "repoUrl": {
+          "type": "string",
+          "description": "GitHub 地址(便捷定位, 与 projectId 二选一)"
+        },
+        "angle": {
+          "type": "string",
+          "description": "写作角度(可选, 缺省 recommend)"
+        },
+        "force": {
+          "type": "boolean",
+          "description": "同角度已有文章时仍新建一篇(可选)"
+        },
+        "title": {
+          "type": "string",
+          "description": "预指定标题(可选)"
+        },
+        "kb_root": {
+          "type": "string",
+          "description": "知识库根(可选)"
+        },
+        "workspace_dir": {
+          "type": "string",
+          "description": "文章工作区根(可选)"
+        }
+      },
+      "required": []
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "写推荐文章",
+      "生成文章",
+      "推荐文",
+      "github文章",
+      "写成文章",
+      "推荐这个"
+    ],
+    "examples": [
+      "把知识库里的 lieflat-charts 写成推荐文章",
+      "把 supabase 写成公众号文章 angle=compare"
+    ],
+    "anyOfArgs": [
+      "projectId",
+      "repoUrl"
+    ]
+  },
+  {
+    "workflowId": "github-recommend",
+    "scriptPath": "wx-article/scripts/github_recommend.js",
+    "name": "GitHub 项目推荐（研究+成文）",
+    "description": "一键推荐: 研究(查重抓取分析归档) -> 检查 -> 生成公众号推荐文章 -> 汇总。已研究的仓库自动复用档案; 文章失败不影响知识库。需要 repoUrl",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "repoUrl": {
+          "type": "string",
+          "description": "GitHub 仓库地址"
+        },
+        "angle": {
+          "type": "string",
+          "description": "写作角度(可选, 缺省 recommend)"
+        },
+        "category": {
+          "type": "string",
+          "description": "预指定分类(可选, 不确定会 checkpoint 问询)"
+        },
+        "force": {
+          "type": "boolean",
+          "description": "强制重研究/另写一篇(可选)"
+        },
+        "title": {
+          "type": "string",
+          "description": "预指定文章标题(可选)"
+        },
+        "kb_root": {
+          "type": "string",
+          "description": "知识库根(可选)"
+        },
+        "workspace_dir": {
+          "type": "string",
+          "description": "文章工作区根(可选)"
+        }
+      },
+      "required": [
+        "repoUrl"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "推荐这个",
+      "做成文章",
+      "推荐项目",
+      "一键推荐",
+      "github推荐"
+    ],
+    "examples": [
+      "推荐这个 GitHub 项目 https://github.com/xxx/yyy 做成文章",
+      "推荐 https://github.com/xxx/yyy 并写成公众号文章"
+    ]
   }
 ]
