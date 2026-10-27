@@ -1,0 +1,40 @@
+{
+  "name": "execution-success",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-echo"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "回显测试",
+        "mock-echo"
+      ],
+      "reply": "{\"intent\":\"execute_workflow\",\"action\":\"start_execution\",\"workflowId\":\"mock-echo\",\"args\":{\"marker\":\"e1-artifact\",\"outFile\":\"{outFile}\"},\"missingFields\":[],\"reason\":\"wx-mock E1\",\"confidence\":0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "E1",
+      "name": "执行成功：Run completed 且产物存在",
+      "send": "回显测试 mock-echo，marker=e1-artifact，产物写到 {outFile}",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-echo",
+        "timeoutSec": 180
+      },
+      "assertFile": [
+        "{outFile}"
+      ],
+      "assertFileContains": {
+        "file": "{outFile}",
+        "contains": "e1-artifact"
+      }
+    }
+  ],
+  "vars": {
+    "outFile": "{runDir}/work/e1-out.json"
+  }
+}

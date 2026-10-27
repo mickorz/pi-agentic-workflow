@@ -22,7 +22,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { WorkflowRegistry } from "../../dispatch/registry.js";
 import { WechatBotAdapter } from "../../gateway/wechat/bot-adapter.js";
+import { ChatLog } from "../../gateway/wechat/chat-log.js";
 import { MockWechatClient } from "../../gateway/wechat/mock-client.js";
+import { createRouteStubLlm } from "../../gateway/wechat/route-stub.js";
 import { WechatApp } from "../../gateway/wechat-app.js";
 import { createRunApplicationService } from "../../application/run-service.js";
 import { PiAgentAdapter } from "../../adapters/pi/pi-agent-adapter.js";
@@ -173,25 +175,31 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
     return finish(2);
   }
 
-  // 真实路由 LLM（单轮 prompt → JSON）；模型走默认配置（settings.json），显式 --model 才覆盖
-  const adapter = new PiAgentAdapter({ ...(model ? { defaultModel: model } : {}) });
-  const llm: RoutingLLM = {
-    route: async (prompt) => {
-      const started = Date.now();
-      let tokens = 0;
-      const out = await adapter.run(prompt, {
-        label: "intent-router",
-        onUsage: (usage) => {
-          tokens += usage.total ?? 0;
-        },
-      });
-      return {
-        text: out.type === "text" ? out.value : JSON.stringify(out.value),
-        latencyMs: Date.now() - started,
-        ...(tokens > 0 ? { tokens } : {}),
-      };
-    },
-  };
+  // 路由 LLM：--route-stub <rules.json> 时注入 Stub（WX-MOCK deterministic 模式，零 LLM）；
+  // 否则走真实路由（单轮 prompt → JSON；模型走默认配置 settings.json，显式 --model 才覆盖）
+  const routeStubFile = flag("--route-stub");
+  const llm: RoutingLLM = routeStubFile
+    ? createRouteStubLlm(routeStubFile)
+    : (() => {
+        const adapter = new PiAgentAdapter({ ...(model ? { defaultModel: model } : {}) });
+        return {
+          route: async (prompt) => {
+            const started = Date.now();
+            let tokens = 0;
+            const out = await adapter.run(prompt, {
+              label: "intent-router",
+              onUsage: (usage) => {
+                tokens += usage.total ?? 0;
+              },
+            });
+            return {
+              text: out.type === "text" ? out.value : JSON.stringify(out.value),
+              latencyMs: Date.now() - started,
+              ...(tokens > 0 ? { tokens } : {}),
+            };
+          },
+        };
+      })();
 
   const service = createRunApplicationService({ baseDir: process.cwd() });
   // 用户绑定（免记 wxid）：--allow-user > 已绑定文件 > 首消息自动绑定；--allow-all 关闭过滤（危险）
@@ -225,6 +233,8 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   const botStats = new BotStatsRecorder(dataDir);
   const bot = new WechatBotAdapter({
     ...botOptions,
+    // 聊天记录全量落盘（复盘用）：adapter 收发两端，按日期 <dataDir>/chat-logs/YYYY-MM-DD.jsonl
+    chatLog: new ChatLog(dataDir),
     // --mock-client：注入文件型测试客户端（除微信传输线协议外全链真实；绑定/幂等/授权门照常）
     ...(mockClient ? { clientFactory: async () => new MockWechatClient(dataDir) } : {}),
     onStatus: (status, attempt) => botStatusMonitor.handleAdapterStatus(status, attempt),

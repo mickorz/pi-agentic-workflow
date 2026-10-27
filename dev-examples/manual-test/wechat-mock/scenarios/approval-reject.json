@@ -1,0 +1,45 @@
+{
+  "name": "approval-reject",
+  "mode": "integration",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-effect"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "副作用测试",
+        "mock-effect"
+      ],
+      "reply": "{\"intent\":\"execute_workflow\",\"action\":\"start_execution\",\"workflowId\":\"mock-effect\",\"args\":{\"outFile\":\"{outFile}\",\"anchor\":\"a2-anchor\"},\"missingFields\":[],\"reason\":\"wx-mock A2\",\"confidence\":0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "A2",
+      "name": "授权拒绝：拒绝后 PendingAction rejected 且零执行",
+      "send": "执行 mock-effect 流程（副作用测试）：outFile 参数用 {outFile}，anchor 参数用 a2-anchor",
+      "approve": "reject",
+      "expect": {
+        "type": "pendingActionStatus",
+        "workflowId": "mock-effect",
+        "status": "rejected",
+        "timeoutSec": 60
+      },
+      "assertAbsent": [
+        "{outFile}"
+      ],
+      "assertPending": {
+        "workflowId": "mock-effect",
+        "status": "rejected",
+        "argsContain": [
+          "{outFile}",
+          "a2-anchor"
+        ]
+      }
+    }
+  ],
+  "vars": {
+    "outFile": "{runDir}/work/a2-out.txt"
+  }
+}

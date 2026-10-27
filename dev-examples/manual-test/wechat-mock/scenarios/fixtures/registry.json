@@ -1,0 +1,68 @@
+[
+  {
+    "workflowId": "mock-echo",
+    "scriptPath": "mock-echo.js",
+    "name": "Mock 回显",
+    "description": "确定性测试：回显 marker 并落盘产物文件",
+    "enabled": true,
+    "riskLevel": "read-only",
+    "keywords": ["mockecho", "回显测试"],
+    "argsSchema": {
+      "type": "object",
+      "properties": { "marker": { "type": "string" }, "outFile": { "type": "string" } },
+      "required": ["marker", "outFile"]
+    }
+  },
+  {
+    "workflowId": "mock-fail",
+    "scriptPath": "mock-fail.js",
+    "name": "Mock 失败",
+    "description": "确定性测试：按 reason 抛出确定性失败",
+    "enabled": true,
+    "riskLevel": "read-only",
+    "keywords": ["mockfail", "失败测试"],
+    "argsSchema": {
+      "type": "object",
+      "properties": { "reason": { "type": "string" } },
+      "required": ["reason"]
+    }
+  },
+  {
+    "workflowId": "mock-slow",
+    "scriptPath": "mock-slow.js",
+    "name": "Mock 慢任务",
+    "description": "确定性测试：marker 追加 + 长眠 + 终态文件（中断恢复用）",
+    "enabled": true,
+    "riskLevel": "read-only",
+    "keywords": ["mockslow", "慢任务测试"],
+    "argsSchema": {
+      "type": "object",
+      "properties": { "markerFile": { "type": "string" }, "finalFile": { "type": "string" } },
+      "required": ["markerFile", "finalFile"]
+    }
+  },
+  {
+    "workflowId": "mock-effect",
+    "scriptPath": "mock-effect.js",
+    "name": "Mock 副作用",
+    "description": "确定性测试：外部副作用（授权门）批准后落盘产物",
+    "enabled": true,
+    "riskLevel": "external-side-effect",
+    "keywords": ["mockeffect", "副作用测试"],
+    "argsSchema": {
+      "type": "object",
+      "properties": { "outFile": { "type": "string" }, "anchor": { "type": "string" } },
+      "required": ["outFile", "anchor"]
+    }
+  },
+  {
+    "workflowId": "mock-demo-legacy",
+    "scriptPath": "mock-echo.js",
+    "name": "Mock 演示旧流程",
+    "description": "R2 冲突靶子：贪心关键词镜像 1b5c968 修复前的 demo 抢跑形态（勿启用）",
+    "enabled": false,
+    "riskLevel": "read-only",
+    "keywords": ["仓库研究", "github", "demo", "演示"],
+    "argsSchema": { "type": "object", "properties": { "marker": { "type": "string" }, "outFile": { "type": "string" } }, "required": ["marker", "outFile"] }
+  }
+]
