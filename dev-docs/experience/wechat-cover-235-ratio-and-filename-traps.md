@@ -87,3 +87,16 @@ draft_manager 全链（check_state.py / content_hash.py / publish_html.py）统�
 3. `check_state.py` → prepare_ready=true，cover state=imgs
 4. 封面 sips 缩到 1880×800（精确 2.35:1）
 5. `publish.py --cover imgs/cover-….png --account-slot 1 --md-file … --title … --digest … --author AI奇点` → DRAFT OK
+
+## 管线修复落地（2026-10-27 晚间，当日闭环）
+
+三坑当晚已从“人工处理”升级为“管线自动保障”，Gate 套件全绿（P0 46 / P1 31 / P2 24）：
+
+1. **封面自动缩放**：新增 `draft_manager/cover_resize.py`（纯标准库 PNG 盒式滤波缩放器）。
+   `publish.py` 上传前调用 `ensure_cover_235()`：比例接近 2.35（±1%）→ 自动缩到精确 47k×20k
+   （1880×800 属典型落点）并备份原图到 `_cover-original/`；明显偏离（如 16:9）→ 不动图仅 `[WARN]`（自动裁剪会破坏构图，且历史 16:9 曾通过）；非 PNG → 提示按原样上传。
+2. **文件名预检**：`normalize_manual_images.py` 新增第 0 步——正文引用（标准 + wiki）文件名
+   含空格/括号/全角括号 → `[FAIL]` 中断并列出名单，提示重命名。
+3. **封面优先级提示 + 尺寸探针**：`check_state.py` 封面输出新增 `size` / `exact_235` 字段
+   （只读 PNG IHDR）；根 cover.* 与 imgs/cover-* 并存时 issues 给出优先级提示；
+   非精确 2.35:1 时给出“接近→publish 将自动缩放 / 偏离→53401 风险”分级提示。

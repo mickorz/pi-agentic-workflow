@@ -9,6 +9,8 @@ publish 链（content_hash.image_refs / publish_html.convert_md）只认标准
 1.  ![[名.png]] / ![[名.png|300]] → ![](imgs/名.png)
     - 封面（cover 前缀）→ ![文章封面](imgs/名.png)（与 insert_images.py 标记一致）
     - imgs/ 下找不到同名文件 → [FAIL] 退出（不猜、不复制别处图片）
+    - 引用文件名含空格/括号（如 "03-x (1).png"）→ [FAIL] 预检中断
+      （发布链 IMG_REF 正则 [^)] 会在首个 ) 截断，必须先重命名）
     - Obsidian 兼容：标准 markdown 引用在 Obsidian 中同样可渲染
 2.  article.yaml 缺 title/digest 时补最小元数据（否则复查 prepare_ready=false 卡死）：
     - title = 正文 md 文件名（去 .md，与标题确定性优先级一致）
@@ -34,6 +36,8 @@ IMG_PREFIX_EXCLUDE = re.compile(r"^(article|draft|review)")
 NAME_ILLEGAL = ("审稿", "图片引用清单", "大纲", "配图建议")
 IMG_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 WIKI_EMBED = re.compile(r"!\[\[([^\]|]+?)(?:\|[^\]]*)?\]\]")
+IMG_REF = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
+BAD_NAME_CHARS = (" ", "(", ")", "（", "）")  # IMG_REF 的 [^)] 会在首个 ) 截断
 YAML_KEYS = ("title", "digest", "author", "content_source")
 DIGEST_MAX = 120
 
@@ -94,6 +98,19 @@ def main() -> int:
         return 1
     md_text = md_path.read_text(encoding="utf-8-sig")
     imgs_dir = article_dir / "imgs"
+
+    # 0) 文件名预检：空格/括号会被全链 IMG_REF 正则 [^)] 截断（2026-10-27 坑，越早中断越好）
+    ref_names = [r.strip().replace("\\", "/").split("/")[-1]
+                 for r in (m.group(1) for m in IMG_REF.finditer(md_text))]
+    ref_names += [t.strip().replace("\\", "/").split("/")[-1]
+                  for t in (m.group(1).strip() for m in WIKI_EMBED.finditer(md_text))
+                  if t.lower().endswith(tuple(IMG_EXTS))]
+    bad = sorted({n for n in ref_names if any(c in n for c in BAD_NAME_CHARS)})
+    if bad:
+        for n in bad:
+            print(f"[FAIL] 图片文件名含空格/括号，发布链正则会在首个 ')' 截断: {n}（请重命名文件并同步正文引用）")
+        print("=== ALL DONE rewritten=0 meta=aborted ===")
+        return 1
 
     # 1) wiki 图片内嵌 → 标准引用
     rewritten, failed = 0, 0

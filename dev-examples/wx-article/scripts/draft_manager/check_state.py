@@ -78,6 +78,18 @@ def cover_state(article_dir: Path) -> dict:
     return {"state": "none", "path": ""}
 
 
+def png_size_of(path: Path) -> tuple[int, int] | None:
+    """只读 PNG IHDR 尺寸（非 PNG/损坏返回 None）——与 cover_resize.read_png_size 同源逻辑。"""
+    try:
+        head = path.read_bytes()[:33]
+    except OSError:
+        return None
+    if len(head) < 33 or head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
+        return None
+    import struct
+    return struct.unpack(">II", head[16:24])
+
+
 def number_of(image: str) -> int | None:
     """从图片文件名提取序号：01-x.png / 1_x.png / 图1-x.png -> 1；无序号 -> None。"""
     m = NUM_RE.match(Path(image).stem)
@@ -173,6 +185,31 @@ def inspect_dir(article_dir: Path, account_slot: int, config_dir: str | None) ->
 
     # 封面
     cov = cover_state(article_dir)
+    # 封面优先级提示（2026-10-27 坑：根 cover.* 会顶掉 imgs/ 手动封面）
+    if cov["state"] == "root":
+        imgs_cov = [p.name for p in sorted((article_dir / "imgs").iterdir())
+                    if (article_dir / "imgs").is_dir() and p.is_file() and p.name.lower().startswith("cover")]
+        if imgs_cov:
+            out["issues"].append(
+                f"封面优先级提示: 根目录 cover.* 优先，imgs/ 下另有 {len(imgs_cov)} 张 cover 前缀图将被忽略"
+                f"（用手动封面请移走根目录文件）")
+    # 封面尺寸探针（53401 预警；PNG 才能只读探测）
+    if cov["state"] != "none":
+        sz = png_size_of(article_dir / cov["path"])
+        if sz:
+            w, h = sz
+            cov["size"] = [w, h]
+            cov["exact_235"] = (w * 20 == h * 47)
+            if not cov["exact_235"]:
+                ratio = w / h
+                if abs(ratio - 2.35) <= 0.01:
+                    out["issues"].append(
+                        f"封面比例提示: {w}x{h}={ratio:.4f} 接近但非精确 2.35:1（publish 将自动缩放）")
+                else:
+                    out["issues"].append(
+                        f"封面比例提示: {w}x{h}={ratio:.4f} 偏离 2.35:1（历史 16:9 曾通过；遇 53401 需换精确 2.35:1 封面）")
+        else:
+            cov["size"] = None
     out["cover"] = cov
 
     # 发布状态（account 隔离摘要）

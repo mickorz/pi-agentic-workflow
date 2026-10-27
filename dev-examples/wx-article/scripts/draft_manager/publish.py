@@ -47,6 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from article_lock import ArticleLock, LockHeldError  # noqa: E402
 from article_state import StateRMW  # noqa: E402
+from cover_resize import ensure_cover_235  # noqa: E402
 from content_hash import (  # noqa: E402
     HTML_RULE_VERSION,
     cleanup_snapshot,
@@ -349,6 +350,9 @@ def main() -> int:
     cover_path = (article_dir / args.cover).resolve()
     if not cover_path.is_file():
         return fail(f"cover not found: {cover_path}")
+    # 封面 2.35:1 保障（2026-10-27 53401 教训：接近但非精确 2.35 会被拒；接近比例自动缩放，明显偏离仅提示）
+    cov_fix = ensure_cover_235(cover_path, backup_dir=article_dir / "_cover-original")
+    print(f"[COVER] {cov_fix['action']}: {cov_fix['msg']}")
 
     config_root = Path(args.config_dir) if args.config_dir else (
         find_config_root(article_dir) or find_config_root(Path(__file__).parent)
