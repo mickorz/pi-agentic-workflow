@@ -1,0 +1,39 @@
+#!/bin/sh
+# WX-MOCK pre-push 门禁：push 前跑微信工作流 mock 回归（任一 FAIL 阻止推送）
+# 逃生口：git push --no-verify（须在进度文档说明原因）
+# 安装：git config core.hooksPath dev-examples/manual-test/wechat-mock/hooks
+# 跳过条件：非 master 分支 / 删除分支 / 工作区未装 python
+
+# 取待推送的本地 sha（stdin: local_ref local_sha remote_ref remote_sha）
+zero="0000000000000000000000000000000000000000"
+while read local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue          # 删除分支：放行
+  case "$local_ref" in refs/heads/master) ;; *) continue ;; esac
+  [ "$remote_sha" != "$zero" ] && [ "$local_sha" = "$remote_sha" ] && continue  # 无新提交
+  branch="$local_ref"
+done
+
+[ "$branch" = "refs/heads/master" ] || exit 0
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# python 解析（Windows python3 可能是商店 stub；Mac/Linux python3 通常可用）
+PY=python3
+"$PY" -c "print(1)" >/dev/null 2>&1 || PY=python
+"$PY" -c "print(1)" >/dev/null 2>&1 || { echo "[pre-push] 跳过：无可用 python（记得手动跑 WX-MOCK 门）"; exit 0; }
+
+# src 变更时先构建（防跑陈旧 dist 假通过）
+if [ -n "$(git status --porcelain src/ 2>/dev/null)" ] || git diff --quiet HEAD@{1} HEAD -- src/ 2>/dev/null; then
+  echo "[pre-push] npm run build（src 有变更/构建校验）…"
+  npm run build >/dev/null 2>&1 || { echo "[pre-push] ❌ 构建失败，推送被阻止"; exit 1; }
+fi
+
+echo "[pre-push] WX-MOCK 全量回归（deterministic + integration，约 3-6 分钟）…"
+"$PY" dev-examples/manual-test/wechat-mock/engine.py --all
+rc=$?
+if [ $rc -ne 0 ]; then
+  echo "[pre-push] ❌ WX-MOCK 回归未全过，推送被阻止（逃生口：git push --no-verify，须在进度文档说明）"
+  exit 1
+fi
+echo "[pre-push] ✅ WX-MOCK 全过，放行推送"
+exit 0

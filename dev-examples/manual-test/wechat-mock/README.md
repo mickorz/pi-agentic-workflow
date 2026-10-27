@@ -68,6 +68,15 @@ done
 | E2 | execution-failure | Run failed + 错误双源断言（tasks/run-manifest） |
 | X1 | checkpoint-resume | kill → interrupted → resume → journal 回放不重执行 |
 
+## pre-push 门禁（机械强制层）
+
+```bash
+git config core.hooksPath dev-examples/manual-test/wechat-mock/hooks   # 一次性激活
+```
+
+激活后每次 `git push`（master）自动：`npm run build` → WX-MOCK 全量回归 → 任一 FAIL 阻止推送。
+逃生口 `git push --no-verify`（须在进度文档说明原因）。非 master 分支不拦截。
+
 ## 新工作流接入清单（Gate B 过门条件）
 
 1. 场景 JSON 与工作流同 PR（deterministic 优先；涉及真实 LLM 语义才用 integration）

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""WX-MOCK 引擎 — 微信工作流 mock 标准化验收（P1）
+"""WX-MOCK 引擎 — 微信工作流 mock 标准化验收（P1/P2）
 
 一条命令完成：消息输入 → 路由 → 授权 → Workflow 执行 → 结果断言；失败产出
 reports/<ts>-<scenario>/report.json（caseId/runId/expected/actual/stage/logs）。
 
 用法（仓根执行）:
     python3 dev-examples/manual-test/wechat-mock/engine.py \
-        --scenario dev-examples/manual-test/wechat-mock/scenarios/route-smoke.json \
-        [--mode deterministic|integration] [--step-timeout 180] [--keep]
+        --scenario dev-examples/manual-test/wechat-mock/scenarios/route-smoke.json
+    python3 dev-examples/manual-test/wechat-mock/engine.py --all                      # 守卫：全量
+    python3 dev-examples/manual-test/wechat-mock/engine.py --all --mode deterministic # 仅确定性场景
 
 隔离原则（不碰运行中的 wechat-bot）:
     服务实例用独立数据目录 --data <runDir>/data（服务锁按 dataDir 隔离），
@@ -17,14 +18,12 @@ reports/<ts>-<scenario>/report.json（caseId/runId/expected/actual/stage/logs）
     单步缺省 180s；场景步骤可声明 timeoutSec ≤ 300 且须带 special+reason；
     超时立即转储诊断（bot 最后回复/服务日志尾/挂起授权/tasks 尾）并 FAIL，不盲等。
 
-stdout 契约: 每步 [OK]/[FAIL]；结尾 === ALL PASS === (n) 或 === FAILED n ===；exit 0/1。
+stdout 契约: 每步 [OK]/[FAIL]，结尾 === ALL PASS === 或 === FAILED n ===；exit 0/1。
 """
 import argparse
 import json
 import os
-import re
 import shutil
-import signal
 import subprocess
 import sys
 import time
@@ -87,26 +86,28 @@ def diag_dump(run_dir: Path, data_dir: Path, note: str) -> str:
 class MockService:
     """独立数据目录的 mock 服务实例（与 pm2 生产实例并存，互不触碰）"""
 
-    def __init__(self, run_dir: Path, registry_file: Path, mode: str, env_extra: dict):
+    def __init__(self, run_dir: Path, mode: str, env_extra: dict, scripts_dir: Path | None):
+        self.run_dir = run_dir
         self.data_dir = run_dir / "data"
         self.log_file = run_dir / "mock-service.log"
         self.proc = None
         self.mode = mode
         self.env_extra = env_extra
+        self.scripts_dir = scripts_dir
 
-    def start(self, registry_file: Path, route_stub: Path | None, scripts_dir: Path | None = None) -> None:
+    def start(self, registry_file: Path, route_stub: Path | None) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         env = {**os.environ, **self.env_extra}
-        cmd = [PI, "wechat", "start", "--mock-client", "--data", str(self.data_dir), "--registry", str(registry_file),
-               *(["--scripts", str(scripts_dir)] if scripts_dir else [])]
+        cmd = [PI, "wechat", "start", "--mock-client", "--data", str(self.data_dir), "--registry", str(registry_file)]
+        if self.scripts_dir:
+            cmd += ["--scripts", str(self.scripts_dir)]
         if self.mode == "deterministic":
             cmd += ["--routing-mode", "legacy"]
             if route_stub:
                 cmd += ["--route-stub", str(route_stub)]
         self.log_file.write_text("", encoding="utf-8")
-        # start_new_session：POSIX 上建立独立进程组（killpg 可整树强杀）；Windows 忽略此参数（taskkill /T 负责树杀）
         self.proc = subprocess.Popen(cmd, cwd=str(REPO), stdout=open(self.log_file, "a", encoding="utf-8"),
-                                     stderr=subprocess.STDOUT, env=env, start_new_session=True)
+                                     stderr=subprocess.STDOUT, env=env)
 
     def ready(self, timeout_s: int = 30) -> tuple[bool, str]:
         deadline = time.time() + timeout_s
@@ -120,16 +121,9 @@ class MockService:
         return False, "30s 内未见 client=MOCK 就绪横幅"
 
     def kill(self) -> None:
-        """进程树强杀（模拟崩溃；隔离 dataDir 下无状态需要保全）——跨平台：
-        Windows taskkill /T；POSIX killpg（start 建了独立会话，组杀覆盖 worker 子进程）"""
+        """进程树强杀（模拟崩溃；隔离 dataDir 下无状态需要保全）"""
         if self.proc and self.proc.poll() is None:
-            if os.name == "nt":
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=30)
-            else:
-                try:
-                    os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=30)
             try:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
@@ -215,12 +209,11 @@ class Engine:
         self.vars.setdefault("runDir", str(self.run_dir).replace("\\", "/"))  # 正斜杠：stub JSON 转义安全
         self.vars.setdefault("userId", MOCK_USER)
         self.vars.setdefault("runStamp", str(int(time.time())))
-        # 两遍渲染：var 值可引用 runDir 等内建变量（work 产物路径放在 run 目录下）
-        for k, v in list(self.vars.items()):
+        for k, v in list(self.vars.items()):  # 两遍渲染：var 值可引用 runDir 等内建变量
             self.vars[k] = render(str(v), self.vars)
         (self.run_dir / "work").mkdir(parents=True, exist_ok=True)
         self.cases: list[Case] = []
-        self.svc = MockService(self.run_dir, None, mode, scenario.get("env", {}))
+        self.svc = MockService(self.run_dir, mode, scenario.get("env", {}), None)
 
     # ── 前置 ──
     def preflight(self) -> bool:
@@ -229,8 +222,7 @@ class Engine:
             print(f"[FAIL] 场景 registry 不存在: {reg_src}")
             return False
         regs = json.loads(reg_src.read_text(encoding="utf-8"))
-        # registry patch（如 R2 需要临时启用冲突靶子流程）
-        for patch in self.sc.get("registryPatch", []):
+        for patch in self.sc.get("registryPatch", []):  # 场景级 registry 临时改（如 R2 启用冲突靶子）
             for reg in regs:
                 if reg["workflowId"] == patch["workflowId"]:
                     reg.update({k: v for k, v in patch.items() if k != "workflowId"})
@@ -238,14 +230,12 @@ class Engine:
         reg_file = self.run_dir / "registry.json"
         reg_file.write_text(json.dumps(regs, ensure_ascii=False, indent=2), encoding="utf-8")
         self.registry_file = reg_file
-        # 预检：步骤涉及的 workflowId 已启用（P1.6 registry 分裂教训）
+        self.svc.scripts_dir = self.fixtures_dir
         enabled = {r["workflowId"]: r.get("enabled", False) for r in regs}
-        needed = set(self.sc.get("requiresWorkflows", []))
-        missing = [w for w in needed if not enabled.get(w)]
+        missing = [w for w in self.sc.get("requiresWorkflows", []) if not enabled.get(w)]
         if missing:
             print(f"[FAIL] registry 预检：未启用 {missing}（检查 enabled 与短关键词）")
             return False
-        # route stub（deterministic）：场景规则渲染 {var} 后落盘
         self.route_stub_file = None
         if self.mode == "deterministic" and self.sc.get("routeStub"):
             rules = json.loads(render(json.dumps(self.sc["routeStub"], ensure_ascii=False), self.vars))
@@ -254,7 +244,7 @@ class Engine:
         return True
 
     def start_service(self) -> bool:
-        self.svc.start(self.registry_file, self.route_stub_file, getattr(self, "fixtures_dir", None))
+        self.svc.start(self.registry_file, self.route_stub_file)
         ok, why = self.svc.ready(30)
         if not ok:
             print(f"[FAIL] mock 服务启动: {why}")
@@ -283,33 +273,10 @@ class Engine:
                         case.stage = "service"
                         case.actual = self.log_tail()
                 elif kind == "resumeRun":
-                    # deterministic 模式的恢复入口：pi-workflow resume（与微信「确认恢复」同一 runtime 语义）
-                    wf = step.get("workflowId", "")
-                    run_id = None
-                    for _ in range(5):
-                        for tb, tk in latest_tasks(self.data_dir).items():
-                            if tk.get("workflowId") == wf and tk.get("status") == "interrupted" and tk.get("runId"):
-                                run_id = tk["runId"]
-                                break
-                        if run_id:
-                            break
-                        time.sleep(3)
-                    if not run_id:
-                        case.stage = "resume"
-                        case.ok = False
-                        case.expected = f"{wf} 存在 interrupted 任务"
-                        case.actual = "未找到 interrupted 任务"
-                    else:
-                        r = subprocess.run([PI, "resume", run_id], cwd=str(REPO), capture_output=True,
-                                           text=True, encoding="utf-8", errors="replace",
-                                           input="y\n", timeout=step.get("resumeTimeoutSec", 170))
-                        case.stage = "resume"
-                        case.expected = f"resume {run_id} 重放/续跑完成"
-                        case.actual = (r.stdout + r.stderr)[-300:]
-                        case.ok = r.returncode == 0
+                    self.run_resume_step(step, case)
                 else:
                     outbox_n = self.run_send_step(step, case, outbox_n)
-            except Exception as e:  # 引擎自身异常也要成 case，不留悬空
+            except Exception as e:
                 case.ok = False
                 case.stage = "engine"
                 case.actual = f"{type(e).__name__}: {e}"
@@ -318,6 +285,31 @@ class Engine:
             print(f"[{tag}] {case.case_id} {case.name}" + ("" if case.ok else f" | {case.stage}: {case.actual[:180]}"), flush=True)
             if not case.ok:
                 break
+
+    def run_resume_step(self, step: dict, case: Case) -> None:
+        """deterministic 模式的恢复入口：pi-workflow resume（与微信「确认恢复」同一 runtime 语义）"""
+        wf = step.get("workflowId", "")
+        run_id = None
+        for _ in range(5):
+            for tb, tk in latest_tasks(self.data_dir).items():
+                if tk.get("workflowId") == wf and tk.get("status") == "interrupted" and tk.get("runId"):
+                    run_id = tk["runId"]
+                    break
+            if run_id:
+                break
+            time.sleep(3)
+        if not run_id:
+            case.stage = "resume"
+            case.expected = f"{wf} 存在 interrupted 任务"
+            case.actual = "未找到 interrupted 任务"
+            return
+        r = subprocess.run([PI, "resume", run_id], cwd=str(REPO), capture_output=True,
+                           text=True, encoding="utf-8", errors="replace",
+                           input="y" + chr(10), timeout=step.get("resumeTimeoutSec", 170))
+        case.stage = "resume"
+        case.expected = f"resume {run_id} 重放/续跑完成"
+        case.actual = (r.stdout + r.stderr)[-300:]
+        case.ok = r.returncode == 0
 
     def run_send_step(self, step: dict, case: Case, outbox_n: int) -> int:
         case.stage = "send"
@@ -345,13 +337,13 @@ class Engine:
             msgs = all_msgs[outbox_n:]
             n = len(all_msgs)
             for _, reply in msgs:
-                # 自动批准（三元组校验：workflowId + 锚点 + 卡片形态，非无条件绕过）
                 is_approval_card = "回复「批准」" in reply or ("actionId" in reply and "pa-" in reply)
                 wf_ok = step.get("approveWorkflowId", "") in reply
                 if is_approval_card and wf_ok and approve in ("auto", "reject"):
                     time.sleep(1.5)
-                    send_inbox(self.data_dir, MOCK_USER, "批准" if approve == "auto" else "拒绝")
-                    print(f"[AUTO] 审批卡（workflowId 匹配）-> {'批准' if approve == 'auto' else '拒绝'}", flush=True)
+                    action = "批准" if approve == "auto" else "拒绝"
+                    send_inbox(self.data_dir, MOCK_USER, action)
+                    print(f"[AUTO] 审批卡（workflowId 匹配）-> {action}", flush=True)
                 if expect_type == "replyContains" and any(k in reply for k in expect.get("anyOf", [])):
                     matched, actual = True, reply[:200]
             outbox_n = n
@@ -360,8 +352,8 @@ class Engine:
             if expect_type in ("taskCompleted", "taskFailed"):
                 wf = expect["workflowId"]
                 want = "completed" if expect_type == "taskCompleted" else "failed"
-                for tb, t in latest_tasks(self.data_dir).items():
-                    if t.get("workflowId") == wf and t.get("status") == want:
+                for tb, tk in latest_tasks(self.data_dir).items():
+                    if tk.get("workflowId") == wf and tk.get("status") == want:
                         matched, actual = True, f"tb={tb} {want}"
                         break
                 if matched:
@@ -395,7 +387,6 @@ class Engine:
 
         # 终态断言（Run 终态 + 产物为准；回复文本不算成功依据）
         case.stage = "assert"
-        case.expected = json.dumps(step.get("assertJson", "") or step.get("assertFile", "") or step.get("assertTextCount", ""), ensure_ascii=False)[:160]
         problems = []
         aj = step.get("assertJson")
         if aj:
@@ -416,51 +407,25 @@ class Engine:
             f = Path(render(rf, self.vars))
             if not f.exists():
                 problems.append(f"产物缺失 {f}")
-        ate = step.get("assertTaskError")
-        if ate:
-            wf = ate["workflowId"]
-            hit_tb = None
-            for _ in range(3):  # 宽限轮询：给 RunMonitor/manifest 落盘留时间
-                for tb, tk in latest_tasks(self.data_dir).items():
-                    if tk.get("workflowId") == wf and tk.get("status") == "failed":
-                        hit_tb = tk
-                        break
-                if hit_tb:
-                    break
-                time.sleep(3)
-            if not hit_tb:
-                problems.append(f"{wf} 无 failed 任务")
-            else:
-                blob = json.dumps(hit_tb, ensure_ascii=False)
-                texts = " ".join(m[1] for m in outbox_read(self.data_dir))
-                manifest_err = ""
-                run_id = hit_tb.get("runId")
-                if run_id:
-                    mf = REPO / ".pi-workflows" / "runs" / run_id / "manifest.json"
-                    if mf.exists():
-                        manifest_err = str(json.loads(mf.read_text(encoding="utf-8")).get("error", ""))
-                if ate["contains"] not in blob and ate["contains"] not in texts and ate["contains"] not in manifest_err:
-                    problems.append(f"失败原因未含 '{ate['contains']}'（tasks/回执/run-manifest 均未见；manifest_err={manifest_err[:80]}）")
-        for rf in step.get("assertAbsent", []):
-            f = Path(render(rf, self.vars))
-            if f.exists():
-                problems.append(f"产物不应存在却存在 {f}")
         afcs = step.get("assertFileContains", [])
-        afc_list = [afcs] if isinstance(afcs, dict) else afcs
-        for afc in afc_list:
+        for afc in ([afcs] if isinstance(afcs, dict) else afcs):
             f = Path(render(afc["file"], self.vars))
             content = f.read_text(encoding="utf-8") if f.exists() else ""
             needle = render(afc["contains"], self.vars)
             if needle not in content:
-                problems.append(f"{f.name} 应包含 '{afc['contains']}'，实际: {content[:60]}")
+                problems.append(f"{f.name} 应包含 '{needle}'，实际: {content[:60]}")
+        for rf in step.get("assertAbsent", []):
+            f = Path(render(rf, self.vars))
+            if f.exists():
+                problems.append(f"产物不应存在却存在 {f}")
         apv = step.get("assertPending")
         if apv:
             wf = apv["workflowId"]
             want_status = apv.get("status", "executed")
             anchors = [render(a, self.vars) for a in apv.get("argsContain", [])]
-            deadline_apv = time.time() + 30
+            pa_deadline = time.time() + 30
             pa_ok, pa_detail = False, "无记录"
-            while time.time() < deadline_apv and not pa_ok:
+            while time.time() < pa_deadline and not pa_ok:
                 latest_pa = {}
                 pf = self.data_dir / "pending-actions.jsonl"
                 if pf.exists():
@@ -489,6 +454,32 @@ class Engine:
             count = f.read_text(encoding="utf-8").count(atc["substring"]) if f.exists() else -1
             if count != atc["count"]:
                 problems.append(f"{f.name} 中 '{atc['substring']}' 期望 {atc['count']} 次实际 {count} 次")
+        ate = step.get("assertTaskError")
+        if ate:
+            wf = ate["workflowId"]
+            hit_tb = None
+            for _ in range(3):  # 宽限轮询：给 RunMonitor/manifest 落盘留时间
+                for tb, tk in latest_tasks(self.data_dir).items():
+                    if tk.get("workflowId") == wf and tk.get("status") == "failed":
+                        hit_tb = tk
+                        break
+                if hit_tb:
+                    break
+                time.sleep(3)
+            if not hit_tb:
+                problems.append(f"{wf} 无 failed 任务")
+            else:
+                blob = json.dumps(hit_tb, ensure_ascii=False)
+                texts = " ".join(m[1] for m in outbox_read(self.data_dir))
+                manifest_err = ""
+                run_id = hit_tb.get("runId")
+                if run_id:
+                    mf = REPO / ".pi-workflows" / "runs" / run_id / "manifest.json"
+                    if mf.exists():
+                        manifest_err = str(json.loads(mf.read_text(encoding="utf-8")).get("error", ""))
+                if ate["contains"] not in blob and ate["contains"] not in texts and ate["contains"] not in manifest_err:
+                    problems.append(f"失败原因未含 '{ate['contains']}'（tasks/回执/run-manifest 均未见；manifest_err={manifest_err[:80]}）")
+        case.expected = json.dumps({k: step[k] for k in ("assertJson", "assertFile", "assertFileContains", "assertAbsent", "assertPending", "assertTextCount", "assertTaskError") if k in step}, ensure_ascii=False)[:160]
         case.actual = "; ".join(problems) if problems else "断言全过"
         case.ok = not problems
         return outbox_n
@@ -510,40 +501,71 @@ class Engine:
         return rp
 
 
+def run_scenario(path: Path, mode_override: str | None, step_timeout: int, keep: bool) -> tuple[bool, Engine]:
+    sc = json.loads(path.read_text(encoding="utf-8"))
+    mode = mode_override or sc.get("mode", "deterministic")
+    eng = Engine(sc, mode, step_timeout, keep)
+    print()
+    print(f"[RUN] {sc.get('name')} mode={mode} runDir={eng.run_dir.name}")
+    if not eng.preflight():
+        return False, eng
+    if not eng.start_service():
+        eng.write_report()
+        return False, eng
+    try:
+        eng.run_steps()
+    finally:
+        eng.write_report()
+        if not keep:
+            eng.svc.kill()
+        else:
+            print(f"[KEEP] 服务保留（dataDir={eng.svc.data_dir}）", flush=True)
+    ok = all(c.ok for c in eng.cases) and len(eng.cases) > 0
+    print(f"report: {eng.write_report()}")
+    if ok:
+        print(f"=== ALL PASS === ({len(eng.cases)} pass)")
+    else:
+        n_fail = sum(1 for c in eng.cases if not c.ok)
+        print(f"=== FAILED {n_fail} === ({len(eng.cases)} steps)")
+    return ok, eng
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--scenario", required=True)
-    ap.add_argument("--mode", choices=["deterministic", "integration"], default=None)
+    ap.add_argument("--scenario")
+    ap.add_argument("--all", action="store_true", help="跑 scenarios/ 下全部场景（守卫模式）")
+    ap.add_argument("--mode", choices=["deterministic", "integration"], default=None,
+                    help="覆盖场景模式；与 --all 同用时=只跑该模式的场景（缺省全跑）")
     ap.add_argument("--step-timeout", type=int, default=DEFAULT_STEP_TIMEOUT)
     ap.add_argument("--keep", action="store_true", help="保留服务进程与数据目录（调试用）")
     args = ap.parse_args()
 
-    sc_path = Path(args.scenario)
-    sc = json.loads(sc_path.read_text(encoding="utf-8"))
-    mode = args.mode or sc.get("mode", "deterministic")
-    eng = Engine(sc, mode, args.step_timeout, args.keep)
-    print(f"[RUN] {sc.get('name')} mode={mode} runDir={eng.run_dir.name}")
+    sc_dir = Path(__file__).resolve().parent / "scenarios"
+    results = []
 
-    if not eng.preflight():
-        return 1
-    if not eng.start_service():
-        eng.write_report()
-        return 1
+    if args.all:
+        files = sorted(sc_dir.glob("*.json"))
+        if args.mode:
+            files = [f for f in files if json.loads(f.read_text(encoding="utf-8")).get("mode", "deterministic") == args.mode]
+        if not files:
+            print("[FAIL] 无匹配场景")
+            return 1
+        print(f"[ALL] {len(files)} 个场景（mode={args.mode or '全部'}）")
+        failed = []
+        for f in files:
+            ok, _ = run_scenario(f, args.mode, args.step_timeout, args.keep)
+            results.append((f.stem, ok))
+            if not ok:
+                failed.append(f.stem)
+        if failed:
+            print(f"=== FAILED {len(failed)} === 失败场景: " + ", ".join(failed))
+            return 1
+        print(f"=== ALL PASS === ({len(results)} scenarios)")
+        return 0
 
-    try:
-        eng.run_steps()
-    finally:
-        report = eng.write_report()
-        if not args.keep:
-            eng.svc.kill()
-            print("[DONE] mock 服务已停（独立实例，pm2 生产服务未受影响）", flush=True)
-        else:
-            stop_hint = (f"taskkill /PID {eng.svc.proc.pid} /T /F" if os.name == "nt" else f"kill {eng.svc.proc.pid}")
-            print(f"[KEEP] 服务保留（dataDir={eng.svc.data_dir}），手动 {stop_hint} 可停", flush=True)
-
-    ok = all(c.ok for c in eng.cases) and len(eng.cases) > 0
-    print(f"report: {report}")
-    print(f"=== ALL PASS === ({len(eng.cases)} pass)" if ok else f"=== FAILED {sum(1 for c in eng.cases if not c.ok)} === ({len(eng.cases)} steps)")
+    if not args.scenario:
+        ap.error("需要 --scenario 或 --all")
+    ok, _ = run_scenario(Path(args.scenario), args.mode, args.step_timeout, args.keep)
     return 0 if ok else 1
 
 
