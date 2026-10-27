@@ -1,0 +1,38 @@
+{
+  "name": "param-extraction",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-echo"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "mockecho",
+        "mock-echo"
+      ],
+      "reply": "{\"intent\":\"execute_workflow\",\"action\":\"start_execution\",\"workflowId\":\"mock-echo\",\"args\":{\"marker\":\"{paramMarker}\",\"outFile\":\"{paramOutFile}\"},\"missingFields\":[],\"reason\":\"wx-mock R3\",\"confidence\":0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "R3",
+      "name": "参数提取：消息内参数值进入 args 并落盘一致产物",
+      "send": "mockecho mock-echo 参数提取测试，marker={paramMarker}，产物写到 {paramOutFile}",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-echo",
+        "timeoutSec": 180
+      },
+      "assertFileContains": {
+        "file": "{paramOutFile}",
+        "contains": "{paramMarker}"
+      }
+    }
+  ],
+  "vars": {
+    "paramMarker": "p3-marker-{runStamp}",
+    "paramOutFile": "{runDir}/work/p3-out.json"
+  }
+}

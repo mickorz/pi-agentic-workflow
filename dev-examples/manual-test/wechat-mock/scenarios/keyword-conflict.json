@@ -1,0 +1,44 @@
+{
+  "name": "keyword-conflict",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "registryPatch": [
+    {
+      "workflowId": "mock-demo-legacy",
+      "enabled": true
+    }
+  ],
+  "requiresWorkflows": [
+    "mock-echo",
+    "mock-demo-legacy"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "回显测试",
+        "mock-echo"
+      ],
+      "reply": "{\"intent\":\"execute_workflow\",\"action\":\"start_execution\",\"workflowId\":\"mock-echo\",\"args\":{\"marker\":\"r2-marker\",\"outFile\":\"{outFile}\"},\"missingFields\":[],\"reason\":\"wx-mock R2\",\"confidence\":0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "R2",
+      "name": "关键词冲突：demo 靶子在册时真实流程仍胜出",
+      "send": "demo 演示 仓库研究 回显测试 mock-echo，marker=r2-marker，产物写到 {outFile}",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-echo",
+        "timeoutSec": 180
+      },
+      "assertFileContains": {
+        "file": "{outFile}",
+        "contains": "r2-marker"
+      }
+    }
+  ],
+  "vars": {
+    "outFile": "{runDir}/work/r2-out.json"
+  }
+}

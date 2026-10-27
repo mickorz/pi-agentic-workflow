@@ -1,0 +1,49 @@
+{
+  "name": "approval-pass",
+  "mode": "integration",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-effect"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "副作用测试",
+        "mock-effect"
+      ],
+      "reply": "{\"intent\":\"execute_workflow\",\"action\":\"start_execution\",\"workflowId\":\"mock-effect\",\"args\":{\"outFile\":\"{outFile}\",\"anchor\":\"a1-anchor\"},\"missingFields\":[],\"reason\":\"wx-mock A1\",\"confidence\":0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "A1",
+      "name": "授权通过：审批卡 → 显式批准（workflowId+锚点）→ 执行落盘",
+      "send": "执行 mock-effect 流程（副作用测试）：outFile 参数用 {outFile}，anchor 参数用 a1-anchor",
+      "approve": "auto",
+      "approveWorkflowId": "mock-effect",
+      "approveAnchors": [
+        "{outFile}",
+        "a1-anchor"
+      ],
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-effect",
+        "timeoutSec": 180
+      },
+      "assertFile": [
+        "{outFile}"
+      ],
+      "assertPending": {
+        "workflowId": "mock-effect",
+        "status": "executed",
+        "argsContain": [
+          "{outFile}",
+          "a1-anchor"
+        ]
+      }
+    }
+  ],
+  "vars": {
+    "outFile": "{runDir}/work/a1-out.txt"
+  }
+}

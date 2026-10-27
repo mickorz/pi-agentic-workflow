@@ -1,0 +1,37 @@
+{
+  "name": "route-smoke",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-echo"
+  ],
+  "vars": {
+    "outFile": "{runDir}/work/r1-out.json"
+  },
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "回显测试",
+        "mock-echo"
+      ],
+      "reply": "{\"intent\":\"execute_workflow\",\"action\":\"start_execution\",\"workflowId\":\"mock-echo\",\"args\":{\"marker\":\"r1-marker\",\"outFile\":\"{outFile}\"},\"missingFields\":[],\"reason\":\"wx-mock R1\",\"confidence\":0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "R1",
+      "name": "路由识别：消息命中 mock-echo 并完成",
+      "send": "回显测试 mock-echo，marker=r1-marker，产物写到 {outFile}",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-echo",
+        "timeoutSec": 180
+      },
+      "assertFileContains": {
+        "file": "{outFile}",
+        "contains": "r1-marker"
+      }
+    }
+  ]
+}

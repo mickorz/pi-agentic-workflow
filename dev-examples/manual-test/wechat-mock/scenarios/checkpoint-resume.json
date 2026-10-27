@@ -1,0 +1,69 @@
+{
+  "name": "checkpoint-resume",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-slow"
+  ],
+  "special": {
+    "justified": true,
+    "reason": "含中断/重启/恢复三阶段，单流程超过单步 180s 无OrFail；各步骤自身 ≤180s"
+  },
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "慢任务测试",
+        "mock-slow"
+      ],
+      "reply": "{\"intent\":\"execute_workflow\",\"action\":\"start_execution\",\"workflowId\":\"mock-slow\",\"args\":{\"markerFile\":\"{markerFile}\",\"finalFile\":\"{finalFile}\"},\"missingFields\":[],\"reason\":\"wx-mock X1\",\"confidence\":0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "X1a",
+      "name": "发起慢任务并等待进入长眠段",
+      "send": "慢任务测试 mock-slow，markerFile={markerFile}，finalFile={finalFile}",
+      "approve": "never",
+      "kind": "send",
+      "expect": {
+        "type": "fileSettled",
+        "file": "{markerFile}",
+        "timeoutSec": 60
+      }
+    },
+    {
+      "caseId": "X1b",
+      "name": "中途 kill（模拟崩溃）",
+      "kind": "kill"
+    },
+    {
+      "caseId": "X1c",
+      "name": "重启服务（stale 锁接管）",
+      "kind": "restart"
+    },
+    {
+      "caseId": "X1d",
+      "name": "pi-workflow resume 恢复：journal 回放不重执行 marker，终态文件落盘",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-slow",
+        "timeoutSec": 180
+      },
+      "assertFile": [
+        "{finalFile}"
+      ],
+      "assertTextCount": {
+        "file": "{markerFile}",
+        "substring": "m1",
+        "count": 1
+      },
+      "kind": "resumeRun",
+      "workflowId": "mock-slow"
+    }
+  ],
+  "vars": {
+    "markerFile": "{runDir}/work/x1-marker.txt",
+    "finalFile": "{runDir}/work/x1-final.txt"
+  }
+}

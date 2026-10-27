@@ -1,0 +1,34 @@
+{
+  "name": "execution-failure",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-fail"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "失败测试",
+        "mock-fail"
+      ],
+      "reply": "{\"intent\":\"execute_workflow\",\"action\":\"start_execution\",\"workflowId\":\"mock-fail\",\"args\":{\"reason\":\"e2-injected\"},\"missingFields\":[],\"reason\":\"wx-mock E2\",\"confidence\":0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "E2",
+      "name": "执行失败：Run failed 且错误信息含注入原因",
+      "send": "失败测试 mock-fail，reason=e2-injected",
+      "approve": "never",
+      "expect": {
+        "type": "taskFailed",
+        "workflowId": "mock-fail",
+        "timeoutSec": 180
+      },
+      "assertTaskError": {
+        "workflowId": "mock-fail",
+        "contains": "e2-injected"
+      }
+    }
+  ]
+}

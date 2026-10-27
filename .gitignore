@@ -46,3 +46,4 @@ dev-examples/wx-article/scripts/draft_manager/test-fixture/vault/公众号/escap
 # image-gen-p0 沙盒运行产物（真实生图证据/心跳标记/运行日志）
 dev-examples/image-gen-p0/out/
 dev-examples/image-gen-p0/.pi-workflows/
+dev-examples/manual-test/wechat-mock/reports/

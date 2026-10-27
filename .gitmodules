@@ -34,3 +34,6 @@
 [submodule "thirdparties/image-use"]
 	path = thirdparties/image-use
 	url = https://github.com/leeguooooo/image-use.git
+[submodule "thirdparties/gzh-export"]
+	path = thirdparties/gzh-export
+	url = https://github.com/huanxi007/gzh-export.git
