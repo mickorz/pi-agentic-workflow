@@ -24,6 +24,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -103,8 +104,9 @@ class MockService:
             if route_stub:
                 cmd += ["--route-stub", str(route_stub)]
         self.log_file.write_text("", encoding="utf-8")
+        # start_new_session：POSIX 上建立独立进程组（killpg 可整树强杀）；Windows 忽略此参数（taskkill /T 负责树杀）
         self.proc = subprocess.Popen(cmd, cwd=str(REPO), stdout=open(self.log_file, "a", encoding="utf-8"),
-                                     stderr=subprocess.STDOUT, env=env)
+                                     stderr=subprocess.STDOUT, env=env, start_new_session=True)
 
     def ready(self, timeout_s: int = 30) -> tuple[bool, str]:
         deadline = time.time() + timeout_s
@@ -118,9 +120,16 @@ class MockService:
         return False, "30s 内未见 client=MOCK 就绪横幅"
 
     def kill(self) -> None:
-        """进程树强杀（模拟崩溃；隔离 dataDir 下无状态需要保全）"""
+        """进程树强杀（模拟崩溃；隔离 dataDir 下无状态需要保全）——跨平台：
+        Windows taskkill /T；POSIX killpg（start 建了独立会话，组杀覆盖 worker 子进程）"""
         if self.proc and self.proc.poll() is None:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=30)
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=30)
+            else:
+                try:
+                    os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
             try:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
@@ -529,7 +538,8 @@ def main() -> int:
             eng.svc.kill()
             print("[DONE] mock 服务已停（独立实例，pm2 生产服务未受影响）", flush=True)
         else:
-            print(f"[KEEP] 服务保留（dataDir={eng.svc.data_dir}），手动 taskkill /PID {eng.svc.proc.pid} /T /F 可停", flush=True)
+            stop_hint = (f"taskkill /PID {eng.svc.proc.pid} /T /F" if os.name == "nt" else f"kill {eng.svc.proc.pid}")
+            print(f"[KEEP] 服务保留（dataDir={eng.svc.data_dir}），手动 {stop_hint} 可停", flush=True)
 
     ok = all(c.ok for c in eng.cases) and len(eng.cases) > 0
     print(f"report: {report}")

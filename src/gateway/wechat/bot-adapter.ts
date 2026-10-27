@@ -9,6 +9,7 @@
  */
 
 import type { BotInboundMessage } from "../../contracts/wx.js";
+import type { ChatLogLike } from "./chat-log.js";
 
 export interface BotAdapter {
   start(): Promise<void>;
@@ -49,6 +50,8 @@ export interface WechatBotAdapterOptions {
   onPollOk?: () => void;
   /** 轮询空批时的节流间隔（缺省 200ms；真实长轮询 40s 一次，fake 立返防 busy-loop） */
   pollIdleMs?: number;
+  /** 聊天记录（复盘用）：收发两端全量落盘 <dataDir>/chat-logs/日期.jsonl；缺省不记 */
+  chatLog?: ChatLogLike;
 }
 
 /** 微信 BotAdapter：包装 WeixinClient（凭据来自 ~/.pi/agent/wechat-assistant/credentials.json） */
@@ -89,7 +92,25 @@ export class WechatBotAdapter implements BotAdapter {
 
   async send(userId: string, text: string): Promise<void> {
     if (!this.client) throw new Error("Bot 未启动");
-    await this.client.sendText(userId, text);
+    try {
+      await this.client.sendText(userId, text);
+      this.options.chatLog?.record({
+        ts: new Date().toISOString(),
+        direction: "out",
+        userId,
+        text,
+        status: "sent",
+      });
+    } catch (e) {
+      this.options.chatLog?.record({
+        ts: new Date().toISOString(),
+        direction: "out",
+        userId,
+        text,
+        status: "failed",
+      });
+      throw e;
+    }
   }
 
   /** WG-006：会话过期 → 指数退避重连（凭据失效最终停在 stopped，可人工重新扫码 SOP） */
@@ -153,6 +174,13 @@ export class WechatBotAdapter implements BotAdapter {
           if (this.options.allowedUserIds && !this.options.allowedUserIds.includes(incoming.userId)) continue;
           const text = (incoming.text ?? "").trim();
           if (!text) continue;
+          this.options.chatLog?.record({
+            ts: (incoming.timestamp ?? new Date()).toISOString(),
+            direction: "in",
+            userId: incoming.userId,
+            text,
+            messageId: incoming.messageId,
+          });
           await this.handler({
             channel: "wechat",
             userId: incoming.userId,

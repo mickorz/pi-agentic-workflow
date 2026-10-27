@@ -11,8 +11,9 @@ await command({
 })
 phase("sleep")
 await command({
-  executable: "ping",
-  args: ["-n", "12", "127.0.0.1"],
+  // 跨平台 sleep：node 定时阻塞（Windows 侧原用 ping -n 12 当 sleep，macOS/Linux 语义不同会秒过，见经验文档）
+  executable: "node",
+  args: ["-e", "setTimeout(() => process.exit(0), 11000)"],
   timeoutMs: 30000,
 })
 phase("final")

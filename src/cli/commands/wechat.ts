@@ -22,6 +22,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { WorkflowRegistry } from "../../dispatch/registry.js";
 import { WechatBotAdapter } from "../../gateway/wechat/bot-adapter.js";
+import { ChatLog } from "../../gateway/wechat/chat-log.js";
 import { MockWechatClient } from "../../gateway/wechat/mock-client.js";
 import { createRouteStubLlm } from "../../gateway/wechat/route-stub.js";
 import { WechatApp } from "../../gateway/wechat-app.js";
@@ -232,6 +233,8 @@ export async function wechat(argv: string[], options: WechatCommandOptions = {})
   const botStats = new BotStatsRecorder(dataDir);
   const bot = new WechatBotAdapter({
     ...botOptions,
+    // 聊天记录全量落盘（复盘用）：adapter 收发两端，按日期 <dataDir>/chat-logs/YYYY-MM-DD.jsonl
+    chatLog: new ChatLog(dataDir),
     // --mock-client：注入文件型测试客户端（除微信传输线协议外全链真实；绑定/幂等/授权门照常）
     ...(mockClient ? { clientFactory: async () => new MockWechatClient(dataDir) } : {}),
     onStatus: (status, attempt) => botStatusMonitor.handleAdapterStatus(status, attempt),
