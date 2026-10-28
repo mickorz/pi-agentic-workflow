@@ -312,6 +312,19 @@ if (needDraft) {
 
 phase('审稿')
 // 八维度审稿 + blocking 修复循环（≤cfgFixLimit 轮）；模板模式叠加 templateCheck/factCheck 独立字段（契约不变）
+// 字数维度为确定性预检（代码计数，不靠 LLM 自报）：净汉字低于 targetWords 下限 → blocking，进修复循环
+const tw = cfgTargetWords.match(/^(\d+)\s*-\s*(\d+)$/) || [null, '1500', '2500']
+const WORDS_MIN = parseInt(tw[1], 10)
+const WORDS_MAX = parseInt(tw[2], 10)
+const cnCount = (s) => (String(s).match(/[\u4e00-\u9fff]/g) || []).length
+function wordCountCheck(text) {
+  const n = cnCount(text)
+  const blocking = n < WORDS_MIN
+  const 意见 = blocking ? `净汉字 ${n}，低于 targetWords 下限 ${WORDS_MIN}，需扩写`
+    : n > WORDS_MAX ? `净汉字 ${n}，超过上限 ${WORDS_MAX}，建议精简（宽松容忍至 ${Math.floor(WORDS_MAX * 1.5)}，不阻断）`
+    : `净汉字 ${n}，在 ${WORDS_MIN}-${WORDS_MAX} 区间内`
+  return { 维度: '⑨字数达标', blocking, 意见 }
+}
 const tplMode = template !== null
 function tplIssues(rv) {
   const t = ((rv.templateCheck && rv.templateCheck.issues) || []).filter((x) => x && x.blocking && x.repairable !== false)
@@ -366,6 +379,8 @@ async function reviewPass(text) {
 }
 
 let review = await reviewPass(articleText)
+// 注入确定性字数维度（第 9 维，代码计数，不入 LLM 提示词）
+review.dimensions.push(wordCountCheck(articleText))
 let fixCount = 0
 while ((review.dimensions.filter((x) => x.blocking).length > 0 || (tplMode && tplIssues(review).length > 0)) && fixCount < cfgFixLimit) {
   fixCount++
@@ -385,6 +400,7 @@ while ((review.dimensions.filter((x) => x.blocking).length > 0 || (tplMode && tp
   await check(() => w.ok === true, '修复落盘失败: ' + JSON.stringify(w.issues || []))
   articleText = fx.article_md
   review = await reviewPass(articleText)
+  review.dimensions.push(wordCountCheck(articleText))
   log('审稿修复第 ' + fixCount + ' 轮: 剩余 blocking ' + review.dimensions.filter((x) => x.blocking).length)
 }
 
@@ -394,7 +410,7 @@ const pendingN = tplMode ? tplPending(review).length : 0
 const totalBlocking = blockingN + pendingN
 const reviewMd = '# 审稿报告\n\n- 轮次: ' + (fixCount + 1) + '（修复 ' + fixCount + ' 轮）\n- blocking: ' + blockingN + ' / warning: ' + warningN +
   (tplMode ? ' / 模板与事实阻断: ' + pendingN : '') +
-  (template ? '\n- 写作模板: ' + template.id + ' ' + template.version + '（sha256=' + template.sha256.slice(0, 12) + '）' : '') + '\n\n## 八维度\n\n' +
+  (template ? '\n- 写作模板: ' + template.id + ' ' + template.version + '（sha256=' + template.sha256.slice(0, 12) + '）' : '') + '\n\n## 九维度（八维度 + 确定性字数）\n\n' +
   review.dimensions.map((x) => '- [' + (x.blocking ? '阻断' : '提示') + '] ' + x.维度 + ': ' + x.意见).join('\n') + '\n' +
   (tplMode
     ? '\n## 模板符合性\n\n- passed: ' + (review.templateCheck && review.templateCheck.passed) + '\n' +
