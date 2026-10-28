@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { validatePrompts, normalizePrompts } from "./lib/validate.mjs";
 import { promptHash } from "./lib/manifest.mjs";
 import { COMPILER_VERSION, sha256Hex, writeJsonWithMeta, checkMetaConsistency, META_NAME } from "./lib/meta.mjs";
+import { bodyFilename, coverFilename } from "./lib/naming.mjs";
 
 const sha256 = sha256Hex;
 
@@ -140,10 +141,12 @@ for (const it of plan.items) {
   const kind = it.type === "cover" ? "cover" : "body";
   const seq = kind === "cover" ? 0 : ++bodySeq;
 
-  // filename：继承 plan 已有（稳定 ID 锁定），否则首次分配
+  // filename：继承 plan 已有（稳定 ID 锁定），否则首次分配（IMG-L 命名约定：cover- 前缀 / 章节号-中文标题）
   let filename = it.filename;
   if (filename === undefined || filename === "") {
-    filename = kind === "cover" ? "cover.png" : `${String(seq).padStart(2, "0")}-${it.id}.png`;
+    filename = kind === "cover"
+      ? coverFilename(it.heading, it.concept)
+      : bodyFilename(it.heading, seq, `${TYPE_ABBR[it.type] ?? "il"}-${String(seq).padStart(2, "0")}`);
   }
   if (usedFilenames.has(filename)) fail(`filename 重复: ${filename}（id=${it.id}）`);
   usedFilenames.add(filename);

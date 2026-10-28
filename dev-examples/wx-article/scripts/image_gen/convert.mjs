@@ -17,6 +17,7 @@ import path from "node:path";
 import { validatePrompts, normalizePrompts } from "./lib/validate.mjs";
 import { promptHash } from "./lib/manifest.mjs";
 import { sha256Hex, writeJsonWithMeta, checkMetaConsistency, META_NAME } from "./lib/meta.mjs";
+import { bodyFilename, coverFilename } from "./lib/naming.mjs";
 
 const argv = process.argv.slice(2);
 function arg(name, def) {
@@ -205,13 +206,12 @@ for (const s of parsed) {
     heading: isCover ? "" : (s.title.startsWith("##") ? s.title : `## ${s.title}`),
     prompt: s.prompt,
     filename: isCover
-      ? "cover.png"
+      ? coverFilename(s.title, s.prompt) // IMG-L 命名约定：cover-中文主题
       : (() => {
-          const sl = slug(s.title);
-          const seq = ++bodyIdx; // 稳定序号（标题带编号则沿用编号，避免 01-01- 双编号）
-          const nn = sl?.match(/^(\d{1,2})-/) ? Number(sl.match(/^(\d{1,2})-/)[1]) : seq;
-          const stem = sl ? sl.replace(/^\d{1,2}-/, "") : `term-${String(seq).padStart(2, "0")}`;
-          return `${String(nn).padStart(2, "0")}-${stem}.png`;
+          const seq = ++bodyIdx;
+          const heading = s.title.startsWith("##") ? s.title : `## ${s.title}`;
+          // IMG-L 命名约定：章节号-中文标题（序号 N 对应第 N 个 ## 章节，与插图序号映射对齐）
+          return bodyFilename(heading, seq, `term-${String(seq).padStart(2, "0")}`);
         })(),
   });
 }

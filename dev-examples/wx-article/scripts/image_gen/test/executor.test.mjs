@@ -1136,7 +1136,7 @@ test("IU-15 文字验收闭环（T4）：透传 + pending 审核 + approve/rejec
   // 8 plan 闸：expected_text 非法形态在 validate-plan 即拒
   const planPath = path.join(workRoot, "iu15-plan.json");
   fs.writeFileSync(planPath, JSON.stringify({
-    version: 1, article_id: "x", visual_profile: "p",
+    version: 1, article_id: "x", visual_profile: "ai-landing",
     items: [{ id: "a", type: "illustration", heading: "", concept: "c", layout: "l", aspect_ratio: "16:9", expected_text: [""] }],
   }));
   const vp = spawnSync(process.execPath, [path.join(HERE, "..", "validate-plan.mjs"), planPath], { encoding: "utf8" });
@@ -1189,6 +1189,44 @@ test("IU-17 审批文档渲染（export-review）：全文成稿/状态回填/�
   r = runRender(dir2);
   assert.equal(r.status, 2);
   assert.match(r.stdout, /缺少 image-prompts/);
+});
+
+test("IU-18 命名约定（IMG-L）：cover- 前缀与章节号-中文标题首次分配", async () => {
+  const { chapterNoFromHeading, bodyFilename, coverFilename, topicStem } = await import("../lib/naming.mjs");
+  // 纯函数：中文数字解析与主题清洗
+  assert.equal(chapterNoFromHeading("## 二、AI 正在打破前后端的技术边界"), 2);
+  assert.equal(chapterNoFromHeading("## 十一、后续展望"), 11);
+  assert.equal(chapterNoFromHeading("引言（无编号）"), null);
+  assert.equal(topicStem("## 二、AI 正在打破（上）"), "AI正在打破上", "去序号/空格/括号");
+  assert.equal(bodyFilename("## 二、AI 正在打破前后端的技术边界", 1, "il-01"), "02-AI正在打破前后端的技术边界.png");
+  assert.equal(bodyFilename("无编号标题", 3, "il-03"), "03-无编号标题.png", "无章节号回退图片顺序号");
+  assert.equal(coverFilename("", "一张测试概念画面描述", "cover"), "cover-一张测试概念画面描述.png");
+
+  // compile 首次分配：plan 无 filename 时按新约定；plan 已有 filename 时稳定锁定不覆写
+  const plan = {
+    version: 1, article_id: "naming-01", visual_profile: "ai-landing",
+    items: [
+      { id: "cover", type: "cover", heading: "", concept: "未来软件公司的AI工作流", layout: "横版", aspect_ratio: "2.35:1" },
+      { id: "intro", type: "illustration", heading: "## 一、引言", concept: "引言画面", layout: "l", aspect_ratio: "16:9" },
+      { id: "wall", type: "illustration", heading: "## 二、AI正在打破边界", concept: "拆墙画面", layout: "l", aspect_ratio: "16:9" },
+      { id: "locked", type: "illustration", heading: "## 三、已锁定条目", concept: "已锁定", layout: "l", aspect_ratio: "16:9", filename: "custom-locked.png" },
+    ],
+  };
+  const pp = path.join(workRoot, "iu18-plan.json");
+  fs.writeFileSync(pp, JSON.stringify(plan));
+  const oc18 = path.join(workRoot, "iu18-out", "image-prompts.json");
+  fs.mkdirSync(path.dirname(oc18), { recursive: true });
+  const visualDir = path.resolve(HERE, "..", "..", "..", "visual");
+  const oc2 = spawnSync(process.execPath,
+    [path.join(HERE, "..", "compile.mjs"), "--plan", pp, "--article-dir", path.dirname(oc18), "--visual-dir", visualDir],
+    { encoding: "utf8" });
+  assert.equal(oc2.status, 0, oc2.stdout + oc2.stderr);
+  const out = JSON.parse(fs.readFileSync(oc18, "utf8"));
+  const byId = Object.fromEntries(out.items.map((x) => [x.id, x.filename]));
+  assert.match(byId.cover, /^cover-未来软件公司的AI工作流/, "封面 cover- 前缀 + concept 主题");
+  assert.equal(byId.intro, "01-引言.png", "第一章 → 01");
+  assert.equal(byId.wall, "02-AI正在打破边界.png", "第二章 → 02 + 中文标题");
+  assert.equal(byId.locked, "custom-locked.png", "已锁定 filename 不覆写");
 });
 
 test("IU-16 证据链与度量（T3/T5）：duration/evidence_log/actions_log/双耗时/双计数/风格门度量", () => {
