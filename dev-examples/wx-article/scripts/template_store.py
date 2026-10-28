@@ -231,15 +231,18 @@ def do_resolve(args, root: Path) -> dict:
         if issues:
             continue
         candidates.append({"template_id": fm["template_id"], "name": fm.get("name", "")})
-    # 精确 ID 命中优先
-    by_id = [c for c in candidates if c["template_id"] == ref]
-    if by_id:
-        return {"ok": True, "template_id": ref, "matched_by": "id"}
-    by_name = [c for c in candidates if c["name"] == ref]
-    if len(by_name) == 1:
-        return {"ok": True, "template_id": by_name[0]["template_id"], "matched_by": "name"}
-    if len(by_name) > 1:
-        return fail("ambiguous", [f"模板名称重复: {ref}"], candidates=by_name)
+    # 确定性归一化：路由提取常带「模板」后缀（如「变局应对认知长文模板」），剥离后重试；仅一次变换，不做模糊匹配
+    normalized = re.sub(r"[\s。｡]*模板$", "", ref).strip()
+    refs = [ref] if normalized == ref else [ref, normalized]
+    for r in refs:
+        by_id = [c for c in candidates if c["template_id"] == r]
+        if by_id:
+            return {"ok": True, "template_id": r, "matched_by": "id"}
+        by_name = [c for c in candidates if c["name"] == r]
+        if len(by_name) == 1:
+            return {"ok": True, "template_id": by_name[0]["template_id"], "matched_by": "name"}
+        if len(by_name) > 1:
+            return fail("ambiguous", [f"模板名称重复: {r}"], candidates=by_name)
     return fail(
         "not_found",
         [f"未找到模板: {ref}（可用: {'、'.join(c['template_id'] + '(' + c['name'] + ')' for c in candidates) or '无'}）"],
