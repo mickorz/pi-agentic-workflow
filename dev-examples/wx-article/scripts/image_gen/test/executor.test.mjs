@@ -1159,7 +1159,7 @@ test("IU-17 审批文档渲染（export-review）：全文成稿/状态回填/�
   const dir = mkArticleDir("iu17-review-doc", sample);
   let r = runRender(dir);
   assert.equal(r.status, 0, r.stdout);
-  let md = fs.readFileSync(path.join(dir, "image-prompts-review.md"), "utf8");
+  let md = fs.readFileSync(path.join(dir, "review-image-prompts.md"), "utf8");
   assert.match(md, /统一配图风格与提示词审批文档/);
   assert.match(md, /未生成（无 manifest）/);
   assert.match(md, /测试风格：水彩/);
@@ -1171,7 +1171,7 @@ test("IU-17 审批文档渲染（export-review）：全文成稿/状态回填/�
   runGen(dir, ["--approve-text", "cover"]);
   r = runRender(dir);
   assert.equal(r.status, 0, r.stdout);
-  md = fs.readFileSync(path.join(dir, "image-prompts-review.md"), "utf8");
+  md = fs.readFileSync(path.join(dir, "review-image-prompts.md"), "utf8");
   assert.match(md, /生成状态：生成成功/);
   assert.match(md, /文字审核通过/);
   assert.match(md, /待审 0 \/ 通过 1/);

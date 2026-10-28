@@ -5,7 +5,7 @@
 // 用途：用户在"生成前"审每张图的完整提示词成稿提调整；"生成后"同一文档回填状态与审核结论。
 //
 // 用法：node export-review.mjs --article-dir <dir> [--out <path>]
-// 输出：缺省 <article_dir>/image-prompts-review.md；stdout 打印 [REVIEW] <路径> 与摘要。
+// 输出：缺省 <article_dir>/review-image-prompts.md（review- 前缀命中正文定位排除规则 ^(article|draft|review)，避免审批文档干扰 md 唯一性判定）；stdout 打印 [REVIEW] <路径> 与摘要。
 // 退出码：0 成功；2 输入缺失/非法。
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
@@ -180,7 +180,7 @@ lines.push("");
 lines.push("重编译后本文档哈希变化 = 提示词已变，需重新过目；生成/审核动作完成后重渲染本文档即可看到最新状态。");
 lines.push("");
 
-const outPath = path.resolve(arg("--out") ?? path.join(articleDir, "image-prompts-review.md"));
+const outPath = path.resolve(arg("--out") ?? path.join(articleDir, "review-image-prompts.md"));
 writeFileSync(outPath, lines.join("\n"), "utf-8");
 console.log(`[REVIEW] ${outPath}`);
 console.log(`[REVIEW] 张数=${summary.total} 成功=${summary.succeeded} 失败=${summary.failed} 待生成=${summary.pending} unknown=${summary.unknown} 文字待审=${summary.textPending}`);
