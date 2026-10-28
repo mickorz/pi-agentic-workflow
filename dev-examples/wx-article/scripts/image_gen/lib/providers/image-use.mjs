@@ -42,16 +42,20 @@ const SUBMITTED_RE = /prompt submitted once|pasting prompt|verified prompt|attac
 
 /** fail-fast（A08 对齐）：脚本缺失在取锁前报错；不做 python 探测（缺 python 在首次 generate 以 E_NO_PYTHON 暴露） */
 export function buildSettings(env = process.env) {
+  const backend = env.IMAGE_USE_BACKEND || DEFAULT_BACKEND;
+  // T6 修复：校验原在 return 之后（不可达死代码，引用未定义的 cfg），移到构造前生效
+  if (backend !== "web" && backend !== "codex") {
+    throw new Error(`IMAGE_USE_BACKEND 非法（web|codex）: ${backend}`);
+  }
   const script = env.IMAGE_USE_SCRIPT || DEFAULT_SCRIPT;
   return {
     pythonBin: env.IMAGE_USE_PYTHON || (process.platform === "win32" ? "python" : "python3"),
     script,
     scriptExists: null, // generate() 内惰性检查；buildSettings 只锁配置
-    backend: env.IMAGE_USE_BACKEND || DEFAULT_BACKEND,
+    backend,
+    // T6：backend 即真实模型身份，模型指纹与 manifest entry.model 消费此值（切 codex 后旧 web 条目判 stale）
+    effectiveModel: backend,
   };
-  if (cfg.backend !== "web" && cfg.backend !== "codex") {
-    throw new Error(`IMAGE_USE_BACKEND 非法（web|codex）: ${cfg.backend}`);
-  }
 }
 
 /** 命令拼装（纯函数，IU-2 断言对象）。deadlineMs=330000 时 timeout flag 为 325s。 */
@@ -138,7 +142,7 @@ function mimeFromExt(ext = "") {
  * context.settings：buildSettings() 产物（执行器装载时注入）；context.timeoutMs 覆盖缺省 deadline。
  */
 export async function generate({ prompt, outPath, model, signal, context = {}, reference }) {
-  void model; // web 后端无模型可选；模型指纹 image-use:web 由 providerId+defaultModel 构成
+  void model; // backend 由 settings 控制（web/codex）；模型指纹 image-use:<backend> 由 settings.effectiveModel 构成（T6）
   const cfg = context.settings ?? buildSettings();
   const started = Date.now();
   const deadlineMs = Number(context.timeoutMs ?? process.env.IMAGE_USE_TIMEOUT_MS ?? DEFAULT_DEADLINE_MS);
@@ -219,7 +223,7 @@ export async function generate({ prompt, outPath, model, signal, context = {}, r
               format: path.extname(resolvedOut).replace(".", "").toLowerCase(),
               width: null,
               height: null,
-              model: defaultModel,
+              model: cfg.backend ?? defaultModel, // T6：记录真实 backend（原写死 web，切 codex 后 manifest 失真；旧 settings 无 backend 时缺省 web）
               provider: providerId,
               durationMs: Date.now() - started,
             });

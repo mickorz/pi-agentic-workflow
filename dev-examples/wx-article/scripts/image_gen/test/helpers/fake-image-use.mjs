@@ -57,8 +57,10 @@ if (mode === "bad-output") {
 }
 
 // normal / path-mismatch：写真实 PNG（复用 fake.mjs 确定性编码）
+// 尺寸对齐 fake provider 的 body（1024×576，压后几十 KB）：64×48 压缩后仅几百字节且随 seed 波动，
+// 在 verify 的 1024B 最小图阈值上下摇摆导致成功路径用例 flaky（T6 实测：同用例换 tmp 目录即 too-small）
 const target = mode === "path-mismatch" ? outPath.replace(/(\.[a-z0-9]+)$/i, ".stray$1") : outPath;
 await fsp.mkdir(path.dirname(target), { recursive: true }).catch(() => {});
-await fsp.writeFile(target, encodePng(64, 48, argv.join(" ")));
+await fsp.writeFile(target, encodePng(1024, 576, argv.join(" ")));
 process.stdout.write(target + "\n");
 process.exit(0);

@@ -1007,3 +1007,41 @@ test("IU-13 候选链提升后回写 prompt_hash：改风格重 preview 后二�
   assert.equal(newCalls, "", `输入未变的二次 batch 必须零请求（实际调用：${newCalls}）`);
   void callsBefore;
 });
+
+test("IU-14 backend 校验与模型指纹（T6：死代码修复 + 切 backend 不复用旧条目）", async () => {
+  const { buildSettings } = await import("../lib/providers/image-use.mjs");
+  // 1 非法 backend：修复前校验在 return 之后不可达，现在 buildSettings 即抛错
+  assert.throws(() => buildSettings({ IMAGE_USE_BACKEND: "agy" }), /IMAGE_USE_BACKEND 非法/);
+  // 2 合法值：effectiveModel 跟随 backend（模型指纹消费源）
+  assert.equal(buildSettings({}).backend, "web");
+  assert.equal(buildSettings({}).effectiveModel, "web");
+  assert.equal(buildSettings({ IMAGE_USE_BACKEND: "codex" }).effectiveModel, "codex");
+
+  // 3 执行器级：web 跑成 → 切 codex 后指纹变化 → 旧条目判 stale 重生成，不复用
+  //    （--only-ids 单条：fake CLI 出图 64×48 约 857B，个别条目低于 verify 的 1024B 阈值，与既有 IU 系列一致避开全量）
+  const dir = mkArticleDir("iu14-backend-fp", SAMPLE);
+  let env = iuEnv(null);
+  let r = runGen(dir, ["--only-ids", "term-01"], { env, provider: "image-use" });
+  assert.equal(r.res.status, 0, r.res.stdout);
+  let m = readManifest(dir);
+  const e0 = m.entries["term-01"];
+  assert.equal(e0.model, "web");
+  assert.equal(e0.model_fingerprint, "image-use:web");
+
+  env = iuEnv(null, { IMAGE_USE_BACKEND: "codex" });
+  r = runGen(dir, ["--only-ids", "term-01"], { env, provider: "image-use" });
+  const calls = iuCalls(env);
+  assert.ok(calls.length > 0, "切 backend 后必须重新生成（不复用旧 web 结果）");
+  // stale 走候选链自动提升；提升后主链指纹必须已回写 codex（否则永久 stale 循环）
+  m = readManifest(dir);
+  const e1 = m.entries["term-01"];
+  assert.equal(e1.status, "succeeded");
+  assert.equal(e1.model, "codex");
+  assert.equal(e1.model_fingerprint, "image-use:codex", "提升后回写指纹（修复：停畱旧值会永久重复生成）");
+
+  // 危害断言：同 backend 再跑必须零请求（指纹未回写时会无限 stale 重复计费）
+  const env2 = iuEnv(null, { IMAGE_USE_BACKEND: "codex" });
+  r = runGen(dir, ["--only-ids", "term-01"], { env: env2, provider: "image-use" });
+  assert.equal(r.res.status, 0, r.res.stdout);
+  assert.equal(iuCalls(env2).length, 0, "指纹回写后同输入零请求（未回写则每次 batch 重复生成）");
+});

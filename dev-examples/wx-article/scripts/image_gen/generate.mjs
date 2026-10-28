@@ -277,7 +277,10 @@ async function main() {
     return;
   }
 
-  const modelFingerprint = `${provider.name}:${args.model ?? provider.defaultModel ?? "default"}`;
+  const providerContext = ["pi-image-gen", "image-use"].includes(provider.name) ? { settings: provider.buildSettings() } : {};
+
+  // T6：模型指纹优先取 settings.effectiveModel（image-use 切 IMAGE_USE_BACKEND=codex 后指纹变化 → 旧 web 条目 reconcile 判 stale，不再错误复用）
+  const modelFingerprint = `${provider.name}:${args.model ?? providerContext.settings?.effectiveModel ?? provider.defaultModel ?? "default"}`;
 
   // 参考图哈希（风格参考变更 = 输入变更 → stale）
   let referenceHash = null;
@@ -290,8 +293,6 @@ async function main() {
       return;
     }
   }
-
-  const providerContext = ["pi-image-gen", "image-use"].includes(provider.name) ? { settings: provider.buildSettings() } : {};
 
   // ── 只读计划阶段（取锁前）：reconcile 全部条目 → 动作表 ──
   const { doc: manifest0 } = await loadManifest(articleDir, manifestPath);
@@ -659,8 +660,13 @@ async function runOne(step, ctx) {
           // 下次 batch 时 inputChanged 恒真 → 已成功条目被永久重复生成（重复计费/耗配额）。
           if (currentHash) {
             entry.prompt_hash = currentHash;
-            await saveManifest(manifestPath, manifest);
           }
+          // T6/T3：模型指纹与生成者信息同理回写——否则模型变更后重生成提升的条目停在旧值，
+          // 指纹旧值导致下次 batch 恒判 stale → 永久重复生成；model/provider 旧值导致 manifest 失真
+          if (modelFingerprint) entry.model_fingerprint = modelFingerprint;
+          entry.model = r.model;
+          entry.provider = r.provider;
+          if (currentHash || modelFingerprint) await saveManifest(manifestPath, manifest);
           summary.generated_paths.push(path.join(articleDir, entry.path));
         } else {
           entry.status = STATUS.SUCCEEDED;
@@ -669,6 +675,7 @@ async function runOne(step, ctx) {
           entry.model = r.model;
           entry.provider = r.provider;
           entry.error_code = null;
+          if (modelFingerprint) entry.model_fingerprint = modelFingerprint; // T6：主链成功同样回写指纹
           entry.updated_at = new Date().toISOString();
           await saveManifest(manifestPath, manifest);
           summary.generated_paths.push(r.path);
