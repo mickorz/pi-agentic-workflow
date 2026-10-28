@@ -129,6 +129,12 @@ function mkError(cls, detail) {
   return err;
 }
 
+/** T3 证据链：错误对象附完整诊断尾部（含会话 URL），供执行器写入受限本地证据日志（不进 manifest） */
+function attachEvidence(err, stderrTail) {
+  if (stderrTail) err.evidence = String(stderrTail).slice(-2000);
+  return err;
+}
+
 function mimeFromExt(ext = "") {
   const e = ext.toLowerCase();
   if (e === ".png") return "image/png";
@@ -195,7 +201,7 @@ export async function generate({ prompt, outPath, model, signal, context = {}, r
     child.on("error", (e) => {
       if (settled) return;
       settled = true;
-      reject(mkError(classifyFailure({ spawnError: e, stderr }), null));
+      reject(attachEvidence(mkError(classifyFailure({ spawnError: e, stderr }), null), stderr.slice(-2000)));
     });
     child.on("close", (code) => {
       if (settled) return;
@@ -205,12 +211,12 @@ export async function generate({ prompt, outPath, model, signal, context = {}, r
         const out = stdout.trim().split("\n").filter(Boolean).pop() ?? "";
         if (!out) {
           console.error(`[image-use] 完整 stderr 尾部：\n${stderr.slice(-2000)}`);
-          return reject(mkError(classifyFailure({ exitCode: 0, stdout: "", stderr }), "stdout 无路径"));
+          return reject(attachEvidence(mkError(classifyFailure({ exitCode: 0, stdout: "", stderr }), "stdout 无路径"), stderr.slice(-2000)));
         }
         const resolvedOut = path.resolve(out);
         if (resolvedOut !== path.resolve(outPath)) {
           console.error(`[image-use] 输出路径不符：stdout=${out} 期望=${outPath}\n${stderr.slice(-2000)}`);
-          return reject(mkError({ code: "E_BAD_OUTPUT", recoverable: false, uncertain: false, summary: "输出路径与 outPath 不一致（越界拒绝）" }, out));
+          return reject(attachEvidence(mkError({ code: "E_BAD_OUTPUT", recoverable: false, uncertain: false, summary: "输出路径与 outPath 不一致（越界拒绝）" }, out), stderr.slice(-2000)));
         }
         fsp
           .stat(resolvedOut)
@@ -230,13 +236,13 @@ export async function generate({ prompt, outPath, model, signal, context = {}, r
           })
           .catch(() => {
             console.error(`[image-use] 落盘文件无效：${resolvedOut}\n${stderr.slice(-2000)}`);
-            reject(mkError({ code: "E_BAD_OUTPUT", recoverable: false, uncertain: false, summary: "落盘文件缺失或空文件" }, resolvedOut));
+            reject(attachEvidence(mkError({ code: "E_BAD_OUTPUT", recoverable: false, uncertain: false, summary: "落盘文件缺失或空文件" }, resolvedOut), stderr.slice(-2000)));
           });
         return;
       }
       // 失败路径：完整 stderr 只进本地日志（含会话 URL），error.message 不含 URL
       console.error(`[image-use] exit=${code} 完整 stderr 尾部：\n${stderr.slice(-2000)}`);
-      reject(mkError(classifyFailure({ exitCode: code, stdout, stderr, externalAbort, selfTimeout }), null));
+      reject(attachEvidence(mkError(classifyFailure({ exitCode: code, stdout, stderr, externalAbort, selfTimeout }), null), stderr.slice(-2000)));
     });
   }).finally(() => {
     signal?.removeEventListener("abort", onExternal);

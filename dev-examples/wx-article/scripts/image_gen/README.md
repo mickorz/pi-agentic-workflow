@@ -97,6 +97,22 @@ batch 门（require_style_approval 默认开）: 非 approved 或指纹不匹配
 背景：T0 取证（3/3 样例）证明"零文字图"约束在 web 后端系统性失效，文字策略翻转为
 "接受有字但须正确"——expected_text 声明必须出现的文字，人工对照审核。
 
+## 证据链与度量（IMG-L T3/T5）
+
+manifest 条目证据字段（全 optional，五类事件一致：主链成功/候选生成/候选提升/失败/unknown 恢复）：
+
+| 字段 | 写入时机 | 说明 |
+|---|---|---|
+| `duration_ms` | 成功（provider 口径）/ 失败（尝试累计） | 单图耗时证据 |
+| `error_code` | 失败/unknown | 统一错误属性（即失败分类，provider code 透传） |
+| `evidence_log` | 失败 | 受限日志引用 `.image-gen-logs/<runId>-<id>-a<n>.log`，含完整 message 与 provider 诊断尾部（image-use 的 stderr 尾部含会话 URL，供 unknown 人工 recover；**不进 manifest 正文**） |
+| `provider`/`model` | 成功/提升/导入 | `--resolve-unknown` 导入记 `manual`/`manual-import` |
+
+度量（summary）：`exec_duration_ms`（锁前→summary，评估链路优化收益，不含审批等待）与
+`wall_duration_ms`（进程→退出）分列；`human_action_required`（unknown/budget 停转/文字待审/已拒/预览待确认
+计数和）与 `human_actions_completed_total`（manifest.actions_log 台账长度；approve-style/approve-text/
+reject-text/resolve-unknown/promote 均登记）分列。风格审批门提前退出时也输出带度量的 RESULT（计数缺口修复）。
+
 ## Provider 配置
 
 | 轨道 | 环境变量 | 说明 |

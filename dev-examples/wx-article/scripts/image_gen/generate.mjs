@@ -204,6 +204,7 @@ process.on("SIGINT", () => {
 
 // ── 主流程 ──
 async function main() {
+  const wallStartMs = Date.now(); // T5：端到端口径（进程入口→summary 输出）
   let args;
   try {
     args = parseArgs(process.argv.slice(2));
@@ -413,6 +414,8 @@ async function main() {
         sa.status === "approved"
           ? "提示词/模型/风格参考已变更，原风格审批自动失效（回 pending），需重新 preview + 确认"
           : `当前风格审批状态为 ${sa.status}，需先 --mode preview 试生成并通过 --approve-style 确认风格`;
+      // T5：风格门在 summary 前退出也要输出可统计的度量（评审指出的计数缺口）
+      console.log(`[RESULT] ${JSON.stringify({ ok: false, mode: args.mode, article_dir: articleDir, blocked_by: "style_gate", reason, total: toRun.length, human_action_required: 1, wall_duration_ms: Date.now() - wallStartMs })}`);
       fail(`--mode batch 风格审批门：${reason}`);
       return;
     }
@@ -488,8 +491,10 @@ async function main() {
   };
 
   let lockRef = null;
+  const runId = `imggen-${Date.now().toString(36)}`; // T3：证据日志文件名组成（run_id-image_id-attempt）
+  const execStartMs = Date.now(); // T5：执行口径（锁前→summary 输出；评估浏览器/链路优化收益用本口径，不含审批等待）
   try {
-    lockRef = await withArticleLock(path.join(articleDir, LOCK_NAME), { runId: `imggen-${Date.now().toString(36)}`, scope: "image-generate" }, async () => {
+    lockRef = await withArticleLock(path.join(articleDir, LOCK_NAME), { runId, scope: "image-generate" }, async () => {
       const interDelayMs = Number(process.env.IMAGE_GEN_INTER_DELAY_MS ?? 1000);
       for (let i = 0; i < runQueue.length; i++) {
         if (interrupted) break;
@@ -506,6 +511,7 @@ async function main() {
           summary,
           price,
           budgetCny: args.budgetCny,
+          runId,
         });
         if (outcome === "paused-unknown") {
           summary.paused_unknown = true;
@@ -590,6 +596,20 @@ async function main() {
     summary.text_rejected_ids = textRejectedIds;
     console.error(`[TEXT-CHECK] 待人工核对文字：${textPendingIds.join(", ") || "（无）"}${textRejectedIds.length ? `；已拒绝待重制：${textRejectedIds.join(", ")}` : ""}`);
   }
+  // T5：双耗时（exec 口径评估链路优化收益，不含审批等待；wall 端到端）+ 人工介入双计数
+  // required=本次跑批需要人工处理的事件数（unknown 停转/budget 停转/文字待审/已拒/预览待确认）；
+  // completed=历史人工动作总数（actions_log 台账，approve/reject/resolve/promote 均登记）
+  summary.exec_duration_ms = Date.now() - execStartMs;
+  summary.wall_duration_ms = Date.now() - wallStartMs;
+  const previewAwait = args.mode === "preview" && styleApprovalOf(manifest0).status === "preview_completed" ? 1 : 0;
+  summary.human_action_required =
+    (summary.unknown_ids?.length ?? 0) + (summary.budget_stopped ? 1 : 0)
+    + (summary.text_pending_review ?? 0) + (summary.text_rejected_ids?.length ?? 0) + previewAwait;
+  summary.human_actions_completed_total = Array.isArray(manifest0.actions_log) ? manifest0.actions_log.length : 0;
+  // T5：抽检提醒（T0 报告口径：抽 3 张对照编译 prompt 人工比对，执行器不自动评分）
+  if (summary.succeeded > 0) {
+    console.error(`[SAMPLE-CHECK] 建议抽检 ≤3 张（对照 image-prompts.json 编译 prompt：风格/构图/文字三维度），口径见 dev-docs/troubleshooting/2026-10-28-T0生图质量全链路取证报告.md`);
+  }
   summary.paused_unknown = summary.paused_unknown || summary.unknown_ids.length > 0;
   summary.requests_issued = manifest0.requests_issued - requestsIssuedStart;
   summary.requests_issued_total = manifest0.requests_issued;
@@ -608,8 +628,28 @@ function round2(x) {
  * 每次 Manifest 状态转换即时落盘（running 即写，压双计费窗口到单图粒度）。
  */
 async function runOne(step, ctx) {
-  const { articleDir, manifestPath, manifest, provider, providerContext, args, modelFingerprint, summary, maxAttempts, price, budgetCny } = ctx;
+  const { articleDir, manifestPath, manifest, provider, providerContext, args, modelFingerprint, summary, maxAttempts, price, budgetCny, runId } = ctx;
   const { item, entry } = step;
+  const evidenceDir = ".image-gen-logs"; // T3：受限本地证据目录（点前缀，发布管线不扫；含会话 URL 故绝不进 manifest 正文）
+  /** 失败证据：写受限日志文件并返回相对路径引用（manifest 只存引用） */
+  async function writeEvidence(e, attemptNo) {
+    try {
+      const dir = path.join(articleDir, evidenceDir);
+      await fsp.mkdir(dir, { recursive: true });
+      const file = `${runId}-${item.id}-a${attemptNo}.log`;
+      const payload = {
+        run_id: runId, image_id: item.id, attempt: attemptNo, at: new Date().toISOString(),
+        code: e.code ?? null, recoverable: e.recoverable === true, uncertain: e.uncertain === true,
+        message: String(e.message ?? ""),
+        evidence: e.evidence ?? null, // provider 附带的诊断尾部（image-use：stderr 尾部含会话 URL）
+        stack_tail: String(e.stack ?? "").split("\n").slice(-6).join("\n"),
+      };
+      await fsp.writeFile(path.join(dir, file), JSON.stringify(payload, null, 2), "utf8");
+      return `${evidenceDir}/${file}`;
+    } catch {
+      return null; // 证据写入失败不阻断失败收敛本身
+    }
+  }
   const currentHash = step.__hash; // 当前输入哈希（候选链提升后回写，防 stale 循环重复生成）
   const isCandidate = step.action === "run-candidate";
   const fullPrompt = step.__fullPrompt;
@@ -698,9 +738,11 @@ async function runOne(step, ctx) {
         }
       }
 
+      const attemptStartMs = Date.now(); // T3：单次尝试耗时（失败累计入 entry.duration_ms）
       try {
         const r = await attempt(n);
         lastErr = null; // 成功即清：防 finally 终态块把已成功条目改写为 FAILED（T1.10 实测踩坑）
+        entry.duration_ms = r.durationMs ?? (Date.now() - attemptStartMs); // T3：耗时证据（provider 口径优先）
         if (isCandidate) {
           candRecord.status = CAND_STATUS.READY;
           entry.updated_at = new Date().toISOString();
@@ -746,6 +788,9 @@ async function runOne(step, ctx) {
         return "done";
       } catch (e) {
         lastErr = e;
+        // T3：失败证据——耗时累计 + 受限日志文件（含 provider 附带诊断尾部/会话 URL），manifest 只存引用
+        entry.duration_ms = (entry.duration_ms ?? 0) + (Date.now() - attemptStartMs);
+        entry.evidence_log = await writeEvidence(e, n);
         const recoverable = e.recoverable === true;
         // P1.5-D：超时/连接中断 → 请求可能已送达并计费，扣费不确定 → 不重试、整跑暂停转人工
         const uncertain = e.uncertain === true || UNCERTAIN_CODES.has(e.code);
@@ -900,6 +945,10 @@ async function runResolveUnknown(args, { articleDir, manifestPath }, deps = {}) 
       entry.mime_type = `image/${v.format === "jpeg" ? "jpeg" : v.format}`;
       entry.error_code = null;
       entry.resolved_from = rel(articleDir, srcPath);
+      // T3：人工导入标记（非任何 provider 产物，五类事件证据一致性）+ 动作台账
+      entry.provider = "manual";
+      entry.model = "manual-import";
+      appendAction(manifest, "resolve-unknown", entry.id);
       entry.updated_at = new Date().toISOString();
       try {
         await saveManifestDep(manifestPath, manifest);
@@ -931,6 +980,8 @@ async function runPromote(args, { articleDir, manifestPath, manifest0 }) {
   try {
     await withArticleLock(path.join(articleDir, LOCK_NAME), { runId: `promote-${Date.now().toString(36)}`, scope: "image-generate" }, async () => {
       await promoteEntry({ articleDir, manifestPath, manifest: manifest0, entry, candRecord: cand });
+      appendAction(manifest0, "promote", args.promote); // T5：动作台账
+      await saveManifest(manifestPath, manifest0);
     });
   } catch (e) {
     if (e instanceof LockHeldError) {
@@ -984,6 +1035,7 @@ async function runApproveStyle(args, { articleDir, manifestPath, prompts }) {
   try {
     await withArticleLock(path.join(articleDir, LOCK_NAME), { runId: `style-${Date.now().toString(36)}`, scope: "image-generate" }, async () => {
       manifest.style_approval = updated;
+      appendAction(manifest, "approve-style", updated.preview_image_id); // T5：动作台账
       await saveManifest(manifestPath, manifest);
     });
   } catch (e) {
@@ -999,6 +1051,13 @@ async function runApproveStyle(args, { articleDir, manifestPath, prompts }) {
 
 // fullPrompt 注入：style_prefix + "\n---\n" + prompt 与哈希一致
 // （在 main 中 plan 构建时填充，runOne 读 step.__fullPrompt）
+
+/** T5：人工动作台账（manifest.actions_log，append-only）——human_actions_completed 口径的事实源 */
+function appendAction(manifest, action, id) {
+  if (!Array.isArray(manifest.actions_log)) manifest.actions_log = [];
+  manifest.actions_log.push({ action, id, at: new Date().toISOString() });
+  // ponytail: 无上限 append，单篇动作数量级 <10；若长期复用文章目录膨胀再裁剪
+}
 
 /** --approve-text / --reject-text：文字审核独立动作（T4，锁内 RMW，零 provider 请求）。
  *  审核对象绑定当前文件 sha + 当前要求哈希（审核者看的就是当前图）；
@@ -1026,6 +1085,7 @@ async function runReviewText({ id, approve }, { articleDir, manifestPath, prompt
   try {
     await withArticleLock(path.join(articleDir, LOCK_NAME), { runId: `review-${Date.now().toString(36)}`, scope: "image-generate" }, async () => {
       entry.content_review = next;
+      appendAction(manifest, approve ? "approve-text" : "reject-text", id); // T5：动作台账
       await saveManifest(manifestPath, manifest);
     });
   } catch (e) {

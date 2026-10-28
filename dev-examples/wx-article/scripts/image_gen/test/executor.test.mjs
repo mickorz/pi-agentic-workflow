@@ -1143,3 +1143,54 @@ test("IU-15 文字验收闭环（T4）：透传 + pending 审核 + approve/rejec
   assert.equal(vp.status, 2);
   assert.match(vp.stdout, /expected_text/);
 });
+
+test("IU-16 证据链与度量（T3/T5）：duration/evidence_log/actions_log/双耗时/双计数/风格门度量", () => {
+  const dir = mkArticleDir("iu16-evidence", SAMPLE);
+  // 1 注入一次不可恢复失败 → 条目 failed 带 duration_ms + evidence_log，日志文件含 code 与完整 message
+  fs.writeFileSync(faultFile(dir), JSON.stringify({ "term-01": { failTimes: 1, code: "E_QUOTA", recoverable: false } }));
+  let r = runGen(dir, ["--only-ids", "term-01"]);
+  assert.equal(r.res.status, 1, r.res.stdout);
+  let m = readManifest(dir);
+  const fe = m.entries["term-01"];
+  assert.equal(fe.status, "failed");
+  assert.equal(fe.error_code, "E_QUOTA");
+  assert.ok(fe.duration_ms > 0, "失败条目累计耗时");
+  assert.ok(fe.evidence_log && fe.evidence_log.startsWith(".image-gen-logs/"), `manifest 只存引用：${fe.evidence_log}`);
+  const ev = JSON.parse(fs.readFileSync(path.join(dir, fe.evidence_log), "utf8"));
+  assert.equal(ev.image_id, "term-01");
+  assert.equal(ev.code, "E_QUOTA");
+  assert.ok(ev.message.includes("injected failure"), "证据含完整 message（不截断）");
+
+  // 2 重跑成功（fault 只注一次）→ duration_ms 为成功口径，evidence_log 保留（历史证据不抹）
+  r = runGen(dir, ["--only-ids", "term-01", "--retry-failed"]);
+  assert.equal(r.res.status, 0, r.res.stdout);
+  m = readManifest(dir);
+  assert.equal(m.entries["term-01"].status, "succeeded");
+  assert.ok(m.entries["term-01"].duration_ms > 0);
+
+  // 3 summary 双耗时 + 双计数 + 抽检提醒
+  const s = JSON.parse(lastLine(r.res.stdout, "[RESULT] "));
+  assert.ok(s.exec_duration_ms > 0 && s.wall_duration_ms >= s.exec_duration_ms, "exec/wall 双耗时");
+  assert.ok(Number.isInteger(s.human_action_required), "required 计数存在");
+  assert.equal(s.human_actions_completed_total, (m.actions_log ?? []).length, "completed=台账长度（无动作时两者皆 0）");
+  assert.match(r.res.stderr ?? "", /SAMPLE-CHECK/, "抽检提醒输出");
+
+  // 4 动作台账：approve-style 后 actions_log 登记（ gated 流程：preview→approve→batch）
+  const dir2 = mkArticleDir("iu16-actions", SAMPLE);
+  fs.writeFileSync(faultFile(dir2), "{}");
+  runGen(dir2, ["--mode", "preview"], { env: FAST, gated: true });
+  runGen(dir2, ["--approve-style"], { env: FAST, gated: true });
+  m = readManifest(dir2);
+  assert.equal(m.actions_log.length, 1);
+  assert.equal(m.actions_log[0].action, "approve-style");
+
+  // 5 风格门提前退出：输出带度量与 human_action_required=1 的 RESULT（T5 计数缺口）
+  const dir3 = mkArticleDir("iu16-gate", SAMPLE);
+  fs.writeFileSync(faultFile(dir3), "{}");
+  r = runGen(dir3, [], { env: FAST, gated: true });
+  assert.equal(r.res.status, 2, r.res.stdout);
+  const gs = JSON.parse(lastLine(r.res.stdout, "[RESULT] "));
+  assert.equal(gs.blocked_by, "style_gate");
+  assert.equal(gs.human_action_required, 1);
+  assert.ok(gs.wall_duration_ms >= 0);
+});
