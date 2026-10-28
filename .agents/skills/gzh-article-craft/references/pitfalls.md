@@ -60,7 +60,19 @@
 - `NN-中文标题.png` 的 NN=第 N 个 `##` 章节；封面 `cover-中文主题.png` 落根（旧约定落根，手动插图流程放 imgs/ 亦可被识别）
 - check_state 序号预检：**跳号=无图章节，降为提示不阻断；越界（>章节数）=阻断**；序号重复/混入无序号 → 检查不适用（走语义，不报缺号）
 
-## 10. 其他小坑
+## 10. 审批文档命名干扰正文定位（已修源头）
+
+- 现象：文章目录出现 `image-prompts-review.md` 后，normalize/check_state 报"正文 md 候选不唯一或缺席"
+- 根因：正文定位排除规则只认 `^(article|draft|review)` 开头和 NAME_ILLEGAL（审稿/图片引用清单/大纲/配图建议）旧名命中不了
+- 修复（已入 export-review.mjs，2026-10-28）：缺省输出改名 `review-image-prompts.md`；存量老文章目录里的旧名文件手动 mv 改名即可
+
+## 11. 封面图占首行后 digest 抓成章题
+
+- 现象：normalize 自动补的 digest 是"一、国内市场先跑出来的 Personal Agent，出现了"这类章题，不是导语
+- 根因：first_digest 取首个非空文本块；封面图在第 1 行被剥掉后首个块成了第一个 ## 标题
+- 规避：normalize 后必检查 article.yaml 的 digest，不合格就手工改成一句话导语（含关键词，≤120 字）
+
+## 12. 其他小坑
 
 - `validate-plan.mjs --article-dir` 报 EISDIR（用法不匹配）——计划校验用 workflow 的 dry-run 步骤即可，别依赖该入口
 - pm2 wechat-bot 服务数据目录=仓库 `.pi-wechat/`（chat-logs/tasks.jsonl/run-attempts.jsonl 都在这）

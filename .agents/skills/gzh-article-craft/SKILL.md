@@ -71,7 +71,7 @@ schema（`version / article_id / style_prefix / items[]`），每 item：`id, ki
 node dev-examples/wx-article/scripts/image_gen/export-review.mjs --article-dir <文章目录>
 ```
 
-渲染 `image-prompts-review.md`：风格头全文 + 逐张完整成稿（style_prefix+分隔符+prompt）+ expected_text + 状态 + 调整指引。给用户过目；要改就改 `image-prompts.json` 源头再重渲染（本文档只读）。
+渲染 `review-image-prompts.md`（2026-10-28 修复命名：review- 前缀命中正文定位排除规则，旧名 image-prompts-review.md 会把 md 候选搞成不唯一）：风格头全文 + 逐张完整成稿（style_prefix+分隔符+prompt）+ expected_text + 状态 + 调整指引。给用户过目；要改就改 `image-prompts.json` 源头再重渲染（本文档只读）。
 
 ## F. 两阶段生图
 
@@ -88,13 +88,23 @@ pi-workflow run dev-examples/wx-article/scripts/article_image_generate.js --non-
 - E_ENV（chrome-use 驱动不了 Chrome）处置见 pitfalls #5：**不要杀 Chrome**——让用户正常开 Chrome（relay 扩展随浏览器上线），冷启动/杀进程后的 profile 拉不起 chatgpt.com
 - 生成成功后：封面走文字核对（expected_text → content_review pending → `--approve-text`），正文图同理
 
+## F2. 生成图入文（手动生成/批量生成后）
+
+图片到位后按锚点插入正文（edit 精确替换，不重排全文）：
+
+- **封面**：正文第 1 行插 `![文章封面](imgs/cover-主题.png)`（手动插图流程约定，正文定位/封面识别都认）
+- **正文图**：按 prompts 的 heading 找该章金句/总结句之后插入 `![一句话描述](imgs/NN-主题.png)`；alt 写画面含义不写文件名
+- 插入前注意：用户可能已在 Obsidian 改过章题/正文——**edit 的 oldText 必须先 grep 当前文件核实**，不要拿记忆里的旧句当锚点
+
 ## G. 准备文章入草稿箱
 
 按 article-prepare 手动插图链路（参考 `dev-docs/experience/wechat-cover-235-ratio-and-filename-traps.md`）：
 
-1. `normalize_manual_images.py --article-dir <dir>`（wiki 内嵌→标准引用 + 补 article.yaml）
-2. `check_state.py --article-dir <dir>`（prepare_ready=true 才继续；看 cover/exact_235/序号提示）
-3. `publish.py --article-dir <dir> --cover imgs/cover-*.png --account-slot 1 --md-file <md> --title <t> --digest <d> --author AI奇点`（封面非精确 2.35:1 会自动缩放并备份 `_cover-original/`）
+1. `normalize_manual_images.py --article-dir <dir>`（wiki 内嵌→标准引用 + 补 article.yaml；已标准引用则 [SKIP] 但仍补 yaml）
+2. **检查 article.yaml 的 digest**：封面图占第 1 行后，自动 digest 会抓成第一个章题（如"一、xxx"）——手工改成一句话导语再继续
+3. `check_state.py --article-dir <dir>`（prepare_ready=true 才继续；看 cover/exact_235/序号提示）
+4. `publish.py --article-dir <dir> --cover imgs/cover-*.png --account-slot 1 --md-file <md> --title <t> --digest <d> --author AI奇点`（封面非精确 2.35:1 会自动缩放并备份 `_cover-original/`；[COVER] 行看动作）
+5. 成功标志：`[5] DRAFT OK media_id=...` + `=== ALL DONE draft_media_id=... ===`
 
 ## 交付前自检清单
 
@@ -102,3 +112,4 @@ pi-workflow run dev-examples/wx-article/scripts/article_image_generate.js --non-
 - [ ] 每张生成图都有关键词文字设计 + expected_text
 - [ ] 封面 prompt 是 2.35:1 且主标题关键词入画
 - [ ] 踩坑清单（references/pitfalls.md）逐条过一遍再发布
+- [ ] 发布前核对 article.yaml digest 是一句话导语而非章题；发布后确认 [5] DRAFT OK + publish-state.json status=drafted
