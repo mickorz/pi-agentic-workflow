@@ -1144,6 +1144,53 @@ test("IU-15 文字验收闭环（T4）：透传 + pending 审核 + approve/rejec
   assert.match(vp.stdout, /expected_text/);
 });
 
+test("IU-17 审批文档渲染（export-review）：全文成稿/状态回填/零副作用", () => {
+  const RENDER = path.join(HERE, "..", "export-review.mjs");
+  const runRender = (dir) => spawnSync(process.execPath, [RENDER, "--article-dir", dir], { encoding: "utf8" });
+
+  // 1 无 manifest：渲染成功，状态显示未生成；含 prompt 全文与 expected_text
+  const sample = {
+    version: 1, article_id: "review-doc-01", style_prefix: "测试风格：水彩",
+    items: [
+      { id: "cover", kind: "cover", heading: "", prompt: "封面画面", filename: "cover.png", expected_text: ["标题甲"] },
+      { id: "term-01", kind: "body", heading: "章一", prompt: "正文画面", filename: "01-term.png" },
+    ],
+  };
+  const dir = mkArticleDir("iu17-review-doc", sample);
+  let r = runRender(dir);
+  assert.equal(r.status, 0, r.stdout);
+  let md = fs.readFileSync(path.join(dir, "image-prompts-review.md"), "utf8");
+  assert.match(md, /统一配图风格与提示词审批文档/);
+  assert.match(md, /未生成（无 manifest）/);
+  assert.match(md, /测试风格：水彩/);
+  assert.match(md, /标题甲/, "expected_text 渲染");
+  assert.match(md, /---\\n正文画面|测试风格：水彩\n---\n正文画面/, "完整成稿含分隔符拼装");
+
+  // 2 生成 + 审核后重渲染：状态回填（succeeded/approved）
+  runGen(dir, []);
+  runGen(dir, ["--approve-text", "cover"]);
+  r = runRender(dir);
+  assert.equal(r.status, 0, r.stdout);
+  md = fs.readFileSync(path.join(dir, "image-prompts-review.md"), "utf8");
+  assert.match(md, /生成状态：生成成功/);
+  assert.match(md, /文字审核通过/);
+  assert.match(md, /待审 0 \/ 通过 1/);
+
+  // 3 零副作用：渲染前后 manifest 与 prompts 字节不变
+  const mBefore = fs.readFileSync(path.join(dir, "image-manifest.json"), "utf8");
+  const pBefore = fs.readFileSync(path.join(dir, "image-prompts.json"), "utf8");
+  runRender(dir);
+  assert.equal(fs.readFileSync(path.join(dir, "image-manifest.json"), "utf8"), mBefore);
+  assert.equal(fs.readFileSync(path.join(dir, "image-prompts.json"), "utf8"), pBefore);
+
+  // 4 缺 prompts json：exit 2
+  const dir2 = mkArticleDir("iu17-noprompts", sample);
+  fs.unlinkSync(path.join(dir2, "image-prompts.json"));
+  r = runRender(dir2);
+  assert.equal(r.status, 2);
+  assert.match(r.stdout, /缺少 image-prompts/);
+});
+
 test("IU-16 证据链与度量（T3/T5）：duration/evidence_log/actions_log/双耗时/双计数/风格门度量", () => {
   const dir = mkArticleDir("iu16-evidence", SAMPLE);
   // 1 注入一次不可恢复失败 → 条目 failed 带 duration_ms + evidence_log，日志文件含 code 与完整 message

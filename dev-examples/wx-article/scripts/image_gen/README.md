@@ -35,6 +35,7 @@ test/helpers/test-provider.mjs  注错+计数测试 provider
 ## 用法
 
 ```bash
+node image_gen/export-review.mjs --article-dir <dir>                              # 审批文档（每张图完整提示词成稿+状态回填）
 node image_gen/generate.mjs --article-dir <dir> --mode preview --provider fake    # 试生成 1 张
 node image_gen/generate.mjs --article-dir <dir> --approve-style                   # 风格确认锁定
 node image_gen/generate.mjs --article-dir <dir> --mode batch --provider fake      # 批量（需审批通过）
