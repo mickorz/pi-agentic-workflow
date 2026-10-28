@@ -26,10 +26,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
 from pathlib import Path
+
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -76,6 +78,47 @@ def cover_state(article_dir: Path) -> dict:
             if p.is_file() and p.name.lower().startswith("cover"):
                 return {"state": "imgs", "path": f"imgs/{p.name}"}
     return {"state": "none", "path": ""}
+
+
+def text_review_state(article_dir: Path) -> dict:
+    """生图文字验收门（IMG-L T4）：image-manifest.json 中声明 expected_text 且 succeeded 的条目。
+
+    分级（T0 取证实锤下游重命名致 manifest 路径断裂是现网常态，门必须容忍）：
+      rejected / pending（含无审核记录）           → 阻断（issue 前缀 文字审核，计入 prepare_ready 阻断）
+      approved 且 path 存在但 sha 不符             → 阻断（图被换过，审核绑定失效）
+      approved 但 path 缺失（重命名断裂）          → 提示不阻断（证据链断裂属 T3 范畴）
+    manifest 不存在 / 无 expected_text 条目 → 零影响（现网旧文章完全不受此门约束）。"""
+    out: dict = {"present": False, "checked": 0, "blocking": [], "notes": []}
+    manifest_path = article_dir / "image-manifest.json"
+    if not manifest_path.is_file():
+        return out
+    try:
+        doc = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        out["notes"].append("image-manifest.json 损坏，文字审核门跳过（需人工处理）")
+        return out
+    entries = doc.get("entries") or {}
+    for e in entries.values():
+        review = e.get("content_review")
+        if not e.get("path") or e.get("status") != "succeeded" or not review:
+            continue
+        out["present"] = True
+        out["checked"] += 1
+        rid = e.get("id", "?")
+        status = review.get("status", "pending")
+        if status == "approved":
+            f = article_dir / str(e["path"])
+            if f.is_file():
+                h = hashlib.sha256(f.read_bytes()).hexdigest()
+                if h != review.get("image_sha256"):
+                    out["blocking"].append(f"文字审核绑定失效: {rid}（图已变化，需重新 --approve-text）")
+            else:
+                out["notes"].append(f"文字审核路径断裂: {rid}（{e['path']} 不存在，疑似下游重命名；T3 范畴不阻断）")
+        elif status == "rejected":
+            out["blocking"].append(f"文字审核已拒绝: {rid}（重制请走 regenerate + 人工确认）")
+        else:
+            out["blocking"].append(f"文字审核待人工确认: {rid}（--approve-text / --reject-text）")
+    return out
 
 
 def png_size_of(path: Path) -> tuple[int, int] | None:
@@ -187,8 +230,9 @@ def inspect_dir(article_dir: Path, account_slot: int, config_dir: str | None) ->
     cov = cover_state(article_dir)
     # 封面优先级提示（2026-10-27 坑：根 cover.* 会顶掉 imgs/ 手动封面）
     if cov["state"] == "root":
-        imgs_cov = [p.name for p in sorted((article_dir / "imgs").iterdir())
-                    if (article_dir / "imgs").is_dir() and p.is_file() and p.name.lower().startswith("cover")]
+        imgs_dir = article_dir / "imgs"
+        imgs_cov = [p.name for p in sorted(imgs_dir.iterdir())
+                    if imgs_dir.is_dir() and p.is_file() and p.name.lower().startswith("cover")] if imgs_dir.is_dir() else []
         if imgs_cov:
             out["issues"].append(
                 f"封面优先级提示: 根目录 cover.* 优先，imgs/ 下另有 {len(imgs_cov)} 张 cover 前缀图将被忽略"
@@ -236,10 +280,16 @@ def inspect_dir(article_dir: Path, account_slot: int, config_dir: str | None) ->
     for t in wiki_missing:
         out["issues"].append(f"引用图缺失: ![[{t}]]")
 
+    # 文字验收门（T4）：阻断级 issue 计入 prepare_ready；notes 仅提示
+    tr = text_review_state(article_dir)
+    out["text_review"] = tr
+    out["issues"].extend(tr["blocking"])
+    out["issues"].extend(tr["notes"])
+
     # prepare 就绪判定
     out["prepare_ready"] = bool(
         cov["state"] != "none" and not missing and md_path is not None
-        and not any(i.startswith(("引用图缺失", "publish-state")) for i in out["issues"])
+        and not any(i.startswith(("引用图缺失", "publish-state", "文字审核待", "文字审核已", "文字审核绑定")) for i in out["issues"])
     )
     if cov["state"] == "none":
         out["issues"].append("封面缺失：目录根无 cover.*，imgs/ 下也无 cover 前缀图")

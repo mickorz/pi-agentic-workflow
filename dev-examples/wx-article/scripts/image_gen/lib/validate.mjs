@@ -92,6 +92,13 @@ export function validatePrompts(doc) {
     if (item.heading !== undefined && typeof item.heading !== "string") {
       fail(`${at}(${item.id ?? "?"}).heading 必须是字符串`);
     }
+    // T4（IMG-L 阶段二）：可选验收字段——声明该图必须出现的指定文字（非空字符串数组）。
+    // 纯验收元数据，不进 prompt（进 prompt 会改变 prompt_hash，破坏“纯改要求不触发重新付费生图”的失效规则）。
+    if (item.expected_text !== undefined) {
+      if (!Array.isArray(item.expected_text) || item.expected_text.length === 0 || item.expected_text.some((t) => typeof t !== "string" || !t.trim())) {
+        fail(`${at}(${item.id ?? "?"}).expected_text 若提供必须是非空字符串数组（每条为该图必须出现的文字）`);
+      }
+    }
     // filename：body 必填；cover 缺省 cover.png（由执行器补全）
     if (item.kind === "cover") {
       if (item.filename !== undefined && !isSafeImageFilename(item.filename)) {

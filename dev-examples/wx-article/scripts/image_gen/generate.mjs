@@ -37,6 +37,9 @@ import {
   reconcileEntry,
   nextCandidatePath,
   nextBakPath,
+  REVIEW_STATUS,
+  newContentReview,
+  requirementsHash,
 } from "./lib/manifest.mjs";
 import { verifyImageFile, verifyManifestPair } from "./lib/verify.mjs";
 import { ArticleLock, LockHeldError, withArticleLock } from "./lib/lock.mjs";
@@ -59,6 +62,8 @@ function parseArgs(argv) {
     mode: "batch",
     previewId: null,
     approveStyle: false,
+    approveText: null,
+    rejectText: null,
     noRequireStyleApproval: false,
     onlyIds: null,
     retryFailed: false,
@@ -92,6 +97,8 @@ function parseArgs(argv) {
       case "--mode": out.mode = next(); break;
       case "--preview-id": out.previewId = next(); break;
       case "--approve-style": out.approveStyle = true; break;
+      case "--approve-text": out.approveText = next(); break;
+      case "--reject-text": out.rejectText = next(); break;
       case "--no-require-style-approval": out.noRequireStyleApproval = true; break;
       case "--only-ids": out.onlyIds = next().split(",").map((s) => s.trim()).filter(Boolean); break;
       case "--retry-failed": out.retryFailed = true; break;
@@ -150,7 +157,9 @@ const HELP = `用法：node generate.mjs --article-dir <dir> [选项]
                             条目 unknown→succeeded，零 provider 请求（P1.6；禁止用 --retry-unknown 导入）
   --dry-run                 只输出 [PLAN] 不生成（batch 模式下风格门仍生效）
   --verify-only             Manifest↔文件双向核验（A13），不生成
-  --promote <id>            提升指定条目的 ready 候选`;
+  --promote <id>            提升指定条目的 ready 候选
+  --approve-text <id>       文字审核通过：该图指定文字验收合格（绑定当前文件 sha 与要求哈希）
+  --reject-text <id>        文字审核拒绝：指定文字验收不合格（重制走 regenerate + 人工确认）`;
 
 function fail(msg, code = 2) {
   console.log(`[FAIL] ${msg}`);
@@ -253,6 +262,13 @@ async function main() {
     return;
   }
 
+  // ── --approve-text / --reject-text：文字审核独立动作（T4，锁内 RMW，不发任何请求）──
+  if (args.approveText || args.rejectText) {
+    if (args.approveText && args.rejectText) fail("--approve-text 与 --reject-text 互斥，一次审一条");
+    await runReviewText(args.approveText ? { id: args.approveText, approve: true } : { id: args.rejectText, approve: false }, { articleDir, manifestPath, prompts });
+    return;
+  }
+
   // ── --resolve-unknown：人工 recover 后的受控导入（P1.6，锁内原子替换，零 provider 请求）──
   if (args.resolveUnknown) {
     if (!args.resolveFrom) fail("--resolve-unknown 需配合 --from <path> 指定源图");
@@ -352,6 +368,28 @@ async function main() {
       });
       action = r.action;
       if (r.changed) await saveManifest(manifestPath, manifest0);
+    }
+    // T4：内容审核失效检查（仅 succeeded 且声明 expected_text 的条目；纯验收层，不影响生成动作）
+    // 要求变化或图片文件变化（重生成提升/重命名/手改）→ 审核回 pending；expected_text 不进 prompt_hash，
+    // 纯改要求不会触发重新生图（失效规则：审核失效 ≠ 生成失效）
+    if (entry.status === STATUS.SUCCEEDED && item.expected_text && entry.content_review) {
+      const reqHash = requirementsHash(item.expected_text);
+      let reviewInvalid = false;
+      if (entry.content_review.requirements_hash !== reqHash) {
+        reviewInvalid = true;
+        console.error(`[REVIEW-INVALID] ${item.id}：文字要求已变更，审核回 pending（不触发重新生图）`);
+      } else if (entry.content_review.status !== REVIEW_STATUS.PENDING && entry.path) {
+        const curSha = await fileSha256(path.resolve(articleDir, entry.path)).catch(() => null);
+        if (curSha !== entry.content_review.image_sha256) {
+          reviewInvalid = true;
+          console.error(`[REVIEW-INVALID] ${item.id}：图片文件已变化，审核回 pending`);
+        }
+      }
+      if (reviewInvalid) {
+        const curSha = entry.path ? await fileSha256(path.resolve(articleDir, entry.path)).catch(() => null) : null;
+        entry.content_review = newContentReview(curSha, reqHash);
+        await saveManifest(manifestPath, manifest0);
+      }
     }
     plan.push({ item, entry, action, __hash: hash }); // __hash：候选链提升后回写 prompt_hash 用（IU-13）
   }
@@ -521,7 +559,9 @@ async function main() {
   }
 
   // 汇总（skip/report-only/被中断未跑的都计入 pending；unknown 单列）
-  for (const { entry } of plan) {
+  const textPendingIds = [];
+  const textRejectedIds = [];
+  for (const { entry, item } of plan) {
     if (entry.status === STATUS.SUCCEEDED) summary.succeeded += 1;
     else if (entry.status === STATUS.FAILED) {
       summary.failed += 1;
@@ -537,6 +577,18 @@ async function main() {
       summary.pending += 1;
       summary.pending_ids.push(entry.id);
     }
+    // T4：声明文字要求的 succeeded 条目单列审核状态（不参与 ok 判定——审核是生成后人工动作，
+    // 质量门在文章管线消费侧阻断，不在执行器阻塞；V2 方案第五节安全边界）
+    if (item.expected_text && entry.status === STATUS.SUCCEEDED) {
+      if (!entry.content_review || entry.content_review.status === REVIEW_STATUS.PENDING) textPendingIds.push(entry.id);
+      else if (entry.content_review.status === REVIEW_STATUS.REJECTED) textRejectedIds.push(entry.id);
+    }
+  }
+  if (textPendingIds.length || textRejectedIds.length) {
+    summary.text_pending_review = textPendingIds.length;
+    summary.text_pending_ids = textPendingIds;
+    summary.text_rejected_ids = textRejectedIds;
+    console.error(`[TEXT-CHECK] 待人工核对文字：${textPendingIds.join(", ") || "（无）"}${textRejectedIds.length ? `；已拒绝待重制：${textRejectedIds.join(", ")}` : ""}`);
   }
   summary.paused_unknown = summary.paused_unknown || summary.unknown_ids.length > 0;
   summary.requests_issued = manifest0.requests_issued - requestsIssuedStart;
@@ -666,7 +718,12 @@ async function runOne(step, ctx) {
           if (modelFingerprint) entry.model_fingerprint = modelFingerprint;
           entry.model = r.model;
           entry.provider = r.provider;
-          if (currentHash || modelFingerprint) await saveManifest(manifestPath, manifest);
+          // T4：声明文字要求的条目生成成功 → 审核回 pending 并绑定新图 sha（重生成即失效旧审核）
+          if (item.expected_text) {
+            const imgSha = await fileSha256(path.resolve(articleDir, entry.path)).catch(() => null);
+            entry.content_review = newContentReview(imgSha, requirementsHash(item.expected_text));
+          }
+          if (currentHash || modelFingerprint || item.expected_text) await saveManifest(manifestPath, manifest);
           summary.generated_paths.push(path.join(articleDir, entry.path));
         } else {
           entry.status = STATUS.SUCCEEDED;
@@ -676,6 +733,11 @@ async function runOne(step, ctx) {
           entry.provider = r.provider;
           entry.error_code = null;
           if (modelFingerprint) entry.model_fingerprint = modelFingerprint; // T6：主链成功同样回写指纹
+          // T4：声明文字要求的条目生成成功 → 审核回 pending 并绑定新图 sha
+          if (item.expected_text) {
+            const imgSha = await fileSha256(path.resolve(articleDir, r.path)).catch(() => null);
+            entry.content_review = newContentReview(imgSha, requirementsHash(item.expected_text));
+          }
           entry.updated_at = new Date().toISOString();
           await saveManifest(manifestPath, manifest);
           summary.generated_paths.push(r.path);
@@ -937,6 +999,45 @@ async function runApproveStyle(args, { articleDir, manifestPath, prompts }) {
 
 // fullPrompt 注入：style_prefix + "\n---\n" + prompt 与哈希一致
 // （在 main 中 plan 构建时填充，runOne 读 step.__fullPrompt）
+
+/** --approve-text / --reject-text：文字审核独立动作（T4，锁内 RMW，零 provider 请求）。
+ *  审核对象绑定当前文件 sha + 当前要求哈希（审核者看的就是当前图）；
+ *  后续图变/要求变由计划阶段失效检查回 pending。 */
+async function runReviewText({ id, approve }, { articleDir, manifestPath, prompts }) {
+  const { doc: manifest } = await loadManifest(articleDir, manifestPath);
+  const entry = Object.values(manifest.entries ?? {}).find((e) => e.id === id);
+  if (!entry) fail(`--${approve ? "approve" : "reject"}-text：未知 id ${id}`);
+  const item = prompts.items.find((it) => it.id === id);
+  if (!item?.expected_text) fail(`--${approve ? "approve" : "reject"}-text：条目 ${id} 未声明 expected_text（无可审核的文字要求）`);
+  if (!entry.content_review) fail(`--${approve ? "approve" : "reject"}-text：条目 ${id} 无审核记录（需先生成图片）`);
+  if (!entry.path) fail(`--${approve ? "approve" : "reject"}-text：条目 ${id} 无图片文件`);
+  const absPath = path.resolve(articleDir, entry.path);
+  const imgSha = await fileSha256(absPath).catch(() => null);
+  if (!imgSha) fail(`--${approve ? "approve" : "reject"}-text：图片文件不可读：${entry.path}`);
+  const reqHash = requirementsHash(item.expected_text);
+  const next = {
+    ...entry.content_review,
+    status: approve ? REVIEW_STATUS.APPROVED : REVIEW_STATUS.REJECTED,
+    image_sha256: imgSha,
+    requirements_hash: reqHash,
+    reviewed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  try {
+    await withArticleLock(path.join(articleDir, LOCK_NAME), { runId: `review-${Date.now().toString(36)}`, scope: "image-generate" }, async () => {
+      entry.content_review = next;
+      await saveManifest(manifestPath, manifest);
+    });
+  } catch (e) {
+    if (e instanceof LockHeldError) {
+      console.log(`[LOCKED] pid=${e.info?.pid} runId=${e.info?.runId}`);
+      process.exit(3);
+    }
+    throw e;
+  }
+  console.log(`[RESULT] ${JSON.stringify({ ok: true, id, status: next.status, reviewed_at: next.reviewed_at, image_sha256: next.image_sha256, requirements_hash: next.requirements_hash })}`);
+  process.exit(0);
+}
 function enrichPlan(plan, prompts) {
   for (const step of plan) {
     step.__fullPrompt = `${prompts.style_prefix}\n---\n${step.item.prompt}`;

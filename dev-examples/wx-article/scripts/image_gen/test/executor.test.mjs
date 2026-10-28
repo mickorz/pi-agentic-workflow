@@ -1045,3 +1045,101 @@ test("IU-14 backend 校验与模型指纹（T6：死代码修复 + 切 backend �
   assert.equal(r.res.status, 0, r.res.stdout);
   assert.equal(iuCalls(env2).length, 0, "指纹回写后同输入零请求（未回写则每次 batch 重复生成）");
 });
+
+test("IU-15 文字验收闭环（T4）：透传 + pending 审核 + approve/reject + 失效规则不重复计费", async () => {
+  const { validatePrompts } = await import("../lib/validate.mjs");
+  // 1 契约层：D6 校验 optional expected_text（非法形态拒绝，合法形态通过）
+  const badDoc = { version: 1, article_id: "x", items: [
+    { id: "a", kind: "body", prompt: "p", filename: "a.png", expected_text: "不是数组" },
+  ] };
+  assert.equal(validatePrompts(badDoc).ok, false, "expected_text 非数组必须拒绝");
+  const okDoc = { version: 1, article_id: "x", items: [
+    { id: "a", kind: "body", prompt: "p", filename: "a.png", expected_text: ["指定文字"] },
+  ] };
+  assert.equal(validatePrompts(okDoc).ok, true, "合法 expected_text 必须通过");
+
+  // 2 生成成功 → content_review pending + sha 绑定 + summary 计数
+  const sample = {
+    version: 1, article_id: "text-check-01", style_prefix: "测试风格",
+    items: [
+      { id: "cover", kind: "cover", heading: "", prompt: "封面", filename: "cover.png", expected_text: ["标题文字一"] },
+      { id: "term-01", kind: "body", heading: "t1", prompt: "图一", filename: "01-term.png" },
+    ],
+  };
+  const dir = mkArticleDir("iu15-text-review", sample);
+  let r = runGen(dir, []);
+  assert.equal(r.res.status, 0, r.res.stdout);
+  let m = readManifest(dir);
+  const cr = m.entries.cover.content_review;
+  assert.ok(cr, "声明 expected_text 的条目生成后有审核记录");
+  assert.equal(cr.status, "pending");
+  assert.ok(cr.image_sha256, "审核绑定图片 sha");
+  assert.ok(cr.requirements_hash, "审核绑定要求哈希");
+  assert.equal(m.entries["term-01"].content_review, undefined, "未声明要求的条目无审核记录");
+  const s1 = JSON.parse(lastLine(r.res.stdout, "[RESULT] "));
+  assert.equal(s1.text_pending_review, 1);
+  assert.deepEqual(s1.text_pending_ids, ["cover"]);
+  assert.match(r.res.stderr ?? r.res.stdout, /\[TEXT-CHECK\]/);
+
+  // 3 approve：状态 approved + reviewed_at；重复 approve 幂等成功
+  r = runGen(dir, ["--approve-text", "cover"]);
+  assert.equal(r.res.status, 0, r.res.stdout);
+  m = readManifest(dir);
+  assert.equal(m.entries.cover.content_review.status, "approved");
+  assert.ok(m.entries.cover.content_review.reviewed_at);
+  // approve 后再跑 batch：零请求、无待审计数（审核不失效）
+  r = runGen(dir, []);
+  assert.equal(r.res.status, 0, r.res.stdout);
+  assert.equal(r.calls.length, 0, "审核后未变输入零请求");
+  assert.equal(JSON.parse(lastLine(r.res.stdout, "[RESULT] ")).text_pending_review, undefined);
+
+  // 4 失效规则（核心）：仅改 expected_text → 审核回 pending 且零重新生成（不重复计费）
+  const promptsPath = path.join(dir, "image-prompts.json");
+  const prompts = JSON.parse(fs.readFileSync(promptsPath, "utf8"));
+  const coverItem = prompts.items.find((it) => it.id === "cover");
+  coverItem.expected_text = ["标题文字二"];
+  fs.writeFileSync(promptsPath, JSON.stringify(prompts, null, 2));
+  r = runGen(dir, []);
+  assert.equal(r.res.status, 0, r.res.stdout);
+  m = readManifest(dir);
+  assert.equal(m.entries.cover.content_review.status, "pending", "纯改要求 → 审核回 pending");
+  assert.equal(r.calls.length, 0, "纯改要求零重新生成（审核失效 ≠ 生成失效）");
+  const s4 = JSON.parse(lastLine(r.res.stdout, "[RESULT] "));
+  assert.equal(s4.text_pending_review, 1);
+
+  // 5 reject：状态 rejected + text_rejected_ids 单列
+  r = runGen(dir, ["--reject-text", "cover"]);
+  assert.equal(r.res.status, 0, r.res.stdout);
+  m = readManifest(dir);
+  assert.equal(m.entries.cover.content_review.status, "rejected");
+  r = runGen(dir, []);
+  assert.equal(r.calls.length, 0);
+  const s5 = JSON.parse(lastLine(r.res.stdout, "[RESULT] "));
+  assert.deepEqual(s5.text_rejected_ids, ["cover"], "rejected 单列供消费侧阻断");
+
+  // 6 审核动作校验：未声明要求的条目拒绝审核动作
+  r = runGen(dir, ["--approve-text", "term-01"]);
+  assert.equal(r.res.status, 2, r.res.stdout);
+  assert.match(r.res.stdout, /未声明 expected_text/);
+
+  // 7 图片变化失效：approve 后强制重生成（候选链）→ 提升后审核回 pending 绑定新图
+  r = runGen(dir, ["--approve-text", "cover"]);
+  assert.equal(r.res.status, 0, r.res.stdout);
+  void readManifest(dir);
+  r = runGen(dir, ["--force-regenerate", "--only-ids", "cover"]);
+  assert.equal(r.res.status, 0, r.res.stdout);
+  m = readManifest(dir);
+  assert.equal(m.entries.cover.content_review.status, "pending", "重生成后审核自动失效回 pending");
+  assert.equal(m.entries.cover.content_review.reviewed_at, null, "审核记录重置（fake 确定性编码下 sha 不变，但重生成动作本身即重审）");
+  assert.equal(m.entries.cover.status, "succeeded");
+
+  // 8 plan 闸：expected_text 非法形态在 validate-plan 即拒
+  const planPath = path.join(workRoot, "iu15-plan.json");
+  fs.writeFileSync(planPath, JSON.stringify({
+    version: 1, article_id: "x", visual_profile: "p",
+    items: [{ id: "a", type: "illustration", heading: "", concept: "c", layout: "l", aspect_ratio: "16:9", expected_text: [""] }],
+  }));
+  const vp = spawnSync(process.execPath, [path.join(HERE, "..", "validate-plan.mjs"), planPath], { encoding: "utf8" });
+  assert.equal(vp.status, 2);
+  assert.match(vp.stdout, /expected_text/);
+});

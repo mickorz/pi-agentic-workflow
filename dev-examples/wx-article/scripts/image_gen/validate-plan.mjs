@@ -80,6 +80,12 @@ plan.items.forEach((it, i) => {
     if (coverCount > 1) bad(`${at}(${it.id}) 出现第二个 cover 条目（至多一个）`);
   }
   if (typeof it.heading !== "string") bad(`${at}(${it.id ?? "?"}).heading 必须是字符串（cover 允许空串）`);
+  // T4（IMG-L 阶段二）：可选验收字段——声明该图必须出现的指定文字（非空字符串数组），编译层透传
+  if (it.expected_text !== undefined) {
+    if (!Array.isArray(it.expected_text) || it.expected_text.length === 0 || it.expected_text.some((t) => typeof t !== "string" || !t.trim())) {
+      bad(`${at}(${it.id ?? "?"}).expected_text 若提供必须是非空字符串数组（每条为该图必须出现的文字）`);
+    }
+  }
   if (typeof it.concept !== "string" || !it.concept.trim()) bad(`${at}(${it.id ?? "?"}).concept 必须是非空字符串`);
   if (typeof it.layout !== "string" || !it.layout.trim()) bad(`${at}(${it.id ?? "?"}).layout 必须是非空字符串`);
   if (typeof it.aspect_ratio !== "string" || !RATIO_RE.test(it.aspect_ratio)) {

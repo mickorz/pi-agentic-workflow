@@ -160,7 +160,10 @@ for (const it of plan.items) {
     ...(facts ? [facts] : []),
   ].join("\n");
 
-  items.push({ id: it.id, kind, heading: it.heading ?? "", prompt, filename });
+  // T4（IMG-L 阶段二）：expected_text 纯透传，刻意不进 prompt 合成——若进 prompt 会改变
+  // prompt_hash，破坏“仅改验收要求不得触发重新付费生图”的失效规则（V2 方案原文与此冲突，以失效规则优先）；
+  // T0 取证已证明负向文字约束在 web 后端无效，正向约束增益未验证，不为未验证增益牺牲确定性失效语义。
+  items.push({ id: it.id, kind, heading: it.heading ?? "", prompt, filename, ...(Array.isArray(it.expected_text) && it.expected_text.length ? { expected_text: it.expected_text } : {}) });
   usedIds.add(it.id);
 }
 if (usedIds.size !== items.length) fail("plan 存在重复 id（先过 validate-plan.mjs）");

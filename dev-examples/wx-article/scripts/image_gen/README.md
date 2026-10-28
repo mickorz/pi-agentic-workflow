@@ -78,6 +78,25 @@ batch 门（require_style_approval 默认开）: 非 approved 或指纹不匹配
 逃生口: --no-require-style-approval（测试/运维；微信链路不走此口）
 ```
 
+## 文字验收状态机（manifest.entries[].content_review，IMG-L T4）
+
+条目声明 `expected_text`（image-design-plan.json → compile.mjs 透传，纯验收元数据**不进 prompt**）
+且生成成功 → content_review 置 pending，绑定图片 sha256 + 要求哈希：
+
+```
+生成成功 → pending（绑定 image_sha256 + requirements_hash）
+--approve-text <id> / --reject-text <id> → approved / rejected（锁内 RMW，零请求）
+失效（均回 pending，不自动重发请求）：图片重生成提升 / 文件 sha 变化 / expected_text 变化
+纯改 expected_text 不触发重新付费生图（它不进 prompt_hash，审核失效 ≠ 生成失效）
+```
+
+质量门在消费侧：`draft_manager/check_state.py` 对 pending/rejected/sha 不符的条目阻断 prepare_ready
+（路径断裂仅提示不阻断，T0 取证：下游重命名是现网常态）；summary 输出 `text_pending_review` 与
+`text_rejected_ids` 供发布流程阻断。
+
+背景：T0 取证（3/3 样例）证明"零文字图"约束在 web 后端系统性失效，文字策略翻转为
+"接受有字但须正确"——expected_text 声明必须出现的文字，人工对照审核。
+
 ## Provider 配置
 
 | 轨道 | 环境变量 | 说明 |

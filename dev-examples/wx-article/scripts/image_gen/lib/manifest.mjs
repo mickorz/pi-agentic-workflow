@@ -28,6 +28,31 @@ export const CAND_STATUS = {
   PROMOTED: "promoted",
 };
 
+// ── 内容审核状态机（T4，IMG-L 阶段二）────────────────────────────────
+// 与生成状态机严格分离：只由人工动作（--approve-text/--reject-text）或绑定失效驱动；
+// 执行器不得自动置 approved。绑定因子：图片文件 sha256 + 要求内容哈希，任一变化 → 回 pending。
+export const REVIEW_STATUS = {
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+};
+
+/** 要求哈希：sha256(JSON.stringify(expected_text))（数组序敏感：顺序变化视为要求变化） */
+export function requirementsHash(expectedText) {
+  return crypto.createHash("sha256").update(JSON.stringify(expectedText ?? null)).digest("hex");
+}
+
+/** 新建/重置审核记录（生成成功或绑定失效时） */
+export function newContentReview(imageSha256, reqHash) {
+  return {
+    status: REVIEW_STATUS.PENDING,
+    image_sha256: imageSha256,
+    requirements_hash: reqHash,
+    reviewed_at: null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
 export function manifestPath(articleDir, override) {
   return override ?? path.join(articleDir, MANIFEST_NAME);
 }
