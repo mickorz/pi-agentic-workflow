@@ -235,9 +235,10 @@ def main() -> int:
     (gart / "正文.md").write_text(MD, encoding="utf-8")  # 正文 2 个章节, 序号 03/04 越界且缺 02
     r = run_py(CHECK, "--article-dir", str(gart))
     j = json.loads(r.stdout)
+    # IMG-L 语义修订：序号=章节号，跳号（缺 02）=无图章节合法，降为提示不阻断；越界仍阻断
     check("I3.numbering-gap-and-oor",
           j["imgs_numbering"] == {"applicable": True, "missing": [2], "out_of_range": [3, 4], "sections": 2}
-          and any("配图序号缺失: 02" in i for i in j["issues"])
+          and any("无图章节提示: 02" in i for i in j["issues"])
           and any("配图序号越界: 3、4 超出章节数 2" in i for i in j["issues"]), r.stdout)
     (gart / "imgs" / "插画.png").write_bytes(PNG_B)  # 混入无序号图 → numbered 方案不适用, 不检
     r = run_py(CHECK, "--article-dir", str(gart))

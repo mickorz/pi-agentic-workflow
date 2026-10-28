@@ -117,14 +117,11 @@ articleDir = inspectResult.article_dir || articleDir
 const accs = inspectResult.state_accounts || {}
 const pendingAcc = Object.keys(accs).filter(k => accs[k].hasPending)
 
-// ---------- 配图序号预检（2026-10-26: 缺号/越界在授权前直接中断, 不消耗审批与后续步骤） ----------
+// ---------- 配图序号预检（IMG-L 2026-10-28：序号=章节号，跳号=无图章节合法不中断；越界仍中断） ----------
 const numbering = (() => { try { return (JSON.parse(inspectResult.raw) || {}).imgs_numbering || null } catch { return null } })()
-const numMissing = (numbering && numbering.missing) || []
 const numOor = (numbering && numbering.out_of_range) || []
-if (inspectResult.needs_insert && numbering && numbering.applicable && (numMissing.length || numOor.length)) {
-  const why = []
-  if (numMissing.length) why.push('序号缺失: ' + numMissing.map(n => String(n).padStart(2, '0')).join('、'))
-  if (numOor.length) why.push('序号越界: ' + numOor.join('、') + ' 超出章节数 ' + numbering.sections)
+if (inspectResult.needs_insert && numbering && numbering.applicable && numOor.length) {
+  const why = ['序号越界: ' + numOor.join('、') + ' 超出章节数 ' + numbering.sections]
   const msg = '配图序号检查未通过（' + why.join('；') + '）。已中断，请在 Obsidian 补齐缺失配图或重命名序号后重试'
   await notify('failed', '文章处理失败(序号预检):' + msg)
   return {

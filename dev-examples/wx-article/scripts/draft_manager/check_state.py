@@ -140,11 +140,13 @@ def number_of(image: str) -> int | None:
 
 
 def numbering_precheck(img_files: list[str], md_text: str) -> dict:
-    """配图序号完整性预检（2026-10-26：numbered 方案缺号/越界要在 prepare 最先中断）。
+    """配图序号预检（IMG-L 语义修订 2026-10-28：序号 = 章节号）。
 
-    仅当全部正文图（不含 cover 前缀）带唯一序号时适用（numbered 方案生效前提）。
-    - missing: 1..max 中的缺号（如 01-06,08,09 -> 缺 07）
-    - out_of_range: 序号 > 章节数（## 计数，映射无处安放）
+    序号约定：正文图名前缀 NN = 对应第 N 个 ## 章节（与 insert_images 序号确定性映射、
+    生图执行器命名约定同源）。跳号 = 对应章节无图，属合法状态（如引言章无图），
+    因此 missing 不再作为阻断/中断依据，仅在 imgs_numbering 字段中如实输出供人工参考。
+    - missing: 1..max 中的缺号（即无图的章节号清单）
+    - out_of_range: 序号 > 章节数（## 计数，映射无处安放，仍为阻断）
     混入无序号图/序号重复 -> applicable=False（走语义匹配，不做此检查）。
     """
     sections = sum(1 for line in md_text.splitlines() if line.strip().startswith("##"))
@@ -230,11 +232,11 @@ def inspect_dir(article_dir: Path, account_slot: int, config_dir: str | None) ->
                    "wiki_embeds": len(wiki_targets)}
     out["needs_insert"] = bool(img_files) and len(referenced_imgs) < len(img_files)
 
-    # 配图序号完整性预检：缺号/越界由 article_prepare 在授权前中断并告知序号
+    # 配图序号预检（IMG-L：序号=章节号，跳号=无图章节合法，不再阻断；越界仍阻断）
     numbering = numbering_precheck(img_files, md_text)
     out["imgs_numbering"] = numbering
     if numbering["applicable"] and numbering["missing"]:
-        out["issues"].append("配图序号缺失: " + "、".join(f"{n:02d}" for n in numbering["missing"]))
+        out["issues"].append("无图章节提示: " + "、".join(f"{n:02d}" for n in numbering["missing"]) + "（章节无配图，不阻断）")
     if numbering["applicable"] and numbering["out_of_range"]:
         out["issues"].append("配图序号越界: " + "、".join(str(n) for n in numbering["out_of_range"])
                               + f" 超出章节数 {numbering['sections']}")
