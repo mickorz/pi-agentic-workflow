@@ -855,7 +855,7 @@
   },
   {
     "workflowId": "idea-article-write",
-    "scriptPath": "wx-article/scripts/idea_article_write.js",
+    "scriptPath": "scripts/idea_article_write.js",
     "name": "灵感文章·生成链",
     "description": "Brief 确认后的文章生成链: 大纲(4-outline.md)→正文(5-article.md)→八维度审稿(6-review.md, blocking 修复循环≤上限)→draft_ready+交接提示。config.outlineApproval=true 时大纲后暂停等「确认大纲」。支持「修改文章: <意见>」修订 Brief 后全链重生成。title=任务标题; message=本轮消息(确认大纲/修改意见/空)。",
     "argsSchema": {
@@ -868,6 +868,10 @@
         "message": {
           "type": "string",
           "description": "本轮消息: 「确认大纲」「修改文章: <意见>」「继续写文章」或空"
+        },
+        "template": {
+          "type": "string",
+          "description": "写作模板名称或ID，从话术中提取（「用X模板写文章」中的X，X=writing-templates 库的模板名或 t-001 形式ID；话术没提模板则不要填此参数）"
         }
       },
       "required": [
@@ -887,9 +891,12 @@
       "写文章"
     ],
     "examples": [
-      "继续写文章 微信自动化",
       "确认大纲 微信自动化",
-      "修改文章 微信自动化: 结尾再口语化一点"
+      "修改文章 微信自动化: 结尾再口语化一点",
+      "用变局应对认知长文模板继续写文章 微信自动化",
+      "用 t-001 模板写文章 微信自动化",
+      "用变局应对认知长文模板写文章 微信自动化",
+      "用模板t-001继续写文章 微信自动化"
     ]
   },
   {

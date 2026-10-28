@@ -112,6 +112,7 @@ YAML_KEYS = [
     "handoff",
     "config",
     "stats",
+    "writingTemplate",
     "createdAt",
     "updatedAt",
 ]
@@ -148,6 +149,9 @@ STATE_SETTABLE = {
     "config.targetWords": str,
     "config.reviewFixLimit": str,
     "config.historyTurns": str,
+    "writingTemplate.id": str,
+    "writingTemplate.version": str,
+    "writingTemplate.sha256": str,
 }
 
 TITLE_ILLEGAL = re.compile(r"[/\\:*?\"<>|;'`$&\x00-\x1f\x7f]")

@@ -168,20 +168,34 @@ def inspect_dir(article_dir: Path, account_slot: int, config_dir: str | None) ->
         out["issues"].append(f"article_dir not found: {article_dir}")
         return out
 
-    # 正文（5.1 规则：唯一合法才自动）
+    # 正文（5.1 规则：唯一合法才自动；article.yaml 有 content_source 时确定性指定优先）
+    yaml_info = load_yaml_fields(article_dir / "article.yaml")
+    yaml_cs = yaml_info.get("content_source", "")
     cands = [
         p for p in sorted(article_dir.glob("*.md"))
         if not IMG_PREFIX_EXCLUDE.match(p.name) and not any(b in p.name for b in NAME_ILLEGAL)
     ]
-    if len(cands) != 1:
+    if yaml_cs:
+        # 显式指定：按 content_source 精确匹配；命中即唯一，不命中报错不猜
+        md_path = next((p for p in cands if p.name == yaml_cs), None)
+        if md_path is None:
+            out["issues"].append(f"content_source={yaml_cs} 在目录中无对应 md 文件")
+            out["md"] = {"path": "", "name": "", "ambiguous": False}
+            md_text = ""
+        else:
+            out["md"] = {"path": str(md_path), "name": md_path.name, "ambiguous": False}
+            md_text = md_path.read_text(encoding="utf-8-sig")
+    elif len(cands) != 1:
         out["issues"].append(
             f"md candidates={len(cands)}: " + ", ".join(p.name for p in cands) +
             "（需 content_source 或显式指定，缺一不可判）")
-    # 歧义时不猜：只有唯一候选才确定正文，prepare_ready 才可能为 true
-    md_path = cands[0] if len(cands) == 1 else None
-    out["md"] = {"path": str(md_path) if md_path else "", "name": md_path.name if md_path else "",
-                 "ambiguous": len(cands) > 1}
-    md_text = md_path.read_text(encoding="utf-8-sig") if md_path else ""
+        out["md"] = {"path": "", "name": "", "ambiguous": len(cands) > 1}
+        md_path = None
+        md_text = ""
+    else:
+        md_path = cands[0]
+        out["md"] = {"path": str(md_path), "name": md_path.name, "ambiguous": False}
+        md_text = md_path.read_text(encoding="utf-8-sig")
 
     fm_title = fm_digest = ""
     m = re.match(r"^---\r?\n(.*?)\r?\n---", md_text, flags=re.S)
@@ -192,7 +206,6 @@ def inspect_dir(article_dir: Path, account_slot: int, config_dir: str | None) ->
     out["frontmatter"] = {"title": fm_title, "description": fm_digest}
 
     # yaml 元数据
-    yaml_info = load_yaml_fields(article_dir / "article.yaml")
     missing = [k for k in ("title", "digest") if not yaml_info.get(k)]
     yaml_info["missing"] = missing
     out["yaml"] = yaml_info

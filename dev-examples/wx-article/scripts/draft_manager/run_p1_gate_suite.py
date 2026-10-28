@@ -138,13 +138,26 @@ def main() -> int:
     check("B.zero-hit", j["ok"] is False and j["candidates"] == [])
 
     # ============ B2: 多 md 歧义（check_state 层） ============
+    # fixture yaml 带 content_source: 正文.md —— 2026-10-28 起显式指定优先，确定性命中不报歧义；
+    # 无 content_source 的多 md 才报 candidates（新建无 yaml 场景单独测）
     art, cfg = make_fixture(root)
     (art / "正文备份.md").write_text(MD, encoding="utf-8")
     r = run_py(CHECK, "--article-dir", str(art))
     j = json.loads(r.stdout)
+    check("B2.content-source-wins", j["md"]["name"] == "正文.md" and j["md"]["ambiguous"] is False, r.stdout)
+    check("B2.no-candidate-issue", all("md candidates" not in i for i in j["issues"]), r.stdout)
+    (art / "正文备份.md").unlink()
+    # 无 yaml content_source 的多 md：仍报歧义拒绝猜测
+    art2 = root / "P1无cs"
+    art2.mkdir(parents=True)
+    (art2 / "正文.md").write_text(MD, encoding="utf-8")
+    (art2 / "正文备份.md").write_text(MD, encoding="utf-8")
+    (art2 / "article.yaml").write_text("title: t\ndigest: d\n", encoding="utf-8")
+    (art2 / "cover.png").write_bytes(PNG_A)
+    r = run_py(CHECK, "--article-dir", str(art2))
+    j = json.loads(r.stdout)
     check("B2.ambiguous-reported", len(j["issues"]) > 0 and "md candidates" in j["issues"][0], r.stdout)
     check("B2.not-ready", j["prepare_ready"] is False)
-    (art / "正文备份.md").unlink()
 
     # ============ E: inspect 只读零副作用 ============
     before = snapshot_dir(art)

@@ -63,10 +63,27 @@ export class RunMonitor {
   /** 单轮扫描（测试直接调用；启动时也先跑一轮做重启补扫） */
   async pollOnce(): Promise<void> {
     for (const binding of this.deps.tasks.list()) {
-      if (binding.status !== "running" && binding.status !== "waiting_checkpoint") continue;
+      // interrupted 也纳入扫描：服务重启窗口内 Run 可能已自行推进到终态
+      // （真机 2026-10-28：run-mvqdnrv1 binding 停在 interrupted 而 manifest 已 completed，
+      // 用户收到「已中断」但实际完成）。仅同步 Run 已终态的情况；
+      // 仍为 interrupted/running/waiting（等待用户 resume 决定）不自动拉回。
+      const isInterrupted = binding.status === "interrupted";
+      if (
+        binding.status !== "running" &&
+        binding.status !== "waiting_checkpoint" &&
+        !isInterrupted
+      ) {
+        continue;
+      }
       const detail = await this.deps.service.get(binding.runId);
       if (!detail) continue;
       const eff = detail.snapshot.effectiveStatus;
+      if (
+        isInterrupted &&
+        (eff === "created" || eff === "running" || eff === "waiting_checkpoint" || eff === "interrupted")
+      ) {
+        continue; // Run 未到终态：保持 interrupted 等待用户 resume
+      }
       if (eff === "waiting_checkpoint") {
         await this.notifyCheckpointIfNeeded(binding, detail.checkpoints);
       } else if (binding.status === "waiting_checkpoint" && eff === "running") {
