@@ -39,7 +39,7 @@ def make_article(manifest: dict | None) -> Path:
     d = Path(tempfile.mkdtemp(prefix="tr-gate-"))
     (d / "正文测试.md").write_text("# 标题\n\n正文\n", encoding="utf-8")
     (d / "cover.png").write_bytes(b"\x89PNG\r\n\x1a\nfake")
-    (d / "article.yaml").write_text("title: 测试文章\ndigest: 摘要\nauthor: a\ncontent_source: s\n", encoding="utf-8")
+    (d / "article.yaml").write_text("title: 测试文章\ndigest: 摘要\nauthor: a\n", encoding="utf-8")
     if manifest is not None:
         (d / "image-manifest.json").write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
     return d
