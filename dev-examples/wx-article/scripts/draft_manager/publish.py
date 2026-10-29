@@ -112,6 +112,14 @@ def select_md(article_dir: Path, explicit: str | None) -> Path:
     raise ValueError(f"multiple .md candidates, pass --md-file explicitly: {names}")
 
 
+def _unquote(v: str) -> str:
+    """去掉一层成对包裹引号（历史 bug：article.yaml 里 title: "xxx" 连引号进了微信草稿标题）。"""
+    if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")
+                        or (v[0] == "\u201c" and v[-1] == "\u201d")):
+        return v[1:-1].strip()
+    return v
+
+
 def read_article_yaml(article_dir: Path) -> dict:
     """读 article.yaml 的顶层 key: value（handoff/prepare 产物；简单行式解析，不引 pyyaml）。"""
     out: dict = {}
@@ -122,7 +130,7 @@ def read_article_yaml(article_dir: Path) -> dict:
         if line.startswith((" ", "\t", "#")) or ":" not in line:
             continue
         k, _, v = line.partition(":")
-        out[k.strip()] = v.strip()
+        out[k.strip()] = _unquote(v.strip())
     return out
 
 
@@ -405,8 +413,8 @@ def main() -> int:
         fm_title, fm_digest = parse_frontmatter(md_text)
         # article.yaml 兑底（handoff/prepare 产出的标题与摘要在此；CLI 显式参数 > frontmatter > article.yaml）
         ym = read_article_yaml(article_dir)
-        title = args.title or fm_title or ym.get("title", "")
-        digest = args.digest or fm_digest or ym.get("digest", "")
+        title = _unquote(args.title or fm_title or ym.get("title", ""))
+        digest = _unquote(args.digest or fm_digest or ym.get("digest", ""))
         author = args.author or ym.get("author", "") or cfg.get("default_author") or ""
         if not title:
             return fail("no title: pass --title or add frontmatter (no more guessing)")

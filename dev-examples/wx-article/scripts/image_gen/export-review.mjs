@@ -138,10 +138,12 @@ let seq = 0;
 for (const it of prompts.items) {
   seq += 1;
   const kindCn = it.kind === "cover" ? "封面" : "正文图";
+  const typeCn = typeof it.diagram_type === "string" && it.diagram_type.trim() ? `·${it.diagram_type.trim()}` : "";
   const e = entryOf(it.id);
-  lines.push(`### ${String(seq).padStart(2, "0")}. ${it.id}（${kindCn}，${it.filename}）`);
+  lines.push(`### ${String(seq).padStart(2, "0")}. ${it.id}（${kindCn}${typeCn}，${it.filename}）`);
   lines.push("");
   if (it.heading) lines.push(`- 对应章节：${it.heading}`);
+  lines.push(`- 生图类型：${typeof it.diagram_type === "string" && it.diagram_type.trim() ? it.diagram_type.trim() : "（未标注，默认风格图）"}`);
   const st = statusCn(e);
   const statParts = [`生成状态：${st}`];
   if (e?.path) statParts.push(`图片：\`${e.path}\``);
