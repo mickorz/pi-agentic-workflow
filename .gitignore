@@ -47,3 +47,6 @@ dev-examples/wx-article/scripts/draft_manager/test-fixture/vault/公众号/escap
 dev-examples/image-gen-p0/out/
 dev-examples/image-gen-p0/.pi-workflows/
 dev-examples/manual-test/wechat-mock/reports/
+
+# goal 实测沙盒（一次性实测产物，文章证据留盘不进 git）
+dev-examples/goal-live-test/
