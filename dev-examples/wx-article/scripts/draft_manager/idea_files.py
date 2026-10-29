@@ -754,10 +754,24 @@ def do_handoff(args, root: Path) -> dict:
         if blocking:
             return fail("invalid", [f"审稿存在未解决 blocking {len(blocking)} 条，先修复后交接"])
 
+        # digest 由正文导语生成（wx-a1 遗留②：审稿报告总结是流程话术，不适合当公众号摘要）。
+        # 确定性截取：去 frontmatter/标题/引用行后的第一个非空段落，清理 markdown 符号，截 108 字。
+        article_path = workdir / "5-article.md"
         digest = ""
-        m = re.search(r"^## 总结\s*$\n+(\S.*)$", review_text, flags=re.M)
-        if m:
-            digest = m.group(1).strip()
+        if article_path.is_file():
+            body = re.sub(r"^---\r?\n[\s\S]*?\r?\n---\s*", "", article_path.read_text(encoding="utf-8"))
+            for para in body.split("\n"):
+                t = para.strip()
+                if not t or t.startswith(("#", ">", "![", "---")):
+                    continue
+                t = re.sub(r"[*`\[\]]", "", t).strip()
+                if len(t) >= 20:  # 跳过过短行（分隔/标签类）
+                    digest = (t[:108] + "…") if len(t) > 110 else t
+                    break
+        if not digest:
+            m = re.search(r"^## 总结\s*$\n+(\S.*)$", review_text, flags=re.M)
+            if m:
+                digest = m.group(1).strip()
         if not digest:
             digest = title
 

@@ -55,6 +55,9 @@ export function validatePrompts(doc) {
   if (doc.version !== 1) fail(`version 必须为 1，收到 ${JSON.stringify(doc.version)}`);
   if (typeof doc.article_id !== "string" || !doc.article_id.trim()) fail("article_id 必须是非空字符串");
   if (doc.style_prefix !== undefined && typeof doc.style_prefix !== "string") fail("style_prefix 必须是字符串");
+  // wx-a1 遗留③：空 style_prefix 不阻断（用户可故意不设全局风格）但提示——
+  // 空串会让 prompt_hash 丢失风格维度，改风格无法触发重生成
+  if (doc.style_prefix === "") warnings.push("style_prefix 为空串：全局风格缺失，后续改风格无法触发已生成图重做");
   if (!Array.isArray(doc.items) || doc.items.length === 0) {
     fail("items 必须是非空数组");
     return { ok: false, errors, warnings };
@@ -88,6 +91,11 @@ export function validatePrompts(doc) {
       fail(`${at}(${item.id ?? "?"}).prompt 必须是非空字符串`);
     } else if (item.prompt.length > 8000) {
       warnings.push(`${at}(${item.id}).prompt 长度 ${item.prompt.length}，多数模型上限内但建议精简`);
+    } else if (/^\s*(filename|kind|id|heading)\s*[:：]/.test(item.prompt)) {
+      // wx-a1 遗留③：确定性解析把元数据行错当 prompt（真机：prompt="filename: cover.png"）
+      fail(`${at}(${item.id}).prompt 是元数据残片（filename/kind/id/heading 开头），解析失败产物`);
+    } else if (item.prompt.trim().length < 10) {
+      fail(`${at}(${item.id}).prompt 过短（${item.prompt.trim().length} 字符），不可能是有效画面描述（解析失败产物？）`);
     }
     if (item.heading !== undefined && typeof item.heading !== "string") {
       fail(`${at}(${item.id ?? "?"}).heading 必须是字符串`);

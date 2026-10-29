@@ -586,6 +586,18 @@ def main() -> int:
                     updatedAt=_now(),
                 )
         except WechatAPIError as e:
+            # draft_update 40007 = 旧草稿已删除/已发表移除（media_id 失效）：
+            # 自愈——重置账号态走下次 draft_add 新建（图已传完，不再让用户手工改 state）。
+            # 仅针对 update 阶段的 40007；draft_add 阶段 40007 属异常照旧失败。
+            if e.errcode == 40007 and op_type == "draft_update":
+                clear_pending()
+                cleanup_snapshot(article_dir)
+                with StateRMW(state_path) as st:
+                    a = st.account(appid)
+                    a.update(status="not_drafted", draftMediaId=None, thumbMediaId=None,
+                             pendingOperation=None, updatedAt=_now())
+                print("[RESET] 旧 draft media_id 已失效（40007），账号态已重置为 not_drafted；重跑将走 draft_add 新建")
+                return fail(f"{e.where} errcode={e.errcode}: {e}（已重置状态，重跑即新建）")
             clear_pending()
             cleanup_snapshot(article_dir)
             return fail(f"{e.where} errcode={e.errcode}: {e}")

@@ -187,6 +187,30 @@ def main() -> int:
     r = run_pub(art6, cfg6, "--publish-status")
     check("T7.status-query", r.returncode == 0 and "[PUBLISHED]" in r.stdout, r.stdout + r.stderr)
 
+    # ============ T8: draft_update 40007 自愈（旧草稿已被删除/发表移除 → 重置态 → 重跑 draft_add）
+    # 真机 2026-10-28：Mac 建的草稿在微信侧已不存在，draft_update 40007 后 state 停在失效 media_id，
+    # 需人工改 state；现在 publish 应自愈重置 not_drafted，重跑即新建。
+    art8, cfg8 = make_fixture(root, "t8")
+    r = run_pub(art8, cfg8)  # 先建草稿 drafted
+    check("T8.setup-exit0", r.returncode == 0, r.stdout + r.stderr)
+    mid8 = all_done_id(r)
+    # 模拟旧草稿在微信侧已消失（后台删除/发表移除）
+    store = store_of(art8)
+    store["drafts"][mid8]["deleted"] = True
+    (art8 / "publish-mock-store.json").write_text(json.dumps(store), encoding="utf-8")
+    # 变更内容触发 draft_update（同内容会走 reuse 不经过 draft_update）
+    (art8 / "正文.md").write_text(MD + "\n\n补充：内容变更触发更新路径。", encoding="utf-8")
+    r = run_pub(art8, cfg8)  # draft_update 撞 40007 → 自愈重置
+    check("T8.reset-on-40007", r.returncode == 1 and "[RESET]" in r.stdout, r.stdout + r.stderr)
+    acc8 = acc_of(art8)
+    check("T8.state-not-drafted", acc8["status"] == "not_drafted" and acc8["draftMediaId"] is None,
+          str(acc8))
+    # 重跑：draft_add 新建成功
+    r = run_pub(art8, cfg8)
+    check("T8.rerun-draft-add", r.returncode == 0 and "[5] DRAFT OK" in r.stdout, r.stdout + r.stderr)
+    check("T8.new-media-differs", acc_of(art8)["status"] == "drafted"
+          and acc_of(art8)["draftMediaId"] not in (None, mid8), str(acc_of(art8)["draftMediaId"]))
+
     # ============ 汇总 ============
     print(f"\n===== SUITE SUMMARY: PASS {len(PASS)} / FAIL {len(FAIL)} =====")
     if FAIL:
