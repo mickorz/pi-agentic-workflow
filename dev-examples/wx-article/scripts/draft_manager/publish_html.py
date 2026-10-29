@@ -37,6 +37,29 @@ def inline(p: str) -> str:
     return p
 
 
+def _normalize_fence_blocks(text: str) -> str:
+    """把 ``` 围栏代码块归一为 :::prompt 容器（微信不支持 <pre>/<code>，围栏行也会裸渲染）。
+    围栏内每非空行成为容器内一个段落，长按可复制；内容原样保留，不剥任何字符。"""
+    lines = text.split("\r\n" if "\r\n" in text else "\n")
+    out: list[str] = []
+    i, n = 0, len(lines)
+    while i < n:
+        if re.match(r"^\s*`{3,}", lines[i]):
+            i += 1  # 跳过开栏行（``` / ```python 等）
+            block: list[str] = []
+            while i < n and not re.match(r"^\s*`{3,}\s*$", lines[i]):
+                stripped = lines[i].strip()
+                if stripped:
+                    block.append(stripped)
+                i += 1
+            i += 1  # 跳过闭栏行
+            out.extend(["", ":::prompt", *block, ":::", ""])
+        else:
+            out.append(lines[i])
+            i += 1
+    return "\n".join(out)
+
+
 def _normalize_prompt_blocks(text: str) -> str:
     """把漏网的 blockquote（> 引用）块归一为 :::prompt 容器（微信对 <blockquote> 渲染异常）。"""
     lines = text.split("\r\n" if "\r\n" in text else "\n")
@@ -59,6 +82,7 @@ def _normalize_prompt_blocks(text: str) -> str:
 
 def convert_md(text: str) -> str:
     text = re.sub(r"\A---\r?\n.*?\r?\n---\r?\n", "", text, flags=re.S)
+    text = _normalize_fence_blocks(text)
     text = _normalize_prompt_blocks(text)
     out: list[str] = [SECTION_OPEN]
     in_list = False
