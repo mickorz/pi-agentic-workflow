@@ -31,6 +31,8 @@
 
 ## 5. image-use web 后端 E_ENV：chrome-use 驱动不了 Chrome
 
+> 生成前预检：`python dev-examples/wx-article/scripts/image_gen/preflight_relay.py`（[OK] 才生成，[FAIL] 按输出指引处理）；连不上/命令找不到的升级与注册路径见 dev-docs/experience/chrome-use-relay-not-connected-upgrade-1-5.md
+
 - 现象：`relay not connected` + `profile 'Default' unavailable: composer never appeared`（41s 超时）
 - 根因：web 后端强依赖 **Chrome 开着 + ab-connect relay 扩展在线**（接管已打开的标签页）；Chrome 被杀后 chrome-use 冷启动 profile，国内网络下拉不起 chatgpt.com（疑似未走代理/被墙）。**杀 Chrome 重试没用**
 - 规避：生成前让用户正常打开 Chrome（能开 chatgpt.com 的那个），relay 随浏览器上线再跑；备选 `IMAGE_USE_BACKEND=codex`（无头，消耗 Codex 订阅额度）

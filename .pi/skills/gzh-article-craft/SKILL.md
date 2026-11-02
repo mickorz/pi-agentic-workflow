@@ -94,6 +94,7 @@ pi-workflow run dev-examples/wx-article/scripts/article_image_generate.js --non-
 
 - `provider: image-use`（默认 pi-image-gen 是智谱 API，需要 IMAGE_GEN_API_KEY，一般没配）
 - **`retry_failed: true` 必带**（manifest 里有 failed 条目时不重试会"空跑"，风格确认门拿到空数据，见 pitfalls #6）
+- **生成前先跑 relay 预检（2026-10-29 定案，替代口头提醒“记得开 Chrome”）**：`python dev-examples/wx-article/scripts/image_gen/preflight_relay.py` → 输出 `[OK]` 才进 preview/batch；`[FAIL]` 时按脚本输出的中文指引让用户处理（正常打开日常使用的 Chrome 即可，扩展随浏览器自动上线；**绝不杀 Chrome**），处理后复跑预检直到 `[OK]`；命令找不到或仍不连，升级与 native host 注册路径见 dev-docs/experience/chrome-use-relay-not-connected-upgrade-1-5.md
 - E_ENV（chrome-use 驱动不了 Chrome）处置见 pitfalls #5：**不要杀 Chrome**——让用户正常开 Chrome（relay 扩展随浏览器上线），冷启动/杀进程后的 profile 拉不起 chatgpt.com
 - 生成成功后：封面走文字核对（expected_text → content_review pending → `--approve-text`），正文图同理
 - **图片核对一律用视觉分析工具（2026-10-29 定案）**：主模型可能不支持直接读图，生成后/挑图时核对 expected_text 拼写、画面元素、乱码畸形，统一用 `zai_mcp_server_analyze_image`（或同类视觉分析工具）逐项检查，全部通过后才 `--approve-text`；不许凭“生成成功”默认放行。引用截图下载后如需确认内容未下错，同样用该工具
