@@ -43,6 +43,13 @@ export async function verifyImageFile(filePath) {
       ) {
         return { ok: true, bytes: st.size, format: "webp" };
       }
+      // GIF：GIF87a / GIF89a，小端宽高（livepanel 动图直出）
+      if (head.subarray(0, 3).toString("ascii") === "GIF" && /^(87a|89a)$/.test(head.subarray(3, 6).toString("ascii"))) {
+        const width = head.readUInt16LE(6);
+        const height = head.readUInt16LE(8);
+        if (!(width > 0 && height > 0)) return { ok: false, reason: "gif-bad-dims", bytes: st.size, format: "gif" };
+        return { ok: true, bytes: st.size, format: "gif", width, height };
+      }
       return no("unknown-magic");
     } finally {
       await fh.close();

@@ -3,7 +3,7 @@
 import path from "node:path";
 
 /** 允许的图片扩展名（微信图文兼容集） */
-export const ALLOWED_EXTS = new Set(["png", "jpg", "jpeg", "webp"]);
+export const ALLOWED_EXTS = new Set(["png", "jpg", "jpeg", "webp", "gif"]);
 
 /** Windows 保留设备名（不带扩展名比较，大小写不敏感） */
 const WINDOWS_RESERVED = new Set([

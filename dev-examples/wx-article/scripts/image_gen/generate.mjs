@@ -676,8 +676,9 @@ async function runOne(step, ctx) {
         signal,
         context: providerContext,
         reference: args.styleReference ? path.resolve(args.styleReference) : undefined,
-        // diagram provider：条目级 mermaid/动图源码（其他 provider 忽略）
+        // diagram provider：条目级 mermaid/动图源码与引擎（其他 provider 忽略）
         diagramSource: item.diagram_source,
+        diagramEngine: item.diagram_engine,
       });
       const v = await verifyImageFile(r.path);
       if (!v.ok) {
