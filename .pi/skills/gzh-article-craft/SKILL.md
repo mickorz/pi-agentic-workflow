@@ -125,7 +125,8 @@ pi-workflow run dev-examples/wx-article/scripts/article_image_generate.js --non-
 2. 用户自截后图丢入 imgs/（命名建议 NN-主题.png，不合规也可，agent 识别后反推）
 3. **正文二次调整**：根据截图分析文档对齐正文与图——补充"如图"类引用、删去与截图重复的描述、调整段落让图落在语义节点上
 4. agent 用视觉工具逐张识别（内容/文字/可辘认知度/隐私）→ 产出"图 × 候选锚点 × 理由"插入意见表 → **用户拍板**后才插入
-5. 对账 → F3 humanizer → 入箱，照旧
+5. **GIF 动图配置规范（2026-11-02 定案）**：livepanel 主题默认 light-pastel；**不做轮播场景模块**——无 cycle 机器、无盒子 when/then 轮播高亮、无底部日志条；动画只保留 path flow 流动包与结构本身（贴"清晰表示流程/结构/架构"的诉求）；时长 6-10s、宽 ≤800px、体积 <10MB；改 diagram_source/filename 不触发 prompt_hash 变化，需微调 prompt 或删 manifest 条目强制 stale 后重渲
+6. 对账 → F3 humanizer → 入箱，照旧
 
 首例：ThinkRail IDE 篇（《截图插入分析.md》，8 张截图 + 1 张生成中心图）。
 
