@@ -1050,11 +1050,11 @@ test("IU-15 文字验收闭环（T4）：透传 + pending 审核 + approve/rejec
   const { validatePrompts } = await import("../lib/validate.mjs");
   // 1 契约层：D6 校验 optional expected_text（非法形态拒绝，合法形态通过）
   const badDoc = { version: 1, article_id: "x", items: [
-    { id: "a", kind: "body", prompt: "p", filename: "a.png", expected_text: "不是数组" },
+    { id: "a", kind: "body", prompt: "用于校验的足够长画面描述", filename: "a.png", expected_text: "不是数组" },
   ] };
   assert.equal(validatePrompts(badDoc).ok, false, "expected_text 非数组必须拒绝");
   const okDoc = { version: 1, article_id: "x", items: [
-    { id: "a", kind: "body", prompt: "p", filename: "a.png", expected_text: ["指定文字"] },
+    { id: "a", kind: "body", prompt: "用于校验的足够长画面描述", filename: "a.png", expected_text: ["指定文字"] },
   ] };
   assert.equal(validatePrompts(okDoc).ok, true, "合法 expected_text 必须通过");
 
@@ -1062,8 +1062,8 @@ test("IU-15 文字验收闭环（T4）：透传 + pending 审核 + approve/rejec
   const sample = {
     version: 1, article_id: "text-check-01", style_prefix: "测试风格",
     items: [
-      { id: "cover", kind: "cover", heading: "", prompt: "封面", filename: "cover.png", expected_text: ["标题文字一"] },
-      { id: "term-01", kind: "body", heading: "t1", prompt: "图一", filename: "01-term.png" },
+      { id: "cover", kind: "cover", heading: "", prompt: "封面测试用的完整画面描述", filename: "cover.png", expected_text: ["标题文字一"] },
+      { id: "term-01", kind: "body", heading: "t1", prompt: "正文测试用的完整画面描述", filename: "01-term.png" },
     ],
   };
   const dir = mkArticleDir("iu15-text-review", sample);
@@ -1152,8 +1152,8 @@ test("IU-17 审批文档渲染（export-review）：全文成稿/状态回填/�
   const sample = {
     version: 1, article_id: "review-doc-01", style_prefix: "测试风格：水彩",
     items: [
-      { id: "cover", kind: "cover", heading: "", prompt: "封面画面", filename: "cover.png", expected_text: ["标题甲"] },
-      { id: "term-01", kind: "body", heading: "章一", prompt: "正文画面", filename: "01-term.png" },
+      { id: "cover", kind: "cover", heading: "", prompt: "封面测试用的完整画面描述", filename: "cover.png", expected_text: ["标题甲"] },
+      { id: "term-01", kind: "body", heading: "章一", prompt: "正文测试用的完整画面描述", filename: "01-term.png" },
     ],
   };
   const dir = mkArticleDir("iu17-review-doc", sample);
@@ -1164,7 +1164,7 @@ test("IU-17 审批文档渲染（export-review）：全文成稿/状态回填/�
   assert.match(md, /未生成（无 manifest）/);
   assert.match(md, /测试风格：水彩/);
   assert.match(md, /标题甲/, "expected_text 渲染");
-  assert.match(md, /---\\n正文画面|测试风格：水彩\n---\n正文画面/, "完整成稿含分隔符拼装");
+  assert.match(md, /---\\n正文测试用的完整画面描述|测试风格：水彩\n---\n正文测试用的完整画面描述/, "完整成稿含分隔符拼装");
 
   // 2 生成 + 审核后重渲染：状态回填（succeeded/approved）
   runGen(dir, []);

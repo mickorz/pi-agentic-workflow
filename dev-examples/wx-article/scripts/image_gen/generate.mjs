@@ -144,7 +144,7 @@ const HELP = `用法：node generate.mjs --article-dir <dir> [选项]
   --price-cny <x>           单张单价（缺省读环境变量 IMAGE_GEN_PRICE_PER_IMAGE）
   --budget-cny <x>          预算硬门：最坏估算（张数×单价×尝试上限）超预算 → exit 2 不发请求
 可选：
-  --provider <p>            fake | pi-image-gen | image-use | pi-ai | <provider 模块 .mjs 路径>（缺省 pi-image-gen）
+  --provider <p>            fake | pi-image-gen | image-use | pi-ai | diagram | <provider 模块 .mjs 路径>（缺省 pi-image-gen）
   --model <id>              模型 id（缺省取 provider 配置）
   --manifest <path>         manifest 覆盖路径（缺省 <article-dir>/image-manifest.json）
   --only-ids id1,id2        只处理子集
@@ -186,6 +186,10 @@ async function loadProvider(name, opts) {
   if (name === "pi-ai") {
     const mod = await import("./lib/providers/pi-ai.mjs");
     return { ...mod, name: "pi-ai" };
+  }
+  if (name === "diagram") {
+    const mod = await import("./lib/providers/diagram.mjs");
+    return { ...mod, name: "diagram" };
   }
   // 模块路径注入（测试注错 provider：A03/A04）
   const p = path.isAbsolute(name) ? name : path.resolve(process.cwd(), name);
@@ -672,6 +676,8 @@ async function runOne(step, ctx) {
         signal,
         context: providerContext,
         reference: args.styleReference ? path.resolve(args.styleReference) : undefined,
+        // diagram provider：条目级 mermaid/动图源码（其他 provider 忽略）
+        diagramSource: item.diagram_source,
       });
       const v = await verifyImageFile(r.path);
       if (!v.ok) {

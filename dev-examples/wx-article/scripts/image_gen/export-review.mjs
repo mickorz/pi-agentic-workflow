@@ -144,6 +144,7 @@ for (const it of prompts.items) {
   lines.push("");
   if (it.heading) lines.push(`- 对应章节：${it.heading}`);
   lines.push(`- 生图类型：${typeof it.diagram_type === "string" && it.diagram_type.trim() ? it.diagram_type.trim() : "（未标注，默认风格图）"}`);
+  if (it.diagram_engine) lines.push(`- 生成引擎：${it.diagram_engine}（直出，不走 ChatGPT）`);
   const st = statusCn(e);
   const statParts = [`生成状态：${st}`];
   if (e?.path) statParts.push(`图片：\`${e.path}\``);
