@@ -1,0 +1,382 @@
+https://github.com/mickorz/pi-agentic-workflow 我想在gzh skill，发布前 新增一步，就是可以在本地先浏览，并切换文档模板风格 接入https://github.com/mickorz/huasheng_editor
+
+我觉得这个功能非常值得加，而且它应该成为 `gzh-article-craft` 发布流程中的一个正式阶段。
+
+我建议把它定义为：
+
+GZH Article Preview & Layout Studio（公众号文章预览与排版工作台）
+
+它不只是增加一个 Markdown 预览页面，而是把你现在的公众号生产流程从：
+
+`AI 生成文章 → AI 生成配图 → 人工检查 → 发布草稿`
+
+升级为：
+
+`AI 生成文章 → AI 生成配图 → 本地可视化排版 → 切换模板 → 人工修改 → 确认发布`
+
+这样，AI 负责生产内容，你负责最终的视觉审稿和排版决策。
+
+我看了两个仓库的代码和文档，初步判断是：不需要重新开发一套编辑器，应该复用 huasheng_editor 的核心能力，再通过接口接入 pi-agentic-workflow。
+
+## 一、两个项目应该如何分工
+
+[Bokuchi 使い方ガイド | Bokuchi User Guide](https://images.openai.com/static-rsc-4/ZW3sHxpPns0me1VTs86r5XM9So9AjemKozaeKs8zvVaHFXREOiAsSDaFe5-ZjIA0H7-g1ImGXsLUVpAtIRj-NrFGnXOXVUYT7J05vnjI08uZRyO9icoJs2nQ-z0p4_5rtYVdF4XDOvvzhS_Zdezn5il2bQ_iT1u9EnL-byv7YOw?purpose=inline)
+
+pi-agentic-workflow
+
+内容生产与流程控制
+
+- 文章创作、配图生成
+- 文章目录和图片资源管理
+- 发布前检查
+- 用户审批与发布
+
+[9.2K Star！微信排版从未如此简单，这款开源神器让Markdown飞入公众号！\_markdown 公众号-CSDN博客](https://images.openai.com/static-rsc-4/ylrNE72Pv0CjUMx9WW_3tyWcIGfmTbdA0VpgS7hp-o2sDFadIKZg2nkS8119e58A9z4oqQfL1FnQNISjXSEHAkcezC5TEKmg3Va34D9N2nKXrDj0dKJsM5V9go8MYKa4sEy3Xg_xHC9q1ccHr_frh6dJjLWFdEQ-Sv8UgdtDx68?purpose=inline)
+
+huasheng_editor
+
+可视化排版与预览
+
+- Markdown 编辑
+- 实时渲染
+- 13 种排版主题
+- 图片处理
+- 微信富文本复制
+
+这里有一个很重要的技术判断：
+
+huasheng_editor 目前是 Vue 3 + Markdown-it 的纯前端应用，文章内容和图片主要保存在浏览器的 localStorage、IndexedDB 中。
+
+它目前并不是一个可以直接通过 HTTP API 调用的编辑器。
+
+所以我不建议简单地让 Agent 打开在线编辑器，再通过模拟键盘粘贴文章来完成操作。这样会产生内容同步、图片丢失和浏览器状态等问题。
+
+更合理的方式是给 huasheng_editor 增加一层标准化的编辑器接口。
+
+## 二、我设想的最终使用界面
+
+[cyberWriter - Native Markdown Power for macOS](https://images.openai.com/static-rsc-4/YTSSvAVy23M3raXN2wfPAeSuj4rHnab-I6oC0vfzUaK4PuqaCfKZn2_Yr33C4eTbmPqgfm8mO5U9gmc57VUGSI5ngJNHw-Nk3L5du6NyzVc-AGfJlsxwddh0AVfA8pUxXJ60QakeoS5TWyDeXl-r6-39NCY1Qu7STtsvY3f_aKY?purpose=inline)
+
+[cyberwriter.app](https://cyberwriter.app/?utm_source=chatgpt.com)
+
+用户进入公众号文章的发布前审核阶段，可以看到：
+
+1. 左侧：Markdown 正文，可以直接修改。
+2. 右侧：微信公众号最终排版效果。
+3. 顶部：模板选择栏，可以实时切换不同排版风格。
+4. 底部：保存修改、确认排版、返回修改、进入发布。
+
+尤其是模板切换，不应该重新调用 AI 修改文章。
+
+它应该只是改变渲染主题，不改变 Markdown 正文。
+
+## 三、推荐的技术架构
+
+我建议采用 独立编辑器 + 工作台嵌入 + 本地文件作为唯一数据源 的方案。
+
+pi-agentic-workflow / Web 工作台
+
+公众号文章发布审核入口
+
+GZH Preview Adapter
+
+负责文章数据传递、图片资源映射、保存和审批
+
+Markdown
+
+图片资源
+
+huasheng_editor
+
+复用现有 Vue 3 编辑器
+
+Markdown 编辑
+
+实时预览
+
+主题切换
+
+复制微信富文本
+
+文章目录 / 本地文件系统
+
+正文 Markdown、图片、文章元数据、发布状态
+
+### 1. 为什么推荐 iframe + Adapter？
+
+你现在的工作台已经有 React 前端，而 huasheng_editor 是 Vue 3。
+
+没必要把两套前端强行合并。
+
+可以这样处理：
+
+- 将 huasheng_editor 作为独立静态应用部署。
+- 通过工作台的一个新路由打开排版页面。
+- 使用 iframe 加载编辑器。
+- 通过 `postMessage` 传递文章内容、主题和操作结果。
+- 由 pi-agentic-workflow 后端负责读写文章文件。
+
+最好让编辑器静态资源和工作台处于同源环境，减少跨域和认证问题。
+
+同时，`postMessage` 必须校验来源、消息类型和文章会话 ID，不能让 iframe 任意访问本地文件。
+
+### 2. 需要给 huasheng_editor 增加的接口
+
+建议增加一个 `EditorBridge`，先实现以下协议：
+
+| 方法                 | 功能              |
+| ------------------ | --------------- |
+| `loadArticle`      | 加载指定文章 Markdown |
+| `setMarkdown`      | 更新编辑器正文         |
+| `getMarkdown`      | 获取当前编辑内容        |
+| `getStyles`        | 获取可用模板列表        |
+| `setStyle`         | 切换模板            |
+| `getCurrentStyle`  | 获取当前模板          |
+| `saveArticle`      | 保存编辑结果          |
+| `getPreviewStatus` | 获取编辑状态          |
+
+消息协议可以统一为：
+
+```
+interface EditorMessage {
+  type:
+    | "article:load"
+    | "article:save"
+    | "style:list"
+    | "style:change"
+    | "article:dirty"
+    | "article:saved"
+    | "editor:ready"
+    | "editor:error";
+
+  requestId: string;
+  articleId: string;
+  payload?: unknown;
+}
+```
+
+注意：这是建议新增的接口，不是说 huasheng_editor 目前已经支持这些 API。
+
+### 3. 图片资源怎么处理？
+
+这是集成中我认为最需要提前处理好的地方。
+
+你的文章目录目前有类似这样的结构：
+
+```
+文章主题/
+├── 文章主题.md
+├── article.yaml
+├── image-prompts.json
+├── publish-state.json
+└── imgs/
+    ├── cover-主题.png
+    ├── 01-中心图.png
+    ├── 02-流程图.png
+    └── 03-架构图.png
+```
+
+Markdown 中可能引用：
+
+```
+![中心图](imgs/01-中心图.png)
+```
+
+编辑器不能直接把这个相对路径当作网页 URL 使用。
+
+我的建议是：
+
+- 后端通过受限的文章资源接口提供图片。
+- 前端只接收图片的访问 URL，不直接访问文件系统。
+- 编辑器预览时解析图片 URL。
+- 保存时将图片引用还原成原始相对路径。
+- 不将图片转换成 Base64 写回 Markdown。
+
+这样可以保留现有文章目录结构，也不会破坏你现在的生图工作流。
+
+## 四、模板系统应该怎么设计？
+
+huasheng_editor 的一个重要优势是已经有比较丰富的主题系统。
+
+README 中列出的 13 种主题包括：
+
+| 风格类别  | 模板                                           |
+| ----- | -------------------------------------------- |
+| 经典公众号 | 默认、技术、优雅、深度阅读                                |
+| 传统媒体  | 杂志、纽约时报、金融时报、Jony Ive                        |
+| 现代数字  | Wired、Medium、Apple、Anthropic Claude、AI Coder |
+
+这里我建议先不要重新设计模板系统，直接复用它的 `STYLES`。
+
+但要增加一个能力：根据文章类型推荐模板，而不是每次都让 AI 重新设计排版。
+
+例如：
+
+| 文章类型        | 推荐模板             |
+| ----------- | ---------------- |
+| AI 术语科普     | Anthropic Claude |
+| 技术教程        | 技术风格             |
+| GitHub 项目推荐 | AI Coder         |
+| 企业 AI 案例    | 杂志风格             |
+| 行业趋势分析      | 金融时报             |
+| 深度观点文章      | Medium           |
+
+这些是初始推荐规则，最终仍然由你选择。
+
+以后还可以增加模板收藏、默认模板和文章类型关联配置。
+
+## 五、接入 gzh skill 的具体流程
+
+我建议在现有 G 阶段中新增一个 G0.5 / G3 之前的排版审核环节，而不是改变原来的文章生产链路。
+
+原来的流程：
+
+```
+normalize
+   ↓
+check_state
+   ↓
+publish
+   ↓
+微信草稿箱
+```
+
+调整为：
+
+```
+normalize
+   ↓
+check_state
+   ↓
+打开本地排版工作台
+   ↓
+加载 Markdown + 图片
+   ↓
+切换模板 / 修改文章
+   ↓
+实时预览
+   ↓
+保存 Markdown
+   ↓
+重新执行 check_state
+   ↓
+人工确认发布
+   ↓
+publish
+   ↓
+微信草稿箱
+```
+
+### 具体交互
+
+1. Agent 准备预览
+
+   Agent 自动识别文章目录，加载正文、图片、标题、摘要。
+2. 打开排版工作台
+
+   自动进入当前文章，不需要用户重新上传 Markdown。
+3. 人工调整
+
+   用户可以修改正文、切换模板、查看图片效果。
+4. 保存与校验
+
+   保存到原文章目录，重新检查图片引用、文章元数据和发布条件。
+5. 最终审批
+
+   用户点击确认后，Agent 才继续执行原来的 publish 流程。
+
+这里有一个原则：切换模板不能修改原始 Markdown；人工编辑正文才会修改文章文件。模板选择单独保存到 `article.yaml` 或独立的排版配置中。
+
+另外，模板切换和保存都不能直接触发微信发布。
+
+## 六、我建议分三个阶段开发
+
+| 阶段 | 任务                              | 优先级 |
+| -- | ------------------------------- | --- |
+| P0 | 编辑器增加 Bridge，支持外部加载和获取 Markdown | 最高  |
+| P0 | pi 工作台接入本地预览页面                  | 最高  |
+| P0 | 主题切换、图片资源加载、保存文件                | 最高  |
+| P1 | gzh skill 加入排版审批节点              | 高   |
+| P1 | 模板推荐、收藏、默认模板                    | 高   |
+| P2 | AI 排版质量检查                       | 后续  |
+| P2 | 自动识别文章类型并推荐最佳主题                 | 后续  |
+
+P0 暂时不要做 AI 自动排版。
+
+你目前最需要解决的是：每次生成文章后，能不能快速看到最终微信排版效果，并在发布之前人工调整。
+
+等这个闭环跑通，再考虑让 AI 根据文章类型、段落结构、图片数量推荐排版。
+
+## 七、还有几个容易忽略的技术问题
+
+我建议开发时把下面几个问题列入验收：
+
+1. 图片一致性：切换模板不能导致图片丢失、错位或重复。
+2. GIF 支持：保留 huasheng_editor 原来的 GIF 处理能力。
+3. 文章保存：保存后重新打开，内容必须与刚才编辑的一致。
+4. 未保存提醒：关闭页面或切换文章时，存在未保存修改必须提醒。
+5. 发布校验：编辑正文后重新检查 digest、图片引用和封面状态。
+6. 模板独立性：切换模板不能改变文章内容。
+7. 发布隔离：预览页面没有直接发布权限，只有原来的发布工作流可以执行发布。
+
+还有一点：huasheng_editor 原来的复制到公众号功能应该保留，但它不是这个集成的核心。你的自动化发布仍然由原来的 `publish.py` 负责。
+
+## 八、最终建议：不要把 huasheng_editor 变成 gzh skill 的依赖
+
+我更倾向于把它做成 pi-agentic-workflow 的一个独立能力：
+
+```
+src/
+  integrations/
+    huasheng-editor/
+      editor-bridge.ts
+      editor-protocol.ts
+      article-loader.ts
+      article-saver.ts
+
+web/
+  src/
+    features/
+      gzh-preview/
+        GzhPreviewPage.tsx
+        EditorFrame.tsx
+        PreviewToolbar.tsx
+```
+
+以上是建议的目录划分，具体需要根据仓库现有模块结构调整。
+
+然后 gzh skill 只负责调用这个能力：
+
+```
+open_article_preview(article_dir)
+        ↓
+用户预览、切换模板、修改
+        ↓
+wait_for_user_approval()
+        ↓
+save_article()
+        ↓
+validate_article()
+        ↓
+继续 publish
+```
+
+这样未来不只是公众号，其他文档工作流也可以复用这套编辑器。
+
+例如：
+
+- 技术文档工作流。
+- 企业方案和报告工作流。
+- 产品介绍和营销文章工作流。
+
+我认为这次改造最重要的价值，是把你的公众号工作流从一个 AI 自动生成系统，升级成一个有人类视觉审核环节的内容生产系统。
+
+相关代码入口：
+
+- [pi-agentic-workflow：gzh-article-craft/SKILL.md](https://github.com/mickorz/pi-agentic-workflow/blob/master/.pi/skills/gzh-article-craft/SKILL.md?utm_source=chatgpt.com)
+- [pi-agentic-workflow：Web 工作台](https://github.com/mickorz/pi-agentic-workflow/tree/master/web?utm_source=chatgpt.com)
+- [huasheng_editor：README](https://github.com/mickorz/huasheng_editor/blob/master/README.md?utm_source=chatgpt.com)
+- [huasheng_editor：app.js](https://github.com/mickorz/huasheng_editor/blob/master/app.js?utm_source=chatgpt.com)
+- [huasheng_editor：styles.js](https://github.com/mickorz/huasheng_editor/blob/master/styles.js?utm_source=chatgpt.com)
+
+我的建议是：先做一份 P0 执行方案，优先验证外部加载 Markdown、图片预览、切换主题、保存回原文件这四个闭环。 这四项跑通后，再正式接入 gzh skill，不要一开始就大规模改造两个项目。
