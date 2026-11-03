@@ -13,6 +13,9 @@ import { ProjectRegistry } from "../../server/projects.js";
 import { RunSupervisor } from "../../server/worker-supervisor.js";
 import { RunApplicationService } from "../../application/run-service.js";
 import { resolveVaultRoot } from "../../server/gzh-routes.js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 export async function web(argv: string[]): Promise<number> {
   const flag = (name: string): string | undefined => {
@@ -50,12 +53,22 @@ export async function web(argv: string[]): Promise<number> {
   // GZH 排版工作台:vault root 解析失败不阻塞 Server(仅不注册 gzh 路由,启动横幅提示)
   const gzhVaultRoot = resolveVaultRoot(process.cwd());
 
+  // 静态工作台:web/dist 与 huasheng 编辑器按包根定位(向上找 package.json,不依赖 dist 层级)
+  let pkgRoot = path.dirname(fileURLToPath(import.meta.url));
+  for (let i = 0; i < 6 && !fs.existsSync(path.join(pkgRoot, "package.json")); i += 1) {
+    pkgRoot = path.dirname(pkgRoot);
+  }
+  const webDist = path.join(pkgRoot, "web", "dist");
+  const huashengDir = path.join(pkgRoot, "thirdparties", "huasheng_editor");
+
   const app = createWebApp({
     config,
     service,
     registry,
     version: process.env.npm_package_version ?? "0.1.0",
     ...(gzhVaultRoot ? { gzhVaultRoot } : {}),
+    ...(fs.existsSync(webDist) ? { webDist } : {}),
+    ...(fs.existsSync(huashengDir) ? { huashengDir } : {}),
   });
 
   try {
@@ -74,6 +87,9 @@ export async function web(argv: string[]): Promise<number> {
       `注意：token 仅接受 Authorization/X-PI-Workflow-Token 头，不走 URL query；跨 Origin 请求全拒。`,
       `健康检查（免 token）：curl http://${config.host}:${config.port}/api/health`,
       `项目白名单（${config.projectRoots.length}）：${config.projectRoots.join(", ")}`,
+      ...(fs.existsSync(webDist)
+        ? [`工作台：http://${config.host}:${config.port}/gzh-preview（打开后粘贴上方 token）`]
+        : []),
       ...(registry.warnings.length > 0 ? registry.warnings : []),
       `Ctrl-C 优雅停止（运行中 Run 不受影响）`,
     ].join("\n") + "\n",
