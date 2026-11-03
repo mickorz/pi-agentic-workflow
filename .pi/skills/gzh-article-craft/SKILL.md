@@ -23,7 +23,7 @@ description_zh: 从引用材料到成文、配图提示词、入草稿箱的公�
 | F 生图 | preview 封面→用户确认→batch 正文（article-image-generate workflow） | `imgs/cover-*.png`、`imgs/NN-*.png` |
 | F2 入文 | 生成图按锚点插入正文（edit 精确替换，不重排全文） | 正文引用 + `imgs/` |
 | F3 去AI味 | humanizer 全文扫描 → 生成审批文档 → 用户批准 → 改原文 → 重新对账 | `review-humanizer.md` + 修订后正文 |
-| G 入箱 | 准备文章流程（normalize→check_state→publish） | 草稿箱 + `publish-state.json` |
+| G 入箱 | 准备文章流程(normalize→check_state→**G.5 排版审阅**→publish) | 草稿箱 + `publish-state.json` |
 
 文章目录约定：`60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/`（坚果云），正文 md 与 `引用/`、`imgs/` 同级。
 
@@ -133,15 +133,23 @@ pi-workflow run dev-examples/wx-article/scripts/article_image_generate.js --non-
 
 ## G. 准备文章入草稿箱
 
-按 article-prepare 手动插图链路（参考 `dev-docs/experience/wechat-cover-235-ratio-and-filename-traps.md`）：
+按 article-prepare 手动插图链路(参考 `dev-docs/experience/wechat-cover-235-ratio-and-filename-traps.md`):
 
-1. `normalize_manual_images.py --article-dir <dir>`（wiki 内嵌→标准引用 + 补 article.yaml；已标准引用则 [SKIP] 但仍补 yaml）
-2. **检查 article.yaml 的 digest**：封面图占第 1 行后，自动 digest 会抓成第一个章题（如"一、xxx"）——手工改成一句话导语再继续
-3. `check_state.py --article-dir <dir>`（prepare_ready=true 才继续；看 cover/exact_235/序号提示）
-4. `publish.py --article-dir <dir> --cover imgs/cover-*.png --account-slot 1 --md-file <md> --title <t> --digest <d> --author AI奇点`（封面非精确 2.35:1 会自动缩放并备份 `_cover-original/`；[COVER] 行看动作）。**标题/摘要不得带包裹引号**（2026-10-29 定案）：昨天发生过 article.yaml 里 `title: "xxx"` 连引号进微信草稿标题的事故；publish.py 已加 `_unquote` 防护（去掉一层成对引号），但传参时仍直接裸串，不要手滑把引号写进值里
-5. 成功标志：`[5] DRAFT OK media_id=...` + `=== ALL DONE draft_media_id=... ===`
+1. `normalize_manual_images.py --article-dir <dir>`(wiki 内嵌→标准引用 + 补 article.yaml;已标准引用则 [SKIP] 但仍补 yaml)
+2. **检查 article.yaml 的 digest**:封面图占第 1 行后,自动 digest 会抓成第一个章题(如"一、xxx")——手工改成一句话导语再继续
+3. `check_state.py --article-dir <dir>`(prepare_ready=true 才继续;看 cover/exact_235/序号提示)
+4. **G.5 排版审阅(2026-11-03 新增,必过,方案见 `dev-docs/planning/2026-11-03-GZH排版工作台执行方案.md`)**:check_state 通过后、publish 之前,引导用户在本地预览工作台过目最终排版:
+   1. **打开工作台**:若 Server 未起,先跑 `pi-workflow web`(或 `node dist/cli/index.js web`),把横幅 URL + token 给用户;让用户打开 `<URL>/gzh-preview`(粘贴 token 后从列表选文章,或直接用 `?dir=<文章目录>` 进指定文章)。vault root 自动从 `.aws-article/config.json` 解析,也可用 `GZH_PREVIEW_VAULT_ROOT` 指定
+   2. **用户操作**:左侧改正文、切主题、看图(含 GIF);页面上的"保存"直接写回文章目录(md 原子替换,切主题只写 article.yaml 的 style 字段不动正文)
+   3. **确认回流(聊天确认,与 F 阶段 preview 确认同模式)**:用户在聊天里回复确认后才能继续;若用户改了正文,保存后**必须重跑 check_state**(digest/图片引用可能变化),通过才进第 5 步
+   4. **原则**:切模板不改正文;预览页无发布权限,发布仍走第 5 步 publish;P0 主题仅影响预览效果,不影响入箱样式(入箱仍是 publish_html.py 固定转换)
+   5. 主题推荐初表(实际键名见 huasheng_editor styles.js,18 个):AI 术语科普→`wechat-anthropic`;技术教程→`wechat-tech`;GitHub 项目推荐→`warm-docs`;企业 AI 案例→`warm-dossier`;行业趋势分析→`wechat-ft`;深度观点→`wechat-apple`;杂志风→`warm-dossier`;极简→`wechat-apple`。仅推荐,最终用户拍板
+5. `publish.py --article-dir <dir> --cover imgs/cover-*.png --account-slot 1 --md-file <md> --title <t> --digest <d> --author AI奇点`(封面非精确 2.35:1 会自动缩放并备份 `_cover-original/`;[COVER] 行看动作)。**标题/摘要不得带包裹引号**(2026-10-29 定案):昨天发生过 article.yaml 里 `title: "xxx"` 连引号进微信草稿标题的事故;publish.py 已加 `_unquote` 防护(去掉一层成对引号),但传参时仍直接裸串,不要手滑把引号写进值里
+6. 成功标志:`[5] DRAFT OK media_id=...` + `=== ALL DONE draft_media_id=... ===`
 
 ## 交付前自检清单
+
+- [ ] **G.5 排版审阅已过**:用户在 /gzh-preview 预览并聊天确认;改过正文的保存后已重跑 check_state
 
 - [ ] 正文引用数 = imgs 文件数（无悬空/无未引用），文件名无空格括号
 - [ ] 第一章有中心图（01- 前缀生成图，画面表达全文核心论点）
