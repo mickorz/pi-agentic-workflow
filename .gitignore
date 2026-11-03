@@ -26,6 +26,9 @@ dev-examples/*/.pi-wechat/
 # 开发过程文档（CLAUDE.md 约定：不进 git 仓库）
 # 公众号凭证（本地集成，绝不入库）
 dev-examples/wx-article/.aws-article/
+
+# GZH 预览工作台:验收夹具含真实文章拷贝时不得入库;套件会自动生成合成夹具
+dev-examples/gzh-preview/fixture-vault/
 .aws-article/
 dev-examples/wx-article/aws.env
 .pi/tasks/

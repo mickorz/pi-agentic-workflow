@@ -36,6 +36,7 @@ import type { RunApplicationService } from "../application/run-service.js";
 import { ServiceError, type StartRunOptions } from "../application/run-service.js";
 import { ProjectError, type ProjectRegistry } from "./projects.js";
 import type { WorkflowEvent } from "../events/types.js";
+import { registerGzhRoutes, GZH_ERROR_STATUS, deriveImgSecret } from "./gzh-routes.js";
 
 export interface WebAppDeps {
   config: WebServerConfig;
@@ -44,8 +45,10 @@ export interface WebAppDeps {
   registry?: ProjectRegistry;
   version?: string;
   startedAt?: number;
-  /** 每 IP 滑动窗口限流（缺省 60s / 600 次） */
+  /** 每 IP 滑动窗口限流(缺省 60s / 600 次) */
   rateLimit?: { windowMs: number; max: number };
+  /** GZH 排版工作台 vault 根(缺省不注册 gzh 路由;生产由 web CLI 解析注入) */
+  gzhVaultRoot?: string;
 }
 
 /** 恒时比较 token（防时序侧信道） */
@@ -139,6 +142,8 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
   // ---- 安全层（P1-06）：限流 → token → Origin（对全部 /api 生效；/api/health 除外）----
   app.addHook("onRequest", async (request, reply) => {
     if (request.url === "/api/health" || request.url.startsWith("/api/health?")) return;
+    // /gzh-img:签名图片路由,iframe 的 img 标签无法携带 Bearer 头,HMAC 自校验(见 gzh-routes.ts)
+    if (request.url === "/gzh-img" || request.url.startsWith("/gzh-img?")) return;
     if (!limiter.allow(request.ip ?? "unknown")) {
       return reply.code(429).send({ code: "RATE_LIMITED", message: "请求过于频繁", requestId: request.id });
     }
@@ -165,6 +170,19 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
       void reply.code(statusForCode(error.code)).send({
         code: error.code,
         message: error.message,
+        requestId: request.id,
+      });
+      return;
+    }
+    // gzh 路由错误:带 code 属性的普通 Error(gzh-routes.ts 的 err() 工厂)
+    const gzCode = (error as { code?: string }).code;
+    if (typeof gzCode === "string" && GZH_ERROR_STATUS[gzCode] !== undefined) {
+      void reply.code(GZH_ERROR_STATUS[gzCode] ?? 500).send({
+        code: gzCode,
+        message: error instanceof Error ? error.message : String(error),
+        ...(error as { details?: unknown }).details !== undefined
+          ? { details: (error as { details?: unknown }).details }
+          : {},
         requestId: request.id,
       });
       return;
@@ -196,6 +214,15 @@ export function createWebApp(deps: WebAppDeps): FastifyInstance {
   });
 
   app.get("/api/openapi.json", async () => buildOpenApiDocument(`http://${deps.config.host}:${deps.config.port}`));
+
+  // GZH 排版工作台路由(T0.2):vault root 就绪才注册;图片路由 /gzh-img 自带 HMAC 校验,
+  // 必须在 onRequest 钩子(Bearer)之前豁免——改钩子太重,改为在钩子内跳过该路径(见下)
+  if (deps.gzhVaultRoot) {
+    registerGzhRoutes(app, {
+      vaultRoot: deps.gzhVaultRoot,
+      imgSecret: deriveImgSecret(deps.config.token),
+    });
+  }
 
   app.get("/api/health", async () => {
     return {

@@ -1,0 +1,9 @@
+{
+  "name": "gzh-preview-t01",
+  "private": true,
+  "description": "GZH 排版工作台 T0.1 桥接验收(dev-examples 沙盒,不进生产依赖)",
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "^1.64.0"
+  }
+}

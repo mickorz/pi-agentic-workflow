@@ -5,6 +5,7 @@ import App from "./App";
 import Dashboard from "./pages/Dashboard";
 import NewRun from "./pages/NewRun";
 import RunDetail from "./pages/RunDetail";
+import GzhPreview from "./pages/GzhPreview";
 import "./styles.css";
 
 const router = createBrowserRouter([
@@ -15,6 +16,7 @@ const router = createBrowserRouter([
       { index: true, element: <Dashboard /> },
       { path: "runs/new", element: <NewRun /> },
       { path: "runs/:runId", element: <RunDetail /> },
+      { path: "gzh-preview", element: <GzhPreview /> },
     ],
   },
 ]);

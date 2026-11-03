@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>T0.1 桥接验收宿主(仅开发期使用)</title>
+  <style>
+    body { font-family: Consolas, monospace; margin: 12px; }
+    iframe { width: 100%; height: 480px; border: 1px solid #888; }
+    button { margin: 4px; padding: 4px 10px; }
+    #log { white-space: pre-wrap; background: #f5f5f5; padding: 8px; max-height: 160px; overflow: auto; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h3>T0.1 桥接验收宿主</h3>
+  <div>
+    <button onclick="t01.sendLoad()">article:load</button>
+    <button onclick="t01.sendGet()">article:get:request</button>
+    <button onclick="t01.sendStyle('wechat-anthropic')">style:change ai-coder</button>
+    <button onclick="t01.showState()">显示状态</button>
+  </div>
+  <div id="log"></div>
+  <iframe id="editor" src="../../thirdparties/huasheng_editor/index.html"></iframe>
+
+  <script>
+    // 最小宿主:只做消息收发与状态记录,供 check_t01.mjs 驱动与人工手测共用。
+    // 正式宿主是 web 工作台的 React 预览页(T0.3),本页不进生产。
+    var SESSION = 't01-' + Date.now();
+    var state = (window.__t01State = {
+      sessionId: SESSION,
+      ready: false,
+      dirty: [],
+      responses: {},
+      received: [],
+    });
+
+    var logEl = document.getElementById('log');
+    function log(text) {
+      logEl.textContent += text + '\n';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    var editorWin = document.getElementById('editor').contentWindow;
+
+    window.addEventListener('message', function (ev) {
+      if (ev.source !== editorWin) return;
+      var d = ev.data || {};
+      state.received.push(d);
+      if (d.type === 'editor:ready') {
+        state.ready = true;
+        log('[recv] editor:ready');
+      } else if (d.type === 'article:dirty') {
+        state.dirty.push(d.dirtyType);
+        log('[recv] article:dirty dirtyType=' + d.dirtyType);
+      } else if (d.type === 'article:get:response') {
+        state.responses[d.requestId] = { markdown: d.markdown, style: d.style };
+        log('[recv] article:get:response requestId=' + d.requestId + ' style=' + d.style);
+      } else {
+        log('[recv] ' + d.type);
+      }
+    });
+
+    function send(msg) {
+      msg.sessionId = SESSION;
+      editorWin.postMessage(msg, window.location.origin);
+      log('[send] ' + msg.type);
+    }
+
+    var DEMO_MD = '# T01 宿主加载测试\n\n这是一段由宿主通过 article:load 注入的正文。\n\n- 列表项一\n- 列表项二\n';
+
+    var t01 = (window.t01 = {
+      sendLoad: function () {
+        send({ type: 'article:load', markdown: DEMO_MD, style: 'wechat-ft' });
+      },
+      sendGet: function () {
+        var rid = 'r' + Date.now();
+        send({ type: 'article:get:request', requestId: rid });
+        return rid;
+      },
+      sendStyle: function (styleId) {
+        send({ type: 'style:change', styleId: styleId });
+      },
+      showState: function () {
+        log('state=' + JSON.stringify({ ready: state.ready, dirty: state.dirty, responses: state.responses }));
+      },
+    });
+  </script>
+</body>
+</html>

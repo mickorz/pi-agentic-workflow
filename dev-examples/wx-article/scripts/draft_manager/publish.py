@@ -37,6 +37,7 @@ CLI（向后兼容 wechat_md_to_draft.js 现有调用，新增参数全部可选
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -350,6 +351,9 @@ def main() -> int:
     ap.add_argument("--publish-status", action="store_true")
     ap.add_argument("--resolve-publish-id", default=None)
     ap.add_argument("--clear-pending", action="store_true")
+    ap.add_argument("--html-file", default=None,
+                    help="跳过内置 convert_md,直接用指定 HTML 文件入箱(GZH 排版工作台导出的 layout.html;"
+                         "相对路径相对文章目录解析)。图片引用须保持 imgs/ 相对路径,上传时统一替换微信 URL")
     args = ap.parse_args()
 
     article_dir = Path(args.article_dir)
@@ -434,10 +438,25 @@ def main() -> int:
 
         from publish_html import convert_md
 
-        html = convert_md(md_text)
-        if len(html) < 200:
-            return fail(f"html too short ({len(html)} chars), content likely empty")
-        print(f"[html] generated {len(html)} chars")
+        if args.html_file:
+            # GZH 排版工作台 layout-html 模式(P2):预览导出的渲染 HTML 直接入箱,
+            # 不再走内置 convert_md;图片保持 imgs/ 相对引用,上传阶段统一替换微信 URL。
+            html_path = Path(args.html_file)
+            if not html_path.is_absolute():
+                html_path = article_dir / html_path
+            if not html_path.is_file():
+                return fail(f"html file not found: {html_path}")
+            html = html_path.read_text(encoding="utf-8")
+            if len(html) < 200:
+                return fail(f"html too short ({len(html)} chars), layout.html likely empty")
+            if html_path.stat().st_mtime < md_path.stat().st_mtime:
+                print("[WARN] layout.html 比 md 旧:导出后正文又被改过,建议重新导出再入箱")
+            print(f"[html] loaded {html_path.name} {len(html)} chars (layout mode)")
+        else:
+            html = convert_md(md_text)
+            if len(html) < 200:
+                return fail(f"html too short ({len(html)} chars), content likely empty")
+            print(f"[html] generated {len(html)} chars")
 
         refs = image_refs(md_text)
         print(f"[imgs] found {len(refs)} image refs")
@@ -449,7 +468,16 @@ def main() -> int:
         content_hash = compute_content_hash(
             snap["md_bytes"], snap["images"], snap["cover"], title, digest, author, appid
         )
-        print(f"[hash] {content_hash[:16]}... (html rule v{HTML_RULE_VERSION})")
+        if args.html_file:
+            # layout 模式哈希混入渲染文件内容:同一 md 换主题/换 HTML 必须触发草稿更新,
+            # 且与 convert_md 模式的哈希永不碰撞(模式标记隔离)
+            layout_mix = hashlib.sha256(html.encode("utf-8")).hexdigest()
+            content_hash = hashlib.sha256(
+                (content_hash + "\x00layout-file\x00" + layout_mix).encode("utf-8")
+            ).hexdigest()
+            print(f"[hash] {content_hash[:16]}... (layout mode, html mixed)")
+        else:
+            print(f"[hash] {content_hash[:16]}... (html rule v{HTML_RULE_VERSION})")
     finally:
         article_lock.release()
 

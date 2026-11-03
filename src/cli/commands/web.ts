@@ -12,6 +12,7 @@ import { createWebApp } from "../../server/app.js";
 import { ProjectRegistry } from "../../server/projects.js";
 import { RunSupervisor } from "../../server/worker-supervisor.js";
 import { RunApplicationService } from "../../application/run-service.js";
+import { resolveVaultRoot } from "../../server/gzh-routes.js";
 
 export async function web(argv: string[]): Promise<number> {
   const flag = (name: string): string | undefined => {
@@ -46,11 +47,15 @@ export async function web(argv: string[]): Promise<number> {
   });
   const registry = new ProjectRegistry(config.projectRoots);
 
+  // GZH 排版工作台:vault root 解析失败不阻塞 Server(仅不注册 gzh 路由,启动横幅提示)
+  const gzhVaultRoot = resolveVaultRoot(process.cwd());
+
   const app = createWebApp({
     config,
     service,
     registry,
     version: process.env.npm_package_version ?? "0.1.0",
+    ...(gzhVaultRoot ? { gzhVaultRoot } : {}),
   });
 
   try {

@@ -1,12 +1,58 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { configDefaults } from "vitest/config";
+import fs from "node:fs";
 
 const serverSrc = fileURLToPath(new URL("../src/server", import.meta.url));
+const huashengDir = fileURLToPath(new URL("../thirdparties/huasheng_editor", import.meta.url));
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".json": "application/json; charset=utf-8",
+};
+
+/** GZH 预览工作台:/huasheng/* 同源静态映射到 thirdparties/huasheng_editor(T0.3,零新依赖) */
+function huashengStaticPlugin(): Plugin {
+  return {
+    name: "gzh-huasheng-static",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url || !req.url.startsWith("/huasheng")) return next();
+        let rel = req.url.slice("/huasheng".length).split("?")[0];
+        if (rel === "" || rel === "/") rel = "/index.html";
+        const filePath = path.normalize(path.join(huashengDir, rel));
+        if (!filePath.startsWith(huashengDir)) {
+          res.statusCode = 403;
+          res.end("forbidden");
+          return;
+        }
+        fs.readFile(filePath, (err, data) => {
+          if (err) {
+            res.statusCode = 404;
+            res.end("not found");
+            return;
+          }
+          res.setHeader("content-type", MIME[path.extname(filePath).toLowerCase()] ?? "application/octet-stream");
+          res.end(data);
+        });
+      });
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), huashengStaticPlugin()],
   resolve: {
     alias: {
       // 共享契约：直接引用仓库 src/server/contract.ts 源文件（Vite 按需编译）
@@ -16,6 +62,11 @@ export default defineConfig({
   server: {
     // dev 代理：浏览器同源访问 /api，规避跨 Origin（Server 仅信任本机同源 Origin）
     proxy: {
+      // GZH 预览:签名图片走 Server(iframe img 无法带 Bearer,HMAC 自校验)
+      "/gzh-img": {
+        target: process.env.PI_WORKFLOW_WEB_PROXY_TARGET ?? "http://127.0.0.1:4317",
+        changeOrigin: false,
+      },
       "/api": {
         // 目标可配（验收门/本地联调指向不同端口的 Server 实例）
         target: process.env.PI_WORKFLOW_WEB_PROXY_TARGET ?? "http://127.0.0.1:4317",
