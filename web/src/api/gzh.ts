@@ -20,7 +20,7 @@ export interface GzhArticle {
   mdHash: string;
   style: string;
   styleHash: string;
-  yaml: { title: string; digest: string; author: string };
+  yaml: { title: string; digest: string; author: string; contentSource?: string };
   images: Array<{ name: string; url: string }>;
 }
 

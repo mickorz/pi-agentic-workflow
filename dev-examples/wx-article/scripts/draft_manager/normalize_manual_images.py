@@ -43,9 +43,13 @@ DIGEST_MAX = 120
 
 
 def find_md(article_dir: Path) -> Optional[Path]:
-    """与 check_state 同规则的唯一正文候选（排除元文档/引用清单等）。"""
+    """与 check_state 5.1 同规则：article.yaml 有 content_source 时确定性指定优先，
+    否则唯一合法候选才自动，多候选/零候选返回 None（不猜）。"""
     cands = [p for p in sorted(article_dir.glob("*.md"))
              if not IMG_PREFIX_EXCLUDE.match(p.stem) and not any(k in p.name for k in NAME_ILLEGAL)]
+    cs = load_yaml(article_dir / "article.yaml").get("content_source", "")
+    if cs:
+        return next((p for p in cands if p.name == cs), None)
     return cands[0] if len(cands) == 1 else None
 
 

@@ -63,27 +63,47 @@ function resolveInside(root: string, target: string): string {
   return resolved;
 }
 
-/** 找文章正文 md:排除规则与 check_state.py 一致;多候选报错不猜,零候选报错 */
+/** 找文章正文 md:与 check_state.py 5.1 规则完全一致——
+ *  article.yaml 有 content_source 时确定性指定优先(命中即唯一);否则唯一合法才自动,多候选报错不猜 */
 function findArticleMd(articleDir: string): string {
   const entries = fs
     .readdirSync(articleDir, { withFileTypes: true })
     .filter((e) => e.isFile() && e.name.toLowerCase().endsWith(".md"))
     .map((e) => e.name)
     .filter((n) => !MD_PREFIX_EXCLUDE.test(n) && !MD_NAME_ILLEGAL.some((b) => n.includes(b)));
+  const yaml = readYamlFields(articleDir);
+  if (yaml.contentSource) {
+    if (!entries.includes(yaml.contentSource)) {
+      throw err("NOT_FOUND", `content_source=${yaml.contentSource} 在目录中无对应 md 文件`);
+    }
+    return yaml.contentSource;
+  }
   if (entries.length === 0) throw err("NOT_FOUND", `目录内没有可识别的正文 md: ${articleDir}`);
-  if (entries.length > 1) throw err("INVALID_INPUT", "正文 md 不唯一,拒绝猜测", { candidates: entries });
+  if (entries.length > 1) {
+    throw err("INVALID_INPUT", "正文 md 不唯一,拒绝猜测(需 article.yaml content_source 确定性指定)", {
+      candidates: entries,
+    });
+  }
   return entries[0] as string;
 }
 
 /** 读 article.yaml 已知字段(check_state.py 同规则;style 为本工作台新增字段) */
-function readYamlFields(articleDir: string): { title: string; digest: string; author: string; style: string } {
-  const out = { title: "", digest: "", author: "", style: "" };
+function readYamlFields(articleDir: string): {
+  title: string;
+  digest: string;
+  author: string;
+  style: string;
+  contentSource: string;
+} {
+  const out = { title: "", digest: "", author: "", style: "", contentSource: "" };
   const p = path.join(articleDir, "article.yaml");
   if (!fs.existsSync(p)) return out;
   for (const line of fs.readFileSync(p, "utf8").split(/\r?\n/)) {
-    const m = line.match(/^(title|digest|author|style)\s*:\s*["']?(.+?)["']?\s*$/);
-    const key = m?.[1] as "title" | "digest" | "author" | "style" | undefined;
-    if (m && key && m[2] !== undefined) out[key] = m[2];
+    const m = line.match(/^(title|digest|author|style|content_source)\s*:\s*["']?(.+?)["']?\s*$/);
+    const key = m?.[1] as "title" | "digest" | "author" | "style" | "content_source" | undefined;
+    if (m && key && m[2] !== undefined) {
+      (key === "content_source" ? (out.contentSource = m[2]) : (out[key] = m[2]));
+    }
   }
   return out;
 }
@@ -278,7 +298,7 @@ export function registerGzhRoutes(app: FastifyInstance, deps: GzhRoutesDeps): vo
       mdHash: sha256Hex(raw),
       style: yaml.style,
       styleHash: fs.existsSync(yamlPath) ? sha256Hex(fs.readFileSync(yamlPath)) : "",
-      yaml: { title: yaml.title, digest: yaml.digest, author: yaml.author },
+      yaml: { title: yaml.title, digest: yaml.digest, author: yaml.author, contentSource: yaml.contentSource },
       images: imgs.map((f) => ({ name: f, url: signImageUrl(deps.imgSecret, dir, f, TTL) })),
     };
   });
