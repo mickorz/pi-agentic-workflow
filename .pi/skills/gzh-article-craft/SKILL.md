@@ -126,7 +126,8 @@ pi-workflow run dev-examples/wx-article/scripts/article_image_generate.js --non-
 3. **正文二次调整**：根据截图分析文档对齐正文与图——补充"如图"类引用、删去与截图重复的描述、调整段落让图落在语义节点上
 4. agent 用视觉工具逐张识别（内容/文字/可辘认知度/隐私）→ 产出"图 × 候选锚点 × 理由"插入意见表 → **用户拍板**后才插入
 5. **GIF 动图配置规范（2026-11-02 定案）**：livepanel 主题默认 light-pastel；**不做轮播场景模块**——无 cycle 机器、无盒子 when/then 轮播高亮、无底部日志条；**不带 credit 引擎署名行**（原创 config 无需署名，直接不写 credit 元素）；动画只保留 path flow 流动包与结构本身（贴“清晰表示流程/结构/架构”的诉求）；时长 6-10s、宽 ≤800px、体积 <10MB；改 diagram_source/filename 不触发 prompt_hash 变化，需微调 prompt 或删 manifest 条目强制 stale 后重渲
-6. 对账 → F3 humanizer → 入箱，照旧
+6. **手机竖屏可读性验证（2026-11-02 定案，发布前必过）**：全部配图就位后，逐张把图缩放到 **390px 宽**（模拟手机正文宽度）再交给视觉工具检查——节点名/关键文字有效字号 ≥10px、无不可读的长条横版图；不达标（如横版架构图）重排竖版或放大字号后重验。背景：DeepSeek 篇横版架构图实测 1600 宽在手机上字号只剩 4-6px 不可读，事后才发现已入箱
+7. 对账 → F3 humanizer → 入箱，照旧
 
 首例：ThinkRail IDE 篇（《截图插入分析.md》，8 张截图 + 1 张生成中心图）。
 
@@ -145,6 +146,7 @@ pi-workflow run dev-examples/wx-article/scripts/article_image_generate.js --non-
 - [ ] 正文引用数 = imgs 文件数（无悬空/无未引用），文件名无空格括号
 - [ ] 第一章有中心图（01- 前缀生成图，画面表达全文核心论点）
 - [ ] 发表前过 humanizer 去 AI 味：review-humanizer.md 已生成并经用户审批，批准的修改已落原文
+- [ ] **手机竖屏可读性验证已过**：全部配图逐张缩放 390px 宽用视觉工具检查，关键文字可读（横版长条图必须重排）
 - [ ] 每张生成图都有关键词文字设计 + expected_text
 - [ ] 封面 prompt 是 2.35:1 且主标题关键词入画
 - [ ] 踩坑清单（references/pitfalls.md）逐条过一遍再发布
