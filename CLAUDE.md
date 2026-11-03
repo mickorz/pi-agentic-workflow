@@ -31,6 +31,7 @@
 4. 若现有分类不适用，可新建类型子文件夹，但需保持命名风格一致，并在本文件表格中补充登记。
 5. 文档统一使用 Markdown 格式，文件名应能体现内容，例如 `2026-10-03-workflow-design.md`。
 6. **自动归类，无需询问**：发现 `dev-docs/` 根目录下有未归类的文档时，直接按内容判断类型并移动到对应子文件夹，不要向用户确认。
+7. **完成任务归档**：`dev-docs/planning/` 与 `dev-docs/design/` 下已完成的任务文档，移入所在目录的 `completed/` 子文件夹（如 `dev-docs/planning/completed/`），保持工作目录只留进行中的活。若同步插件开启，`completed/` 纳入 Obsidian 同步白名单。
 
 ## 进度文件夹：`dev-docs/progress/` 与报告文件夹：`dev-docs/progress-result/`
 
