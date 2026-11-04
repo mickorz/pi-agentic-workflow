@@ -144,7 +144,7 @@ pi-workflow run dev-examples/wx-article/scripts/article_image_generate.js --non-
 2. **检查 article.yaml 的 digest**:封面图占第 1 行后,自动 digest 会抓成第一个章题(如"一、xxx")——手工改成一句话导语再继续
 3. `check_state.py --article-dir <dir>`(prepare_ready=true 才继续;看 cover/exact_235/序号提示)
 4. **G.5 排版审阅(2026-11-03 新增,必过,方案见 `dev-docs/planning/2026-11-03-GZH排版工作台执行方案.md`)**:check_state 通过后、publish 之前,引导用户在本地预览工作台过目最终排版:
-   1. **打开工作台**:若 Server 未起,先跑 `pi-workflow web`(或 `node dist/cli/index.js web`),把横幅 URL + token 给用户;让用户打开 `<URL>/gzh-preview`(粘贴 token 后从列表选文章,或直接用 `?dir=<文章目录>` 进指定文章)。vault root 自动从 `.aws-article/config.json` 解析,也可用 `GZH_PREVIEW_VAULT_ROOT` 指定
+   1. **打开工作台**:若 Server 未起,先跑 `pi-workflow web`(或 `node dist/cli/index.js web`)。**优先用 chrome-use 免粘贴打开器(2026-11-04 定案)**:`python3 dev-examples/gzh-preview/open_preview.py --dir <文章目录绝对路径>`——自动读 pi-workflow.config.json 固定 token、注入 localStorage、在用户 Chrome 里直接打开已登录页面,用户只需看;chrome-use 不可用/relay 未连时才回落旧方式(把横幅 URL + token 给用户,让用户打开 `<URL>/gzh-preview` 粘贴 token)。vault root 自动从 `.aws-article/config.json` 解析,也可用 `GZH_PREVIEW_VAULT_ROOT` 指定
    2. **用户操作**:左侧改正文、切主题、看图(含 GIF);页面上的"保存"直接写回文章目录(md 原子替换,切主题只写 article.yaml 的 style 字段不动正文)
    3. **确认回流(聊天确认,与 F 阶段 preview 确认同模式)**:用户在聊天里回复确认后才能继续;若用户改了正文,保存后**必须重跑 check_state**(digest/图片引用可能变化),通过才进第 5 步
    4. **原则**:切模板不改正文;预览页无发布权限,发布仍走第 5 步 publish;P0 主题仅影响预览效果,不影响入箱样式(入箱仍是 publish_html.py 固定转换)
