@@ -32,7 +32,7 @@ const MIME: Record<string, string> = {
   ".md": "text/markdown; charset=utf-8",
 };
 
-function serveFrom(root: string, rel: string, fallback?: string): { data: Buffer; type: string } | null {
+function serveFrom(root: string, rel: string, fallback?: string): { data: Buffer; type: string; file: string } | null {
   let rel2 = rel;
   if (rel2 === "" || rel2 === "/") rel2 = "/index.html";
   let filePath = path.normalize(path.join(root, decodeURIComponent(rel2)));
@@ -44,7 +44,13 @@ function serveFrom(root: string, rel: string, fallback?: string): { data: Buffer
   return {
     data: fs.readFileSync(filePath),
     type: MIME[path.extname(filePath).toLowerCase()] ?? "application/octet-stream",
+    file: filePath,
   };
+}
+
+/** 缓存策略:带内容哈希的构建产物长缓存;index.html 与无哈希的 huasheng 文件必须每次回源校验 */
+function cacheControlFor(file: string): string {
+  return file.includes(`${path.sep}assets${path.sep}`) ? "public, max-age=604800, immutable" : "no-cache";
 }
 
 export function registerStaticRoutes(
@@ -59,6 +65,7 @@ export function registerStaticRoutes(
       const hit = serveFrom(root, `/${rel}`);
       if (!hit) return reply.code(404).send({ code: "NOT_FOUND", message: "not found" });
       reply.header("content-type", hit.type);
+      reply.header("cache-control", cacheControlFor(hit.file));
       return reply.send(hit.data);
     });
   }
@@ -71,6 +78,7 @@ export function registerStaticRoutes(
       const hit = serveFrom(root, req.url.split("?")[0] ?? "/", indexHtml);
       if (!hit) return reply.code(404).send({ code: "NOT_FOUND", message: "not found" });
       reply.header("content-type", hit.type);
+      reply.header("cache-control", cacheControlFor(hit.file));
       return reply.send(hit.data);
     });
   }
