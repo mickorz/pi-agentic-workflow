@@ -68,6 +68,18 @@ def main():
         print("指引：先启动 pi-workflow web 再重试")
         return 1
 
+    # gzh-preview 路由可达性预检（旧 dist 未重建时路由不注册，会落到 JSON 404 兜底页）
+    try:
+        req = urllib.request.Request("http://%s:%d/gzh-preview" % (host, port), headers={"Authorization": "Bearer " + token})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            body = resp.read(64)
+            if resp.status != 200 or b"<" not in body:
+                raise OSError("非 HTML 响应")
+    except Exception as exc:  # noqa: BLE001
+        print("[FAIL] /gzh-preview 不可达或未注册（%s）" % exc)
+        print("指引：仓库拉取新代码后需先 npm run build && (cd web && npm run build) 再重启 pi-workflow web")
+        return 1
+
     binary = find_binary()
     if binary is None:
         print("[FAIL] 未找到 chrome-use（也没有旧名 agent-browser 等别名）")
