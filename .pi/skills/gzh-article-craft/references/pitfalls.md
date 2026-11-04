@@ -81,3 +81,9 @@
 - pm2 wechat-bot 服务数据目录=仓库 `.pi-wechat/`（chat-logs/tasks.jsonl/run-attempts.jsonl 都在这）
 - 任务成功率统计：`dev-examples/wechat-stats/task_stats.py --data-dir .pi-wechat`（tasks.jsonl 同 taskBindingId 多行末行为准；原始行数≠任务数）
 - 正文 md 命名=最终标题（含空格/中文标点都行，md 文件名不受 IMG_REF 限制）；article.yaml 的 title/digest 由 normalize 自动补（title=文件名去 .md，digest=首段 120 字内句读截断）
+
+## 13. 章题用框架序号词，GEO 不可检索(2026-11-04)
+
+- 现象:多Agent篇章题"第一层怎么做?""第二层怎么做?""第三层怎么做?"入箱后被用户抓出——读者不会搜"第一层怎么做",这类章题 GEO 完全无匹配,被迫改题重导 layout 重发草稿
+- 根因:方法论文章自造了"三层"框架,章题顺手拿框架序号词当了开头;大纲阶段就该拦,拖到了发布后
+- 规矩(已入 SKILL.md A/B 两处):章题=真实用户搜索问法(疑问词开头+关键词入题);框架序号词(第一层/第二步/阶段一)禁进章题,层号/步骤号在章内正文交代;大纲确认时逐章题检查
