@@ -8,9 +8,9 @@
 
 | # | 事项 | 说明 | 建议 |
 |---|------|------|------|
-| A1 | **P2 微信真机验证未做** | `publish.py --html-file`(layout 模式)只过了 mock;微信 API 对 markdown-it HTML 的**样式保留度、连续图 grid 布局、GIF** 表现未知(风险 R4) | 挑一篇文章:`/gzh-preview` 导出 layout.html → `publish.py --html-file layout.html` 真机入一次草稿箱 → 手机端比对;不达标则 P2 降级回 P0 定位(主题仅预览) |
+| A1 | **P2 layout 模式真机验证未做**(注意:ThinkRail 篇入箱走的是标准 convert_md 链路,不构成 P2 验证) | `publish.py --html-file`(layout 模式)只过了 mock;微信 API 对 markdown-it HTML 的**样式保留度、连续图 grid 布局、GIF** 表现未知(风险 R4) | 挑一篇文章:`/gzh-preview` 导出 layout.html → `publish.py --html-file layout.html` 真机入一次草稿箱 → 手机端比对;不达标则 P2 降级回 P0 定位(主题仅预览) |
 | A2 | **导出 HTML 未做 grid→table 转换** | huasheng 的 `copyToClipboard` 有公众号兼容转换(grid→table、section 背景包裹、代码块简化),但导出走的是 `renderedContent` 原文。公众号不支持 CSS Grid(huasheng CLAUDE.md 明确) | A1 真机验证若图片布局乱,在 bridge export 里补 `convertGridToTable`(改动小,vm 方法现成) |
-| A3 | **真实 vault 端到端未跑** | 全部验收基于 fixture(DeepSeek 已入箱文章的**拷贝**,原库未动)。真实坚果云 vault 的路径/权限/obsidian 并发未实测 | 在真实文章上走一遍 G.5 排版审阅流程 |
+| A3 | ~~真实 vault 端到端未跑~~ **已完成(2026-11-03)** | ThinkRail IDE 篇在真实 vault 完整走查:预览台插图审阅→中心图/封面→humanizer→入箱 drafted;真实 vault 路径解析、并发、中文文件名全链路实测通过 | 无遗留 |
 | A4 | 代码未提交 | 全部改动在工作树待 commit(变更清单见 GZH-P0-执行报告.md) | 确认后提交 |
 | A5 | **真实文章拷贝已从工作区移除(隐私)** | 本仓库 remote 为公开 GitHub;真实文章全文/图片/草稿 ID 不能入库。真实验收已完成后删除拷贝,`fixture-vault/` 已 gitignore,套件改跑 `make_fixture.py` 生成的合成夹具(同要素:5 图含 2 GIF/中文文件名/表格/引用/代码块/drafted 状态),全部套件在合成夹具上复验全绿 | 无需动作;换机器跑套件会自动生成合成夹具 |
 

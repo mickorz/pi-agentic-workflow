@@ -94,9 +94,14 @@ def find_config_root(start: Path) -> Path | None:
 
 
 def select_md(article_dir: Path, explicit: str | None) -> Path:
-    """V1.2 第 5.1 节正文定位：显式指定 > 唯一合法正文 > 报错（绝不猜最长名）。"""
+    """V1.2 第 5.1 节正文定位：显式指定 > 唯一合法正文 > 报错（绝不猜最长名）。
+    显式路径相对 CWD 解析；不在时回退相对 article_dir（兼容只传文件名的调用）。"""
     if explicit:
         p = Path(explicit)
+        if not p.is_file() and not p.is_absolute():
+            fallback = article_dir / explicit
+            if fallback.is_file():
+                return fallback
         if not p.is_file():
             raise FileNotFoundError(f"md not found: {p}")
         return p

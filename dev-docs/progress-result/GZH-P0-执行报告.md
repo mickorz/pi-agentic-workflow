@@ -15,6 +15,7 @@
 | Web 前端 | `web/src/pages/GzhPreview.tsx`、`web/src/api/gzh.ts`、`web/vite.config.ts` | `/gzh-preview` 路由:文章列表/加载/双 dirty/保存/导出;vite `/huasheng` 静态映射 + `/gzh-img` 代理;editor:ready 双就绪注入(竞态修复 B1) |
 | CLI | `src/cli/commands/web.ts` | vault root 自动解析注入,解析失败不阻塞启动 |
 | 验收资产 | `dev-examples/gzh-preview/`(check_t01.mjs、run_p0_suite.py、check_e2e.mjs、run_p2_layout_test.py、make_fixture.py、test-host.html) | 可重复执行;真实验收用 DeepSeek 已入箱文章拷贝完成并记录后**已删除**(公开仓库隐私,见问题记录 A5);日常跑 `make_fixture.py` 合成夹具(要素等同),全部套件在合成夹具上复验全绿 |
+| 真实文章走查(A3,2026-11-03 补) | ThinkRail IDE 篇(真实 vault)完整走查通过:插图意见表→用户拍板→中心图(diagram-design HTML)+封面(生图+文字审核)→裁剪重排达标→humanizer→**publish 入箱 drafted**;过程中新增 content_source 正文定位对齐、静态工作台直开、--md-file 相对路径回退三项修复 |
 | 单测 | `tests/unit/gzh-routes.test.ts` | 10 用例:鉴权/列表/加载重写/签名五连/保存往返/baseHash/style 独立/锁冲突+接管/逃逸+多候选/导出还原 |
 
 ## 验收结果(对照方案第七节)
