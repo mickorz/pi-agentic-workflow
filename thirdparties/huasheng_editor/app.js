@@ -1122,17 +1122,36 @@ const markdown = \`![图片](img://\${imageId})\`;
 
       this._syncLock = false;
       // scroll 同步：加锁防止两侧互相触发死循环
+      // PATCH-GZH(2026-11-03): 原 rAF 解锁早于异步 scroll 事件派发,且双向映射不对称
+      // (编辑器→预览按行比例,预览→编辑器按锚点插值),程序化滚动会互发回写,
+      // 拖动滚动条时持续打架出现抖动。改为"确认应答"模式:_pendingSync 记录刚被
+      // 程序化滚动的一侧,该侧下一个 scroll 事件仅消费标记不再回写;
+      // 100ms 兕底防"值未变不发事件"卡死;_syncLock 保留覆盖点击跳转场景。
+      this._pendingSync = null;
+      const armPendingSync = (side) => {
+        this._pendingSync = side;
+        clearTimeout(this._pendingSyncFallback);
+        this._pendingSyncFallback = setTimeout(() => { this._pendingSync = null; }, 100);
+      };
+      const consumePendingSync = (side) => {
+        if (this._pendingSync === side) {
+          this._pendingSync = null;
+          clearTimeout(this._pendingSyncFallback);
+          return true;
+        }
+        return false;
+      };
       ta.addEventListener('scroll', () => {
         if (this._syncLock) return;
-        this._syncLock = true;
+        if (consumePendingSync('ta')) return;
+        armPendingSync('pv');
         this.syncPreviewToEditor();
-        requestAnimationFrame(() => { this._syncLock = false; });
       });
       pv.addEventListener('scroll', () => {
         if (this._syncLock) return;
-        this._syncLock = true;
+        if (consumePendingSync('pv')) return;
+        armPendingSync('ta');
         this.syncEditorToPreview();
-        requestAnimationFrame(() => { this._syncLock = false; });
       });
 
       // 点击/移动光标 → 预览跳转

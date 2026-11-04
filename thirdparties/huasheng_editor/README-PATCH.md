@@ -12,6 +12,7 @@
 | 1 | `app.js` 末行 | `editorApp.mount('#app');` 改为 `window.editorVm = editorApp.mount('#app');` | 暴露**组件代理**(App 实例不携带 data),供 bridge.js 读写 `markdownInput`/`currentStyle` 并复用 Vue 响应式刷新 |
 | 2 | `index.html` | 在 `<script src="app.js?v=2" defer>` **之前**插入 `<script src="bridge.js" defer></script>` | bridge 必须先于 app.js 运行:`loadUserPreferences` 在 app.js 同步执行链内即读 localStorage,晚了拦截不到首次读取 |
 | 3 | `bridge.js`(新增,非补丁) | 宿主桥接协议(8 消息:load/get/style/dirty/ready/export) + hostedMode 存储隔离 | 协议与设计见 `../../dev-docs/planning/2026-11-03-GZH排版工作台执行方案.md` D1/D1.6 |
+| 4 | `app.js` mounted 滚动同步段 | 原 rAF 解锁早于异步 scroll 事件派发 + 双向映射不对称(行比例 vs 锚点插值),程序化滚动互发回写,拖动滚动条持续抖动;改"确认应答"模式(_pendingSync 消费刚被程序化滚动一侧的下一个事件,100ms 兜底;_syncLock 保留覆盖点击跳转) | 修 `dev-docs/bugs/拖动滑动条bug.md`;实测单次滚动 3+3 互写漂移(pv 600→506)收敛为 1+1 稳定 |
 
 ## 验收
 
