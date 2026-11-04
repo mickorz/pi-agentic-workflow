@@ -251,6 +251,7 @@ export function registerGzhRoutes(app: FastifyInstance, deps: GzhRoutesDeps): vo
       for (const e of entries) {
         if (!e.isDirectory() || e.name.startsWith(".")) continue;
         const sub = path.join(dir, e.name);
+        // 目录自身有 md:尝试当文章目录收录(多候选/无正文不报错,仅不下钻前先试)
         const hasMd = fs
           .readdirSync(sub, { withFileTypes: true })
           .some((x) => x.isFile() && x.name.toLowerCase().endsWith(".md"));
@@ -262,11 +263,11 @@ export function registerGzhRoutes(app: FastifyInstance, deps: GzhRoutesDeps): vo
             const drafted = fs.existsSync(path.join(sub, "publish-state.json"));
             found.push({ dir: sub, title: mdName.replace(/\.md$/i, ""), mtime: stat.mtimeMs, style: yaml.style, drafted });
           } catch {
-            /* 无正文或多候选的目录跳过,不影响列表 */
+            /* 多候选/无正文:该目录不是文章目录,但子目录仍可能是(如日期层夹散故剪藏) */
           }
-        } else {
-          walk(sub, depth + 1);
         }
+        // 始终下钻:容器目录(日期层等)不因自身有 md 而阻断子目录扫描
+        walk(sub, depth + 1);
       }
     };
     walk(scanRoot, 0);

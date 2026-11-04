@@ -14,7 +14,7 @@ try {
     const abs = path.resolve(f);
     const html = path.join(tmpDir, `i${n}.html`);
     fs.writeFileSync(html, `<body style="margin:0"><img id="i" src="file:///${abs.replace(/\\/g, '/')}" style="width:390px;display:block"></body>`);
-    files[n] = { abs, html, out: abs.replace(/\.png$/i, '-390.png') };
+    files[n] = { abs, html, out: abs.replace(/\.(png|jpe?g)$/i, '-390.png') };
   });
   for (const it of files) {
     await page.goto('file:///' + it.html.replace(/\\/g, '/'));
