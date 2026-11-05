@@ -56,3 +56,6 @@ dev-examples/goal-live-test/
 
 # 本地 Server 固定 token(含密钥,不入公开库;token 丢失删掉该文件重启即重新随机)
 pi-workflow.config.json
+
+# space-image 快照 47MB 不入库;九套风格语法已提炼进 .pi/skills/gzh-article-craft/references/space-image-styles.md
+thirdparties/space-image/
