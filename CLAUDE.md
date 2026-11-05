@@ -58,6 +58,15 @@
    - 若无记录，解决完成后再将完整过程沉淀为新文档。
 3. 经验文档建议结构：**问题现象 → 排查过程 → 根因 → 解决方案 → 预防/注意事项**，文件名体现问题关键词，例如 `node-version-conflict.md`。
 
+## 术语约定：贴图 = 小绿书（2026-11 定案）
+
+公众号内容形态的叫法全仓统一：
+
+1. **“贴图”一律称“小绿书”**：提到发布贴图时统一说“发布小绿书”，文档、代码注释、commit、对话均用此叫法（即微信“图片帖/小绿书”形态）。
+2. **API 对应关系**：小绿书 = `draft/add` + `article_type: "newspic"`（图片走永久素材 `image_info.image_list`，无需单独接口）；文章 = news 类型 + `freepublish` 公开发表。
+3. **现状与参考**：本仓发布链路目前只有文章；小绿书原生发布未接入，参考实现见
+   `thirdparties/wewrite/src/wewrite/toolkit/publisher.py` 的 `create_image_post()`。
+
 ## Git 提交约定：改动即提交推送（2026-11-03 定案）
 
 1. **不要询问是否 commit/push**：完成一组修改（代码/文档/skill 等）后，默认主动 git commit + push，无需向用户确认。
