@@ -37,3 +37,6 @@
 [submodule "thirdparties/gzh-export"]
 	path = thirdparties/gzh-export
 	url = https://github.com/huanxi007/gzh-export.git
+[submodule "thirdparties/guizang-social-card-skill"]
+	path = thirdparties/guizang-social-card-skill
+	url = https://github.com/op7418/guizang-social-card-skill
