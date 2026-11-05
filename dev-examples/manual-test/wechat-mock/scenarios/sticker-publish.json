@@ -1,0 +1,41 @@
+{
+  "name": "sticker-publish",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-sticker-publish"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "小绿书发布测试",
+        "mocksticker"
+      ],
+      "reply": "{\"intent\":\"execute_workflow\",\"action\":\"start_execution\",\"workflowId\":\"mock-sticker-publish\",\"args\":{\"articleDir\":\"{articleDir}\",\"outFile\":\"{outFile}\"},\"missingFields\":[],\"reason\":\"wx-mock 小绿书发布通道 Gate B\",\"confidence\":0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "S1",
+      "name": "小绿书发布：publish.py --xiaolvshu --mock 入草稿箱成功",
+      "send": "小绿书发布测试 mocksticker",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-sticker-publish",
+        "timeoutSec": 180
+      },
+      "assertFile": [
+        "{outFile}"
+      ],
+      "assertFileContains": {
+        "file": "{outFile}",
+        "contains": "=== ALL DONE draft_media_id="
+      }
+    }
+  ],
+  "vars": {
+    "articleDir": "{runDir}/work/sticker-article",
+    "outFile": "{runDir}/work/sticker-out.txt"
+  }
+}

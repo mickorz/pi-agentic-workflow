@@ -2,6 +2,7 @@
 """写作稿直发微信草稿箱脚本 v2（P0 重构 + P2 公开发表：状态机 + 原子锁 + 账号透传 + 同内容复用）。
 
 需求文档：dev-docs/planning/公众号文章统一处理流水线（article_pipeline）需求文档（V1.2）.md
+术语（2026-11 定案）：贴图=小绿书；--xiaolvshu 即小绿书模式（微信 newspic 图片帖）。
 
 CLI（向后兼容 wechat_md_to_draft.js 现有调用，新增参数全部可选）：
   python3 publish.py --article-dir <dir> --cover <相对路径>
@@ -15,12 +16,18 @@ CLI（向后兼容 wechat_md_to_draft.js 现有调用，新增参数全部可选
                      [--resolve-publish-id <id>]  # 人工核对后的发表结论补记
                      [--clear-pending]         # 人工确认丢弃未决操作
                      [--resolve-media-id <id>] # draft_add/update unknown 的人工恢复
+                     [--xiaolvshu]             # 小绿书模式:imgs/ 整组图入箱为 newspic 图片帖草稿
+                                               # (无 cover/md/html;首图即封面;freepublish 不支持,后台手发)
+                     [--content <纯文本>]      # 小绿书配文;缺省 --digest > article.yaml digest > 空
 
-两种模式（同一状态文件，互斥分支）：
+三种模式（同一状态文件，互斥分支）：
   草稿模式（默认）：快照 Hash -> drafted+Hash同 复用 / Hash变 draft/update / not_drafted draft/add
   发表模式（--freepublish）：校验 drafted+Hash 未变 -> draft/get 远端核对 -> freepublish/submit
     -> pendingOperation 记 publishId -> freepublish/get 轮询确认后才写 published；
     发表成功后草稿从草稿箱移除(真实微信行为)，重复发表被拒绝。
+  小绿书模式（--xiaolvshu）：imgs/ 下图片自然序全量上传永久素材 -> image_post_add(newspic) 入箱；
+    复用/更新决策与草稿模式同构（同 Hash 复用 / 变更 draft_update，kind=sticker 隔离防互踩文章草稿）；
+    freepublish 对 newspic 未验证 => 显式拒绝，发表请到公众号后台手动操作。
 
 失败语义（两模式一致）：
   WechatAPIError     明确失败 => 清 pending 保留旧状态，退出码 1（[FAIL]）
@@ -33,6 +40,8 @@ CLI（向后兼容 wechat_md_to_draft.js 现有调用，新增参数全部可选
 === ALL DONE draft_media_id=... ===；失败 [FAIL] ... 退出码 1；
 [UNKNOWN] ... 退出码 2；[LOCKED] ... 退出码 3；
 发表模式：[PUBLISHED] .../=== ALL DONE publish_id=... ===；[PUBLISHING] ...（已受理未确认，退出码 0）。
+小绿书模式：[sticker] N images: .../[meta] title=.../[hash] ...(sticker v1)/
+[1] TOKEN OK/[2] IMG i/n OK media_id=.../[5]/[6]/ALL DONE 与草稿模式同字面量。
 """
 from __future__ import annotations
 
@@ -177,6 +186,99 @@ def build_article(title: str, author: str, digest: str, html: str, thumb_media_i
     }
 
 
+def build_image_post(title: str, content: str, image_media_ids: list, cfg: dict) -> dict:
+    """小绿书(newspic) article 结构；首图即封面，无 author/digest/thumb。"""
+    return {
+        "article_type": "newspic",
+        "title": title,
+        "content": content,
+        "image_info": {"image_list": [{"image_media_id": m} for m in image_media_ids]},
+        "need_open_comment": int(cfg.get("need_open_comment") or 0),
+        "only_fans_can_comment": int(cfg.get("only_fans_can_comment") or 0),
+    }
+
+
+# ---------------------------------------------------------------- 小绿书模式 --
+
+STICKER_IMG_EXT = {".png", ".jpg", ".jpeg", ".gif"}  # 永久素材支持的图片格式(webp 不入内)
+STICKER_TITLE_MAX = 32    # 微信 newspic 标题上限
+STICKER_CONTENT_MAX = 1000  # 配文纯文本上限
+
+
+def sticker_content_hash(images: list, title: str, content: str, appid: str) -> str:
+    """小绿书 Hash：sticker v1 版本标记 + 图片(名称+字节) + 标题 + 配文 + appid。
+    与文章 Hash(html rule 版本域)天然隔离，永不碰撞。"""
+    h = hashlib.sha256()
+    h.update(b"sticker-v1")
+    h.update(b"\x00")
+    for img in images:
+        h.update(b"img")
+        h.update(img.name.encode("utf-8"))
+        h.update(img.read_bytes())
+        h.update(b"\x00")
+    h.update((title + "\x00" + content + "\x00" + appid).encode("utf-8"))
+    return h.hexdigest()
+
+
+def select_sticker_images(article_dir: Path) -> list:
+    """imgs/ 下图片按自然序(数字前缀)全量入选；无图/超 20 张报错。"""
+    imgs_dir = article_dir / "imgs"
+    if not imgs_dir.is_dir():
+        raise FileNotFoundError(f"imgs/ not found in {article_dir}")
+    files = [p for p in imgs_dir.iterdir() if p.is_file() and p.suffix.lower() in STICKER_IMG_EXT]
+
+    def nat_key(p: Path):
+        m = re.search(r"\d+", p.stem)
+        return (int(m.group()) if m else 10**9, p.name)
+
+    files.sort(key=nat_key)
+    if not files:
+        raise FileNotFoundError(f"no sticker image (png/jpg/jpeg/gif) in {imgs_dir}")
+    if len(files) > 20:
+        raise ValueError(f"too many images ({len(files)}), WeChat newspic max 20")
+    return files
+
+
+def sticker_prepare(article_dir: Path, args, appid: str) -> dict:
+    """小绿书本地阶段：选图 + 元数据 + Hash。标题 > article.yaml > 报错；
+    配文 > --content > --digest > article.yaml digest > 空；超长按句读截断。"""
+    imgs = select_sticker_images(article_dir)
+    ym = read_article_yaml(article_dir)
+    title = _unquote(args.title or ym.get("title", ""))
+    if not title:
+        raise ValueError("no title: pass --title or add article.yaml title")
+    if len(title) > STICKER_TITLE_MAX:
+        title = title[:STICKER_TITLE_MAX]
+        print(f"[sticker] title 超 {STICKER_TITLE_MAX} 字截断 -> {title}")
+    content = _unquote(args.content or args.digest or ym.get("digest", "") or "")
+    if len(content) > STICKER_CONTENT_MAX:
+        cut = content[:STICKER_CONTENT_MAX]
+        for sep in ("。", "；", "，", ","):
+            idx = cut.rfind(sep)
+            if idx >= 500:
+                cut = cut[: idx + len(sep)]
+                break
+        content = cut
+        print(f"[sticker] 配文超 {STICKER_CONTENT_MAX} 字截断 -> {len(content)} 字")
+    names = ", ".join(p.name for p in imgs[:5]) + (" ..." if len(imgs) > 5 else "")
+    print(f"[sticker] {len(imgs)} images: {names}")
+    print(f"[meta] title={title} | contentLen={len(content)}")
+    return {
+        "imgs": imgs,
+        "title": title,
+        "content": content,
+        "hash": sticker_content_hash(imgs, title, content, appid),
+    }
+
+
+def sticker_matches_disk(meta: dict, appid: str) -> bool:
+    """远程阶段前复核：图片/元数据自本地阶段后未被并发修改（Hash 重算比对）。"""
+    try:
+        return sticker_content_hash(meta["imgs"], meta["title"], meta["content"], appid) == meta["hash"]
+    except OSError:
+        return False
+
+
 def _now() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -192,6 +294,7 @@ def _get_acc(state_path: Path, appid: str) -> dict:
             "draftMediaId": acc.get("draftMediaId"),
             "contentHash": acc.get("contentHash"),
             "publishId": acc.get("publishId"),
+            "kind": acc.get("kind"),
             "pendingOperation": dict(acc["pendingOperation"]) if acc.get("pendingOperation") else None,
         }
 
@@ -341,7 +444,8 @@ def article_dir_of(state_path: Path) -> Path:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--article-dir", required=True)
-    ap.add_argument("--cover", required=True)
+    ap.add_argument("--cover", default=None,
+                    help="文章封面(相对文章目录);小绿书模式不需要(首图即封面)")
     ap.add_argument("--account-slot", type=int, default=1)
     ap.add_argument("--md-file", default=None)
     ap.add_argument("--title", default=None)
@@ -356,6 +460,11 @@ def main() -> int:
     ap.add_argument("--publish-status", action="store_true")
     ap.add_argument("--resolve-publish-id", default=None)
     ap.add_argument("--clear-pending", action="store_true")
+    ap.add_argument("--xiaolvshu", action="store_true",
+                    help="小绿书模式(贴图=小绿书):imgs/ 整组图入箱为 newspic 图片帖草稿;"
+                         "无 cover/md/html;freepublish 不支持,发表请到公众号后台")
+    ap.add_argument("--content", default=None,
+                    help="小绿书配文(纯文本);缺省 --digest > article.yaml digest > 空")
     ap.add_argument("--html-file", default=None,
                     help="跳过内置 convert_md,直接用指定 HTML 文件入箱(GZH 排版工作台导出的 layout.html;"
                          "相对路径相对文章目录解析)。图片引用须保持 imgs/ 相对路径,上传时统一替换微信 URL")
@@ -364,12 +473,24 @@ def main() -> int:
     article_dir = Path(args.article_dir)
     if not article_dir.is_dir():
         return fail(f"article_dir not found: {article_dir}")
-    cover_path = (article_dir / args.cover).resolve()
-    if not cover_path.is_file():
-        return fail(f"cover not found: {cover_path}")
-    # 封面 2.35:1 保障（2026-10-27 53401 教训：接近但非精确 2.35 会被拒；接近比例自动缩放，明显偏离仅提示）
-    cov_fix = ensure_cover_235(cover_path, backup_dir=article_dir / "_cover-original")
-    print(f"[COVER] {cov_fix['action']}: {cov_fix['msg']}")
+    # 小绿书模式前置拦截：互斥参数与不支持的动作显式拒绝(fail fast,不进锁不碰网)
+    if args.xiaolvshu and args.freepublish:
+        return fail("小绿书(newspic)暂不支持 --freepublish:微信对图片帖的公开发表接口未验证,"
+                    "请到公众号后台草稿箱手动发表")
+    if args.xiaolvshu and (args.md_file or args.html_file):
+        return fail("--xiaolvshu 不接受 --md-file/--html-file(小绿书无正文)")
+    if args.xiaolvshu and args.cover:
+        return fail("--xiaolvshu 不接受 --cover(首图即封面)")
+    cover_path = None
+    if not args.xiaolvshu:
+        if not args.cover:
+            return fail("cover required: pass --cover <相对路径>")
+        cover_path = (article_dir / args.cover).resolve()
+        if not cover_path.is_file():
+            return fail(f"cover not found: {cover_path}")
+        # 封面 2.35:1 保障（2026-10-27 53401 教训：接近但非精确 2.35 会被拒；接近比例自动缩放，明显偏离仅提示）
+        cov_fix = ensure_cover_235(cover_path, backup_dir=article_dir / "_cover-original")
+        print(f"[COVER] {cov_fix['action']}: {cov_fix['msg']}")
 
     config_root = Path(args.config_dir) if args.config_dir else (
         find_config_root(article_dir) or find_config_root(Path(__file__).parent)
@@ -412,77 +533,87 @@ def main() -> int:
         print(f"[LOCKED] article busy: {e}")
         return 3
     try:
-        try:
-            md_path = select_md(article_dir, args.md_file)
-        except (FileNotFoundError, ValueError) as e:
-            return fail(str(e))
-        print(f"[md] {md_path.name}")
-
-        md_text = md_path.read_text(encoding="utf-8-sig")
-        fm_title, fm_digest = parse_frontmatter(md_text)
-        # article.yaml 兑底（handoff/prepare 产出的标题与摘要在此；CLI 显式参数 > frontmatter > article.yaml）
-        ym = read_article_yaml(article_dir)
-        title = _unquote(args.title or fm_title or ym.get("title", ""))
-        digest = _unquote(args.digest or fm_digest or ym.get("digest", ""))
-        author = args.author or ym.get("author", "") or cfg.get("default_author") or ""
-        if not title:
-            return fail("no title: pass --title or add frontmatter (no more guessing)")
-        digest = digest or title
-        # 微信草稿 digest 上限 120 字（errcode 45004 description size out of limit）；超长截断到句读边界
-        if len(digest) > 120:
-            cut = digest[:120]
-            for sep in ("。", "；", "，", ","):
-                idx = cut.rfind(sep)
-                if idx >= 54:  # 至少保留 54 字，避免截得太碎
-                    cut = cut[: idx + len(sep)]
-                    break
-            digest = cut
-            print(f"[digest] 超 120 字截断 -> {len(digest)} 字")
-        author = author or "AI奇点"
-        print(f"[meta] title={title} | author={author} | digestLen={len(digest)}")
-
-        from publish_html import convert_md
-
-        if args.html_file:
-            # GZH 排版工作台 layout-html 模式(P2):预览导出的渲染 HTML 直接入箱,
-            # 不再走内置 convert_md;图片保持 imgs/ 相对引用,上传阶段统一替换微信 URL。
-            html_path = Path(args.html_file)
-            if not html_path.is_absolute():
-                html_path = article_dir / html_path
-            if not html_path.is_file():
-                return fail(f"html file not found: {html_path}")
-            html = html_path.read_text(encoding="utf-8")
-            if len(html) < 200:
-                return fail(f"html too short ({len(html)} chars), layout.html likely empty")
-            if html_path.stat().st_mtime < md_path.stat().st_mtime:
-                print("[WARN] layout.html 比 md 旧:导出后正文又被改过,建议重新导出再入箱")
-            print(f"[html] loaded {html_path.name} {len(html)} chars (layout mode)")
+        sticker_meta = None
+        if args.xiaolvshu:
+            # 小绿书本地阶段：选图 + 元数据 + Hash（无 md/html/快照）
+            try:
+                sticker_meta = sticker_prepare(article_dir, args, appid)
+            except (FileNotFoundError, ValueError) as e:
+                return fail(str(e))
+            content_hash = sticker_meta["hash"]
+            print(f"[hash] {content_hash[:16]}... (sticker v1)")
         else:
-            html = convert_md(md_text)
-            if len(html) < 200:
-                return fail(f"html too short ({len(html)} chars), content likely empty")
-            print(f"[html] generated {len(html)} chars")
+            try:
+                md_path = select_md(article_dir, args.md_file)
+            except (FileNotFoundError, ValueError) as e:
+                return fail(str(e))
+            print(f"[md] {md_path.name}")
 
-        refs = image_refs(md_text)
-        print(f"[imgs] found {len(refs)} image refs")
+            md_text = md_path.read_text(encoding="utf-8-sig")
+            fm_title, fm_digest = parse_frontmatter(md_text)
+            # article.yaml 兑底（handoff/prepare 产出的标题与摘要在此；CLI 显式参数 > frontmatter > article.yaml）
+            ym = read_article_yaml(article_dir)
+            title = _unquote(args.title or fm_title or ym.get("title", ""))
+            digest = _unquote(args.digest or fm_digest or ym.get("digest", ""))
+            author = args.author or ym.get("author", "") or cfg.get("default_author") or ""
+            if not title:
+                return fail("no title: pass --title or add frontmatter (no more guessing)")
+            digest = digest or title
+            # 微信草稿 digest 上限 120 字（errcode 45004 description size out of limit）；超长截断到句读边界
+            if len(digest) > 120:
+                cut = digest[:120]
+                for sep in ("。", "；", "，", ","):
+                    idx = cut.rfind(sep)
+                    if idx >= 54:  # 至少保留 54 字，避免截得太碎
+                        cut = cut[: idx + len(sep)]
+                        break
+                digest = cut
+                print(f"[digest] 超 120 字截断 -> {len(digest)} 字")
+            author = author or "AI奇点"
+            print(f"[meta] title={title} | author={author} | digestLen={len(digest)}")
 
-        try:
-            snap = make_snapshot(article_dir, md_path, cover_path, html)
-        except FileNotFoundError as e:
-            return fail(str(e))
-        content_hash = compute_content_hash(
-            snap["md_bytes"], snap["images"], snap["cover"], title, digest, author, appid
-        )
-        if args.html_file:
-            # layout 模式哈希混入渲染文件内容:同一 md 换主题/换 HTML 必须触发草稿更新,
-            # 且与 convert_md 模式的哈希永不碰撞(模式标记隔离)
-            layout_mix = hashlib.sha256(html.encode("utf-8")).hexdigest()
-            content_hash = hashlib.sha256(
-                (content_hash + "\x00layout-file\x00" + layout_mix).encode("utf-8")
-            ).hexdigest()
-            print(f"[hash] {content_hash[:16]}... (layout mode, html mixed)")
-        else:
-            print(f"[hash] {content_hash[:16]}... (html rule v{HTML_RULE_VERSION})")
+            from publish_html import convert_md
+
+            if args.html_file:
+                # GZH 排版工作台 layout-html 模式(P2):预览导出的渲染 HTML 直接入箱,
+                # 不再走内置 convert_md;图片保持 imgs/ 相对引用,上传阶段统一替换微信 URL。
+                html_path = Path(args.html_file)
+                if not html_path.is_absolute():
+                    html_path = article_dir / html_path
+                if not html_path.is_file():
+                    return fail(f"html file not found: {html_path}")
+                html = html_path.read_text(encoding="utf-8")
+                if len(html) < 200:
+                    return fail(f"html too short ({len(html)} chars), layout.html likely empty")
+                if html_path.stat().st_mtime < md_path.stat().st_mtime:
+                    print("[WARN] layout.html 比 md 旧:导出后正文又被改过,建议重新导出再入箱")
+                print(f"[html] loaded {html_path.name} {len(html)} chars (layout mode)")
+            else:
+                html = convert_md(md_text)
+                if len(html) < 200:
+                    return fail(f"html too short ({len(html)} chars), content likely empty")
+                print(f"[html] generated {len(html)} chars")
+
+            refs = image_refs(md_text)
+            print(f"[imgs] found {len(refs)} image refs")
+
+            try:
+                snap = make_snapshot(article_dir, md_path, cover_path, html)
+            except FileNotFoundError as e:
+                return fail(str(e))
+            content_hash = compute_content_hash(
+                snap["md_bytes"], snap["images"], snap["cover"], title, digest, author, appid
+            )
+            if args.html_file:
+                # layout 模式哈希混入渲染文件内容:同一 md 换主题/换 HTML 必须触发草稿更新,
+                # 且与 convert_md 模式的哈希永不碰撞(模式标记隔离)
+                layout_mix = hashlib.sha256(html.encode("utf-8")).hexdigest()
+                content_hash = hashlib.sha256(
+                    (content_hash + "\x00layout-file\x00" + layout_mix).encode("utf-8")
+                ).hexdigest()
+                print(f"[hash] {content_hash[:16]}... (layout mode, html mixed)")
+            else:
+                print(f"[hash] {content_hash[:16]}... (html rule v{HTML_RULE_VERSION})")
     finally:
         article_lock.release()
 
@@ -504,6 +635,13 @@ def main() -> int:
 
         acc = _get_acc(state_path, appid)
         pending = acc["pendingOperation"]
+        # 小绿书与文章共用状态文件：按 kind 隔离，防同目录互踩对方草稿
+        # （旧文章状态无 kind 字段，视作 article；sticker 草稿写入时显式记 kind=sticker）
+        acc_kind = acc.get("kind") or "article"
+        my_kind = "sticker" if args.xiaolvshu else "article"
+        if acc["status"] != "not_drafted" and acc_kind != my_kind:
+            return fail(f"该目录状态属于{acc_kind}草稿(kind 不匹配 my={my_kind}); "
+                        "小绿书与文章请用不同文章目录,避免互踩覆盖")
         if pending:
             pstatus = pending.get("status")
             ptype = pending.get("type")
@@ -545,7 +683,10 @@ def main() -> int:
         old_hash = acc["contentHash"]
 
         # 快照与磁盘一致性（上传期间内容被改 => 中止本轮）
-        if not snapshot_matches_disk(article_dir, md_path, cover_path, snap):
+        if args.xiaolvshu:
+            if not sticker_matches_disk(sticker_meta, appid):
+                return fail("content changed during publish (sticker mismatch), rerun")
+        elif not snapshot_matches_disk(article_dir, md_path, cover_path, snap):
             cleanup_snapshot(article_dir)
             return fail("content changed during publish (snapshot mismatch), rerun")
 
@@ -592,28 +733,40 @@ def main() -> int:
             write_pending()
 
             print("[1] TOKEN OK")
-            thumb_media_id = client.add_material_image(snap["cover"])
-            print(f"[2] THUMB OK media_id={thumb_media_id}")
+            if args.xiaolvshu:
+                # 小绿书：整组图上传永久素材 -> newspic 草稿（无 thumb/HTML）
+                media_ids = []
+                n_imgs = len(sticker_meta["imgs"])
+                for i, img_local in enumerate(sticker_meta["imgs"], 1):
+                    mid = client.add_material_image(img_local)
+                    media_ids.append(mid)
+                    print(f"[2] IMG {i}/{n_imgs} OK media_id={mid}")
+                article = build_image_post(sticker_meta["title"], sticker_meta["content"], media_ids, cfg)
+                thumb_media_id = None
+            else:
+                thumb_media_id = client.add_material_image(snap["cover"])
+                print(f"[2] THUMB OK media_id={thumb_media_id}")
 
-            html_snap = (snap["dir"] / "content.html").read_text(encoding="utf-8")
-            img_map: dict[str, str] = {}
-            for idx, ref in enumerate(snap["refs"], 1):
-                img_local = snap["images"][idx - 1]
-                url = client.uploadimg(img_local)
-                img_map[ref] = url
-                print(f"[3] IMG {idx}/{len(snap['refs'])} {ref} OK")
-            for ref, url in img_map.items():
-                html_snap = html_snap.replace(ref, url)
-                html_snap = html_snap.replace(ref.replace("/", "\\"), url)
-            print(f"[4] html after replace {len(html_snap)} chars")
+                html_snap = (snap["dir"] / "content.html").read_text(encoding="utf-8")
+                img_map: dict[str, str] = {}
+                for idx, ref in enumerate(snap["refs"], 1):
+                    img_local = snap["images"][idx - 1]
+                    url = client.uploadimg(img_local)
+                    img_map[ref] = url
+                    print(f"[3] IMG {idx}/{len(snap['refs'])} {ref} OK")
+                for ref, url in img_map.items():
+                    html_snap = html_snap.replace(ref, url)
+                    html_snap = html_snap.replace(ref.replace("/", "\\"), url)
+                print(f"[4] html after replace {len(html_snap)} chars")
 
-            article = build_article(title, author, digest, html_snap, thumb_media_id, cfg)
+                article = build_article(title, author, digest, html_snap, thumb_media_id, cfg)
 
             if op_type == "draft_update":
                 client.draft_update(old_media_id, article, index=0)
                 new_media_id = old_media_id
             else:
-                new_media_id = client.draft_add(article)
+                new_media_id = (client.image_post_add(article) if args.xiaolvshu
+                                else client.draft_add(article))
 
             print(f"[5] DRAFT OK media_id={new_media_id}" + (" (updated)" if op_type == "draft_update" else ""))
             with StateRMW(state_path) as st:
@@ -623,9 +776,12 @@ def main() -> int:
                     draftMediaId=new_media_id,
                     contentHash=content_hash,
                     thumbMediaId=thumb_media_id,
+                    kind="sticker" if args.xiaolvshu else "article",
                     pendingOperation=None,
                     updatedAt=_now(),
                 )
+                if args.xiaolvshu:
+                    a["imageMediaIds"] = media_ids
         except WechatAPIError as e:
             # draft_update 40007 = 旧草稿已删除/已发表移除（media_id 失效）：
             # 自愈——重置账号态走下次 draft_add 新建（图已传完，不再让用户手工改 state）。
@@ -648,9 +804,10 @@ def main() -> int:
 
         # 产物日志（append 幂等，仅记录不作为状态来源）
         stamp = _now()
+        mode_name = ("sticker" if args.xiaolvshu else "article") + "_" + op_type
         with open(article_dir / "publish.log", "a", encoding="utf-8") as f:
             f.write(f"[publish] {stamp} account={appid} draft={new_media_id} "
-                    f"mode={op_type} hash={content_hash[:12]}\n")
+                    f"mode={mode_name} hash={content_hash[:12]}\n")
         cleanup_snapshot(article_dir)
         print("[6] state saved")
         print(f"=== ALL DONE draft_media_id={new_media_id} ===")

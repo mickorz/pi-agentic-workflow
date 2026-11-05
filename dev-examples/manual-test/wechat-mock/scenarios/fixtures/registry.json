@@ -56,6 +56,20 @@
     }
   },
   {
+    "workflowId": "mock-sticker-publish",
+    "scriptPath": "mock-sticker-publish.js",
+    "name": "Mock 小绿书发布",
+    "description": "确定性测试：publish.py --xiaolvshu --mock 入箱（newspic 图片帖，零 LLM 零外部服务）",
+    "enabled": true,
+    "riskLevel": "read-only",
+    "keywords": ["mocksticker", "小绿书发布", "小绿书"],
+    "argsSchema": {
+      "type": "object",
+      "properties": { "articleDir": { "type": "string" }, "outFile": { "type": "string" } },
+      "required": ["articleDir", "outFile"]
+    }
+  },
+  {
     "workflowId": "mock-demo-legacy",
     "scriptPath": "mock-echo.js",
     "name": "Mock 演示旧流程",

@@ -64,8 +64,10 @@
 
 1. **“贴图”一律称“小绿书”**：提到发布贴图时统一说“发布小绿书”，文档、代码注释、commit、对话均用此叫法（即微信“图片帖/小绿书”形态）。
 2. **API 对应关系**：小绿书 = `draft/add` + `article_type: "newspic"`（图片走永久素材 `image_info.image_list`，无需单独接口）；文章 = news 类型 + `freepublish` 公开发表。
-3. **现状与参考**：本仓发布链路目前只有文章；小绿书原生发布未接入，参考实现见
-   `thirdparties/wewrite/src/wewrite/toolkit/publisher.py` 的 `create_image_post()`。
+3. **现状与参考**：小绿书发布通道已接入——`publish.py --xiaolvshu`（imgs/ 整组图入草稿箱 newspic，
+   同状态机/锁/复用语义，kind 隔离；freepublish 对 newspic 未验证，发表靠后台手发）；
+   设计见 `dev-docs/design/2026-11-05-小绿书发布通道设计.md`，验收见 `dev-docs/progress-result/AP-S0-执行报告.md`；
+   早期参考实现 `thirdparties/wewrite/src/wewrite/toolkit/publisher.py` 的 `create_image_post()`。
 
 ## Git 提交约定：改动即提交推送（2026-11-03 定案）
 

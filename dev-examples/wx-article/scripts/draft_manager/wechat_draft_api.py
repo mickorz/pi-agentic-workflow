@@ -135,6 +135,18 @@ class WechatClient:
             raise WechatAPIError("draft_add", r.get("errcode"), r.get("errmsg"))
         return r["media_id"]
 
+    def image_post_add(self, article: dict) -> str:
+        """小绿书(图片帖 newspic)草稿：同一个 draft/add 接口，article_type=newspic。
+
+        上层用 build_image_post 组装 article；首图即封面，无 thumb/HTML；
+        标题 <=32 字，图 1~20 张(永久素材 media_id)，content 纯文本(约 <=1000 字)。
+        freepublish 对 newspic 未验证，本层不提供小绿书自动发表。
+        """
+        r = self._post_json(f"{self.base}/cgi-bin/draft/add?access_token={self.token()}", {"articles": [article]})
+        if not r.get("media_id"):
+            raise WechatAPIError("image_post_add", r.get("errcode"), r.get("errmsg"))
+        return r["media_id"]
+
     def draft_update(self, media_id: str, article: dict, index: int = 0) -> None:
         r = self._post_json(
             f"{self.base}/cgi-bin/draft/update?access_token={self.token()}",
@@ -181,7 +193,8 @@ class MockWechatClient:
     """本地 Mock：草稿存 JSON store（跨子进程共享，自身 RMW 串行化 + 原子落盘）。
 
     store 结构：{"counter": N, "drafts": {media_id: {title, digest, author, content,
-    thumb_media_id, appid, deleted}}, "calls": [{op, appid, at}]}
+    thumb_media_id, article_type(news|newspic), image_media_ids, appid, deleted}},
+    "calls": [{op, appid, at}]}
     inject：None / add-timeout / add-errcode / crash-after-add / update-timeout / crash-after-update
     """
 
@@ -276,12 +289,40 @@ class MockWechatClient:
                 "author": article.get("author"),
                 "content": article.get("content"),
                 "thumb_media_id": article.get("thumb_media_id"),
+                "article_type": article.get("article_type"),
+                "image_media_ids": MockWechatClient._image_ids_of(article),
                 "appid": self.appid,
                 "deleted": False,
             }
             tx.data.setdefault("calls", []).append({"op": "draft_add", "appid": self.appid, "at": time.time()})
         if self.inject == "crash-after-add":
             # 模拟"微信已建草稿、进程未写回状态即崩溃"
+            _abort_hard()
+        return media_id
+
+    @staticmethod
+    def _image_ids_of(article: dict) -> list:
+        return [im.get("image_media_id") for im in ((article.get("image_info") or {}).get("image_list") or [])]
+
+    def image_post_add(self, article: dict) -> str:
+        """小绿书(newspic)草稿 Mock；inject 语义与 draft_add 完全一致。"""
+        if self.inject == "add-timeout":
+            raise WechatNetworkError("image_post_add", "mock timeout")
+        if self.inject == "add-errcode":
+            raise WechatAPIError("image_post_add", 40007, "mock invalid media id size")
+        media_id = "mock-post-" + uuid.uuid4().hex[:12]
+        with MockWechatClient._StoreTx(self) as tx:
+            tx.data["counter"] = tx.data.get("counter", 0) + 1
+            tx.data["drafts"][media_id] = {
+                "article_type": article.get("article_type"),
+                "title": article.get("title"),
+                "content": article.get("content"),
+                "image_media_ids": MockWechatClient._image_ids_of(article),
+                "appid": self.appid,
+                "deleted": False,
+            }
+            tx.data.setdefault("calls", []).append({"op": "image_post_add", "appid": self.appid, "at": time.time()})
+        if self.inject == "crash-after-add":
             _abort_hard()
         return media_id
 
@@ -294,7 +335,9 @@ class MockWechatClient:
                 raise WechatAPIError("draft_update", 40007, "mock draft not found")
             if index != 0:
                 raise WechatAPIError("draft_update", 40008, "mock only index=0 supported")
-            d.update({k: article.get(k) for k in ("title", "digest", "author", "content", "thumb_media_id")})
+            d.update({k: article.get(k) for k in ("title", "digest", "author", "content",
+                                                   "thumb_media_id", "article_type")})
+            d["image_media_ids"] = MockWechatClient._image_ids_of(article)
             tx.data.setdefault("calls", []).append({"op": "draft_update", "appid": self.appid, "at": time.time()})
         if self.inject == "crash-after-update":
             _abort_hard()

@@ -1,17 +1,23 @@
 export const meta = {
   name: 'wechat_sticker',
-  description: '贴图与多图推送:构思、规划图序、生图到整组图审核,产出风格统一的图片+配文。对应 skill: wechat_sticker',
+  description: '小绿书(贴图)与多图推送:构思、规划图序、生图到整组图审核,并可发布到公众号草稿箱(newspic 图片帖)。对应 skill: wechat_sticker',
 }
 
 // 对应 skill: .opencode-workflows/workflows/references/wechat_sticker
+// 术语(2026-11 定案): 贴图=小绿书,发布贴图一律叫"发布小绿书"。
 // 输入 args:
 //   topic       : 主题(或选题卡路径)
 //   count       : 图片张数(<=9,微信限制)。缺省读 config multi_image_count 或 6
 //   style       : 全组统一形态名。不传则按内容选
-//   article_dir : 本篇目录(有则读 article.yaml 合并约束)
+//   article_dir : 本篇目录(有则读 article.yaml 合并约束;发布必需,imgs/ 在此目录下)
 //   skip_confirm: 一条龙时不单独确认。缺省 false
 //   skip_generate: 只写 prompt 不调 API。缺省 false
-// 输出: { outline, imgs, prompts, ok }
+//   publish_method : 'draft'(缺省,发布小绿书:imgs/ 整组图入草稿箱 newspic) | 'none'(只交付不调微信接口)。
+//                    newspic 无自动发表(freepublish 未验证),发表请到公众号后台手发
+//   account_slot: 账号槽位(透传 publish.py --account-slot,默认 1)
+//   title       : 小绿书标题(<=32 字,超长自动截断);缺省读 article.yaml title
+//   mock / mock_store / inject : 测试透传给 publish.py(生产不传)
+// 输出: { outline, imgs, prompts, publish, ok }
 
 const SKILL = '.opencode-workflows/workflows/references/wechat_sticker'
 const count = Math.min(args.count || 6, 9)
@@ -125,13 +131,75 @@ const reviewResult = await agent(
   } }
 )
 
+phase('发布小绿书')
+// 发布通道: draft_manager/publish.py --xiaolvshu(newspic 图片帖入草稿箱,同状态机/锁/复用语义)。
+// publish_method=none 或无 article_dir/审图不过时跳过,只交付图。
+const PUBLISH_SCRIPT = 'dev-examples/wx-article/scripts/draft_manager/publish.py'
+const PY_PROBE = 'PY=""; for c in python3 python py; do if "$c" -c "import sys" 2>/dev/null; then PY="$c"; break; fi; done; [ -n "$PY" ] || { echo "[FAIL] no usable python on PATH"; exit 49; }'
+const publishMethod = args.publish_method || 'draft'
+const canPublish = publishMethod !== 'none' && !!args.article_dir && !!genResult.ok && (genResult.imgs || []).length > 0
+let publishResult = null
+if (publishMethod === 'none') {
+  log('publish_method=none,只交付不发布小绿书')
+} else if (!args.article_dir) {
+  log('无 article_dir,跳过发布小绿书(发布需要文章目录存放 imgs/)')
+} else if (!genResult.ok || !(genResult.imgs || []).length) {
+  log('审图不通过或无图,跳过发布小绿书')
+}
+if (canPublish) {
+  const mockArgs = (args.mock ? ' --mock' : '') +
+    (args.mock_store ? ' --mock-store "' + args.mock_store + '"' : '') +
+    (args.inject ? ' --inject "' + args.inject + '"' : '')
+  const cmd = PY_PROBE + '; "$PY" "' + PUBLISH_SCRIPT + '"' +
+    ' --article-dir "' + args.article_dir + '"' +
+    ' --xiaolvshu' +
+    (args.title ? ' --title "' + args.title + '"' : '') +
+    ' --account-slot ' + (args.account_slot || 1) + mockArgs
+  publishResult = await agent(
+    '你是小绿书发布执行者。用 bash 工具执行恰好一条命令(发布脚本,Python 标准库实现):\n\n' +
+    cmd + '\n\n' +
+    '脚本行为: imgs/ 下图片按自然序全量上传微信永久素材 -> 以 newspic(图片帖/小绿书)入草稿箱;\n' +
+    '同内容重跑自动复用草稿,图片变更原地更新。发表后粉丝可见;freepublish 对图片帖未验证,脚本会拒绝自动发表,请到公众号后台草稿箱手动发表。\n' +
+    'stdout 契约: "[sticker] N images: ..." 开头; "[2] IMG i/n OK media_id=..." 逐张上传; ' +
+    '"[5] DRAFT OK media_id=xxx" + "=== ALL DONE draft_media_id=xxx ===" 表示入箱成功; ' +
+    '"[FAIL] ..." 退出码 1 明确失败; "[UNKNOWN] ..." 退出码 2 结果不确定需人工核对; "[LOCKED] ..." 退出码 3 目录被其他任务占用。\n' +
+    '按退出码与原文返回,不重试,不额外操作。\n' +
+    '返回 JSON: { exit_code, stdout_tail(最后 15 行原文), media_id, drafted(bool,DRAFT OK 行), unknown(bool), locked(bool), fail_line(首个 [FAIL] 行,无则空) }。',
+    { label: '发布小绿书', agentType: 'general', schema: {
+      type: 'object',
+      properties: {
+        exit_code: { type: 'number' },
+        stdout_tail: { type: 'string' },
+        media_id: { type: 'string' },
+        drafted: { type: 'boolean' },
+        unknown: { type: 'boolean' },
+        locked: { type: 'boolean' },
+        fail_line: { type: 'string' },
+      },
+      required: ['exit_code', 'media_id', 'drafted', 'unknown', 'locked'],
+    } }
+  )
+  if (publishResult.drafted) {
+    log('发布小绿书成功: media_id=' + publishResult.media_id + ',请到公众号后台草稿箱检查并手动发表')
+  } else if (publishResult.unknown) {
+    log('发布结果不确定,按 [UNKNOWN] 提示人工核对草稿箱后用 --resolve-media-id 恢复')
+  } else if (publishResult.locked) {
+    log('文章目录被其他任务占用,稍后重试')
+  } else {
+    log('发布小绿书失败: ' + (publishResult.fail_line || '未知'))
+  }
+}
+
 phase('交付')
-log('贴图完成: ' + (genResult.imgs ? genResult.imgs.length : 0) + ' 张图')
+log('小绿书完成: ' + (genResult.imgs ? genResult.imgs.length : 0) + ' 张图' +
+  (publishResult && publishResult.drafted ? ',已发布到草稿箱 media_id=' + publishResult.media_id : ',未发布(仅交付图)'))
 await checkpoint(
-  '贴图整组已完成' + (reviewResult.ok ? '并通过审图' : ',审图有不合格项') + '。\n' +
+  '小绿书整组已完成' + (reviewResult.ok ? '并通过审图' : ',审图有不合格项') + '。\n' +
   '图片在 ' + (args.article_dir || '.') + '/imgs/\n' +
-  '注意: 微信原生图片消息本套件未实现。要么拼成图文走常规链路(formatting+publish),要么只交付图由用户后台手发。\n\n' +
-  '允许=结束;拒绝=标记问题。'
+  (publishResult && publishResult.drafted
+    ? '已发布小绿书: 草稿箱 media_id=' + publishResult.media_id + ',请到公众号后台检查并手动发表。\n'
+    : '未发布小绿书(可用 publish_method=draft 重跑发布)。\n') +
+  '\n允许=结束;拒绝=标记问题。'
 )
 
 return {
@@ -139,5 +207,6 @@ return {
   imgs: genResult.imgs || [],
   prompts: genResult.prompts || [],
   review: reviewResult.report,
+  publish: publishResult,
   ok: reviewResult.ok,
 }
