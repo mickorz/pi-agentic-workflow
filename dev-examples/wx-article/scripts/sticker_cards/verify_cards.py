@@ -100,7 +100,14 @@ def main() -> int:
         except ValueError as e:
             check(f"页 {no:02d} PNG 可解析", False, str(e))
             continue
-        check(f"页 {no:02d} 尺寸 {GEN_W}x{GEN_H}", (w, h) == (GEN_W, GEN_H), f"{w}x{h}")
+        # ai-image 来源允许 3:4 比例 ±3%（上游忽略精确 size，T7 实测）；html 渲染页必须精确
+        m_entry = m_by_no.get(no) or {}
+        if m_entry.get("source") == "ai-image":
+            ratio_dev = abs(w / h - GEN_W / GEN_H) / (GEN_W / GEN_H)
+            size_ok = ratio_dev <= 0.03 and w >= 1000
+        else:
+            size_ok = (w, h) == (GEN_W, GEN_H)
+        check(f"页 {no:02d} 尺寸达标", size_ok, f"{w}x{h}")
         sha = sha256_of(dest)
         if sha in shas:
             check(f"页 {no:02d} 无重复图片", False, f"与页 {shas[sha]} SHA256 相同")

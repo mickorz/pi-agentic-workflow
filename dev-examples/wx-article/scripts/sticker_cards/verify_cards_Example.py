@@ -102,7 +102,7 @@ def main() -> int:
         art4, pages4 = make_verified_fixture(tmp / "f4")
         make_png(art4 / "_cards" / "output" / "01.png", w=800, h=600)
         r = run_verify(art4, pages4)
-        check("尺寸不符拒绝", r.returncode == 1 and "1080x1440" in r.stdout)
+        check("尺寸不符拒绝", r.returncode == 1 and "800x600" in r.stdout, r.stdout[-200:])
 
         # ---------- 5 重复图片 ----------
         art5, pages5 = make_verified_fixture(tmp / "f5")

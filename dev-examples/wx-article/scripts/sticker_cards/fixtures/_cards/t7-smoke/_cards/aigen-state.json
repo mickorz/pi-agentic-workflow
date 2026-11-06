@@ -1,0 +1,13 @@
+{
+ "pages": {
+  "2": {
+   "status": "SUCCEEDED",
+   "attempts": 0,
+   "error": null,
+   "asset": "_cards/assets/ai-02.png",
+   "model": "image-use/web",
+   "sha256": "d1a51e2f506a4c512b9cc166bb5bd7c12f5faff9d6bb054f8e27a70948d07ec2",
+   "size": "1086x1448"
+  }
+ }
+}

@@ -164,6 +164,23 @@ def main() -> int:
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         check("7b 失败后 verify 拒绝发布", r.returncode == 1)
 
+        # ---------- 7c AI 页尺寸校验（ai-image 来源）----------
+        art7c = tmp / "f7c"
+        card7c = art7c / "_cards"
+        card7c.mkdir(parents=True)
+        pages7c = {"schema_version": 2, "style_mode": "editorial", "theme": "ink-classic",
+                   "title": "T", "content": "", "pages": [
+                       {"no": 1, "role": "cover", "source": "html", "layout": "cover-hook",
+                        "copy": {"title": "x", "points": ["a", "b", "c"]}},
+                       {"no": 2, "role": "ai", "source": "ai-image", "prompt": "测试"}]}
+        (card7c / "pages.json").write_text(json.dumps(pages7c, ensure_ascii=False), encoding="utf-8")
+        aigen = {"pages": {"2": {"status": "SUCCEEDED", "asset": "_cards/assets/ai-02.png"}}}
+        (card7c / "aigen-state.json").write_text(json.dumps(aigen, ensure_ascii=False), encoding="utf-8")
+        make_png(card7c / "render" / "xhs-01.png", color=(5, 5, 5))
+        make_png(card7c / "assets" / "ai-02.png", w=900, h=1500, color=(1, 2, 3))  # 0.6 比例越界
+        r = run_norm(art7c, card7c / "pages.json")
+        check("7c AI 页尺寸偏离拒绝", r.returncode == 1 and "偏离" in r.stdout, r.stdout[-200:])
+
         # ---------- 8 硬性拒绝：重复图片 ----------
         art8, pages8 = make_fixture(tmp / "f8")
         shutil.copy2(art8 / "_cards" / "render" / "xhs-01.png",

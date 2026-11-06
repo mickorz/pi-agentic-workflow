@@ -128,7 +128,15 @@ def main() -> int:
             print(f"[FAIL] {e}")
             failed = True
             continue
-        if (w, h) != (GEN_W, GEN_H):
+        # 尺寸校验分来源：html 渲染页必须精确 1080x1440；ai-image 页允许 3:4 比例 ±3%
+        # （image-use 上游会忽略精确 size，T7 真机实测返回 1086x1448）
+        if page.get("source") == "ai-image":
+            ratio_dev = abs(w / h - GEN_W / GEN_H) / (GEN_W / GEN_H)
+            if ratio_dev > 0.03 or w < 1000:
+                print(f"[FAIL] 页 {no}: AI 图尺寸 {w}x{h} 偏离 3:4 目标超 3%（或过小）")
+                failed = True
+                continue
+        elif (w, h) != (GEN_W, GEN_H):
             print(f"[FAIL] 页 {no}: 尺寸 {w}x{h} != {GEN_W}x{GEN_H}（规范化不改尺寸）")
             failed = True
             continue

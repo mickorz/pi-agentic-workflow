@@ -141,8 +141,10 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="只打印计划（等价缺省行为，显式化用）")
     ap.add_argument("--max-images", type=int, default=MAX_IMAGES, help="单次生成张数上限")
     ap.add_argument("--inject", default=None, choices=["add-timeout"], help="故障注入（仅测试）")
+    ap.add_argument("--approve-style", action="store_true",
+                    help="人工确认试稿风格：批准并 batch 生成剩余页（STYLE_PENDING 页继续）")
     ap.add_argument("--mark-failed", default=None,
-                    help="人工确认 UNKNOWN 页未产生可用图片，转 FAILED（可重跑）")
+                    help="人工确认 UNKNOWN/STYLE_PENDING 页放弃，转 FAILED（可重跑）")
     args = ap.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -167,7 +169,7 @@ def main() -> int:
     # --mark-failed：人工确认 UNKNOWN -> FAILED
     if args.mark_failed:
         st = state["pages"].get(str(args.mark_failed))
-        if st and st.get("status") == UNKNOWN:
+        if st and st.get("status") in (UNKNOWN, "STYLE_PENDING"):
             st["status"] = FAILED
             st["error"] = "人工确认未产生可用图片（--mark-failed；配额消耗请按 ChatGPT 后台核对）"
             _save_state(state, state_path)
@@ -193,6 +195,14 @@ def main() -> int:
         status = st.get("status", PENDING)
         if status == SUCCEEDED and st.get("asset") and (article_dir / st["asset"]).is_file():
             print(f"[SKIP] 页 {page['no']}: 已 SUCCEEDED（不覆盖成功产物）")
+            continue
+        if status == "STYLE_PENDING":
+            # 试稿产物必须真实存在；不存在（如上次虚报/被删）则重新走 preview
+            draft_abs = article_dir / ASSET_FMT.format(no=int(page["no"]), ext=".png")
+            if draft_abs.is_file():
+                print(f"[HOLD] 页 {page['no']}: STYLE_PENDING（试稿已生成，确认风格后 --approve-style 继续）")
+                continue
+            todo.append(page)
             continue
         if status == UNKNOWN:
             recovered = None
@@ -272,18 +282,18 @@ def main() -> int:
         print("[DRY] 未传 --yes，不发起生成（不消耗订阅配额）。确认后重跑并加 --yes。")
         return _finish(state, state_path)
 
-    # 真实生成：调 image_gen 执行器（参数数组直传，不经 shell）
-    gen_mjs = Path(__file__).resolve().parents[1] / "image_gen" / "generate.mjs"
-    if not gen_mjs.is_file():
+    manifest_path = article_dir / "image-manifest.json"
+
+    # 真实生成：image_gen 执行器两阶段（style_gate 强制：preview 试稿 -> 人工确认风格 -> batch）
+    gen = Path(__file__).resolve().parents[1] / "image_gen" / "generate.mjs"
+    if not gen.is_file():
         for page in todo:
             st = state["pages"].setdefault(str(page["no"]), {"status": PENDING, "attempts": 0})
             st["status"] = FAILED
-            st["error"] = f"image_gen 执行器缺失: {gen_mjs}"
-        print(f"[FAIL] image_gen 执行器缺失（提示词已存档，不伪造图片）: {gen_mjs}")
+            st["error"] = f"image_gen 执行器缺失: {gen}"
+        print(f"[FAIL] image_gen 执行器缺失（提示词已存档，不伪造图片）: {gen}")
         return _finish(state, state_path, force_code=1)
     if args.inject == "add-timeout":
-        # 测试注入：把执行器替换为不存在的 provider 触发明确失败前的挂起语义不可行，
-        # 改为注入"产物永不出现"——直接标 UNKNOWN（与 v1 语义一致，人工恢复路径可测）
         for page in todo:
             st = state["pages"].setdefault(str(page["no"]), {"status": PENDING, "attempts": 0})
             st["status"] = UNKNOWN
@@ -292,84 +302,155 @@ def main() -> int:
         return _finish(state, state_path, force_code=2)
 
     env = {**os.environ, "IMAGE_GEN_SIZE": GEN_SIZE}
-    cmd = [node_bin(), str(gen_mjs), "--article-dir", str(article_dir),
-           "--provider", "image-use", "--mode", "batch"]
+    base_cmd = [node_bin(), str(gen), "--article-dir", str(article_dir),
+                "--provider", "image-use"]
     print("[生成] 调用 image_gen 执行器（image-use 通道，chrome-use 驱动浏览器，单张预算约 330s）")
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=RUNNER_TIMEOUT * len(todo) + 120, env=env)
-    except subprocess.TimeoutExpired:
+
+    def run_gen(extra):
+        return subprocess.run(base_cmd + extra, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              timeout=RUNNER_TIMEOUT * len(todo) + 120, env=env)
+
+    def entries_of(m):
+        e = (m or {}).get("entries")
+        if isinstance(e, dict):
+            return e
+        return {x.get("id"): x for x in (e or [])}
+
+    if args.approve_style:
+        # 阶段 2：批准风格 + batch 生成剩余
+        r = run_gen(["--approve-style"])
+        r = run_gen(["--mode", "batch"])
+        print("\n".join(r.stdout.splitlines()[-10:]))
+        if r.stderr.strip():
+            print("[执行器 stderr 尾] " + r.stderr.strip()[-300:])
+        manifest = None
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+        entries = entries_of(manifest)
+        exit_hint = 0
         for page in todo:
-            st = state["pages"].setdefault(str(page["no"]), {"status": PENDING, "attempts": 0})
-            if st["status"] in (PENDING, GENERATING):
+            no = str(page["no"])
+            item_id = f"ai-{int(no):02d}"
+            entry = entries.get(item_id)
+            st = state["pages"].setdefault(no, {"status": PENDING, "attempts": 0})
+            if entry is None:
                 st["status"] = UNKNOWN
-                st["error"] = "执行器整体超时（上游结果不明，可能已消耗配额，禁止自动重试）"
-        print("[HOLD] 执行器超时 -> 待生成页 UNKNOWN")
-        return _finish(state, state_path, force_code=2)
-    tail = "\n".join(r.stdout.splitlines()[-10:])
-    print(tail)
+                st["error"] = "manifest 无该条目"
+                exit_hint = 2
+                print(f"[HOLD] 页 {page['no']}: manifest 无条目 -> UNKNOWN")
+                continue
+            cands = entry.get("candidates") or []
+            cur = cands[-1] if cands else entry
+            cstatus = (cur.get("status") or entry.get("status") or "").lower()
+            if cstatus in ("ok", "succeeded"):
+                src_path = article_dir / (cur.get("path") or entry.get("path", ""))
+                raw = src_path.read_bytes()
+                asset_rel = ASSET_FMT.format(no=int(no), ext=_sniff_ext(raw))
+                info = _verify_and_save(raw, article_dir / asset_rel)
+                st.update(status=SUCCEEDED, asset=asset_rel, sha256=info["sha256"],
+                          size=f"{info['width']}x{info['height']}", error=None,
+                          model="image-use/web")
+                print(f"[OK] 页 {page['no']}: {asset_rel} {info['width']}x{info['height']}")
+            elif cstatus == "unknown":
+                st["status"] = UNKNOWN
+                st["error"] = "上游 UNKNOWN（人工核对 ChatGPT 会话后 --mark-failed 或 image_gen --resolve-unknown）"
+                exit_hint = 2
+                print(f"[HOLD] 页 {page['no']}: 上游 UNKNOWN")
+            else:
+                st["status"] = FAILED
+                st["error"] = f"执行器状态 {cstatus}"
+                if exit_hint == 0:
+                    exit_hint = 1
+                print(f"[FAIL] 页 {page['no']}: {cstatus}")
+            _save_state(state, state_path)
+        return _finish(state, state_path, force_code=exit_hint)
+
+    # 阶段 1：batch 探测；被 style_gate 挡 => 自动转 preview 试稿（第一张，即授权的 1 张）
+    r = run_gen(["--mode", "batch"])
+    print("\n".join(r.stdout.splitlines()[-10:]))
     if r.stderr.strip():
         print("[执行器 stderr 尾] " + r.stderr.strip()[-300:])
+    style_gate = 'blocked_by":"style_gate' in r.stdout or "style_gate" in r.stdout
 
-    # 读 manifest 回填状态
-    manifest_path = article_dir / "image-manifest.json"
+    manifest = None
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as e:
-        for page in todo:
-            st = state["pages"].setdefault(str(page["no"]), {"status": PENDING, "attempts": 0})
-            st["status"] = UNKNOWN
-            st["error"] = f"image-manifest.json 读取失败（上游结果不明）: {e}"
-        print("[HOLD] manifest 读取失败 -> 待生成页 UNKNOWN")
-        return _finish(state, state_path, force_code=2)
-    entries = {(e.get("id")): e for e in manifest.get("entries", {}).values()} \
-        if isinstance(manifest.get("entries"), dict) else \
-        {e.get("id"): e for e in manifest.get("entries", [])}
-    exit_hint = 0
-    for page in todo:
-        no = str(page["no"])
-        item_id = f"ai-{int(no):02d}"
-        entry = entries.get(item_id)
-        st = state["pages"].setdefault(no, {"status": PENDING, "attempts": 0})
-        if entry is None:
-            st["status"] = UNKNOWN
-            st["error"] = "manifest 无该条目（上游结果不明）"
-            exit_hint = 2
-            print(f"[HOLD] 页 {page['no']}: manifest 无条目 -> UNKNOWN")
-            continue
-        cands = entry.get("candidates") or []
-        cur = cands[-1] if cands else entry
-        cstatus = cur.get("status") or entry.get("status")
-        if cstatus == "ok":
-            src_path = article_dir / (cur.get("path") or entry.get("path", ""))
-            if not src_path.is_file():
-                st["status"] = UNKNOWN
-                st["error"] = f"manifest 记 ok 但产物缺失: {src_path.name}"
-                exit_hint = 2
-                print(f"[HOLD] 页 {page['no']}: 产物缺失 -> UNKNOWN")
-                continue
-            raw = src_path.read_bytes()
-            asset_rel = ASSET_FMT.format(no=int(no), ext=_sniff_ext(raw))
-            info = _verify_and_save(raw, article_dir / asset_rel)
-            st.update(status=SUCCEEDED, asset=asset_rel, sha256=info["sha256"],
-                      size=f"{info['width']}x{info['height']}", error=None,
-                      model=f"image-use/{entry.get('model', 'web')}")
-            print(f"[OK] 页 {page['no']}: {asset_rel} {info['width']}x{info['height']} "
-                  f"sha256={info['sha256'][:16]}...")
-        elif cstatus == "unknown":
-            st["status"] = UNKNOWN
-            st["error"] = "上游无法证明未提交（可能已消耗配额）；用 image_gen --resolve-unknown 或 --mark-failed"
-            exit_hint = 2
-            print(f"[HOLD] 页 {page['no']}: 上游 UNKNOWN（人工核对 ChatGPT 会话后处理）")
-        else:  # failed / pending / 其他
-            st["status"] = FAILED
-            st["error"] = f"执行器状态 {cstatus}: {str(cur.get('error') or entry.get('error'))[:160]}"
-            if exit_hint == 0:
-                exit_hint = 1
-            print(f"[FAIL] 页 {page['no']}: 执行器状态 {cstatus}（可修复后重跑）")
-        _save_state(state, state_path)
+    except (OSError, json.JSONDecodeError):
+        pass
 
-    return _finish(state, state_path, force_code=exit_hint)
+    if style_gate:
+        # 执行器只挡 batch，不自动 preview：显式调用 --mode preview 试稿（消耗授权的 1 张配额）
+        first_no = todo[0]["no"]
+        preview_id = f"ai-{int(first_no):02d}"
+        r2 = run_gen(["--mode", "preview", "--preview-id", preview_id])
+        print("\n".join(r2.stdout.splitlines()[-6:]))
+        if r2.stderr.strip():
+            print("[执行器 stderr 尾] " + r2.stderr.strip()[-300:])
+        if r2.returncode != 0:
+            for page in todo:
+                st = state["pages"].setdefault(str(page["no"]), {"status": PENDING, "attempts": 0})
+                if st["status"] in (PENDING, GENERATING):
+                    st["status"] = FAILED
+                    st["error"] = f"preview 试稿失败（rc={r2.returncode}；可修复后重跑）"
+            _save_state(state, state_path)
+            print("[FAIL] preview 试稿失败")
+            return _finish(state, state_path, force_code=1)
+        st = state["pages"].setdefault(str(first_no), {"status": PENDING, "attempts": 0})
+        st.update(status="STYLE_PENDING",
+                  asset=ASSET_FMT.format(no=int(first_no), ext=".png"),
+                  model="image-use/web", error=None)
+        _save_state(state, state_path)
+        draft_rel = ASSET_FMT.format(no=int(first_no), ext=".png")
+        print(f"[HOLD] 试稿已生成（页 {first_no}，消耗配额 1 张）。"
+              f"请查看 {article_dir / draft_rel} 确认风格；"
+              f"满意 -> 重跑加 --approve-style 继续 batch；不满意 -> --mark-failed {first_no} 放弃")
+        print("=== DONE WITH STYLE_PENDING ===")
+        return 3
+
+    for page in todo:
+        st = state["pages"].setdefault(str(page["no"]), {"status": PENDING, "attempts": 0})
+        if st["status"] in (PENDING, GENERATING):
+            st["status"] = FAILED
+            st["error"] = "执行器失败（详见上方输出；可修复后重跑）"
+    print("[FAIL] 执行器失败")
+    return _finish(state, state_path, force_code=1)
+
+
+    if style_gate:
+        # 阶段 1 被 style_gate 挡：已自动转 preview 试稿（第一页，即已授权的 1 张配额）
+        first_no = todo[0]["no"]
+        st = state["pages"].setdefault(str(first_no), {"status": PENDING, "attempts": 0})
+        if manifest is not None:
+            entries = entries_of(manifest)
+            entry = entries.get(f"ai-{int(first_no):02d}")
+            if entry is not None:
+                st.update(status="STYLE_PENDING",
+                          asset=ASSET_FMT.format(no=int(first_no), ext=".png"),
+                          model="image-use/web", error=None)
+        _save_state(state, state_path)
+        print(f"[HOLD] 试稿已生成（页 {first_no}，消耗配额 1 张）。"
+              f"请查看 {ASSET_FMT.format(no=int(first_no), ext='.png')} 确认风格；"
+              f"满意 -> 重跑加 --approve-style 继续 batch；不满意 -> 调整页表后 --mark-failed {first_no}")
+        print("=== DONE WITH STYLE_PENDING ===")
+        return 3
+
+    # 非 style_gate 的其他失败（上游/网络等）：保持 PENDING 可重跑，退出码 1
+    for page in todo:
+        st = state["pages"].setdefault(str(page["no"]), {"status": PENDING, "attempts": 0})
+        if st["status"] in (PENDING, GENERATING):
+            st["status"] = FAILED
+            st["error"] = "执行器失败（详见上方输出；可修复后重跑）"
+    print("[FAIL] 执行器失败")
+    return _finish(state, state_path, force_code=1)
+
+
+
+def _cards_rel(article_dir: Path, no: int, ext: str) -> str:
+    """试稿的绝对路径（相对文章目录，供人工查看）。"""
+    return str(Path(article_dir) / ASSET_FMT.format(no=no, ext=ext))
 
 
 def node_bin() -> str:

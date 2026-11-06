@@ -1,0 +1,29 @@
+{
+ "schema_version": 2,
+ "style_mode": "editorial",
+ "theme": "ink-classic",
+ "title": "T7 冒烟",
+ "content": "统一色板提示。",
+ "pages": [
+  {
+   "no": 1,
+   "role": "cover",
+   "source": "html",
+   "layout": "cover-hook",
+   "copy": {
+    "title": "封面",
+    "points": [
+     "a",
+     "b",
+     "c"
+    ]
+   }
+  },
+  {
+   "no": 2,
+   "role": "ai-illustration",
+   "source": "ai-image",
+   "prompt": "一枚发光的黄铜齿轮悬浮在深蓝色天鹅绒背景上，齿轮表面有细腻的机械纹路与高光，体积光从左上方照射"
+  }
+ ]
+}
