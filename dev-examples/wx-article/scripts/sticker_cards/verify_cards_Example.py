@@ -85,9 +85,10 @@ def main() -> int:
         check("输出 CARDS VERIFIED", "=== CARDS VERIFIED ===" in r.stdout)
 
         # ---------- 2 未审（PENDING_REVIEW）----------
+        # 制作验收（非 require-approved）不检查审核状态；发布门（require-approved）才要求 APPROVED
         art2, pages2 = make_verified_fixture(tmp / "f2", approved=False)
         r = run_verify(art2, pages2)
-        check("PENDING_REVIEW 非 require 时 FAIL（验收规则：全非 PENDING）", r.returncode == 1)
+        check("PENDING_REVIEW 非 require 时通过（制作验收不查审核）", r.returncode == 0)
         r = run_verify(art2, pages2, "--require-approved")
         check("PENDING_REVIEW require-approved FAIL", r.returncode == 1)
 
@@ -115,7 +116,8 @@ def main() -> int:
         make_png(art6 / "_cards" / "output" / "02.png", color=(250, 250, 250))  # 同尺寸不同内容
         r = run_verify(art6, pages6)
         check("篡改产物拒绝（manifest 不一致）", r.returncode == 1 and "一致" in r.stdout)
-        check("审核过期检出", "过期" in r.stdout, r.stdout[-300:])
+        r = run_verify(art6, pages6, "--require-approved")
+        check("审核过期检出（require-approved）", r.returncode == 1 and "过期" in r.stdout, r.stdout[-300:])
 
         # ---------- 7 pages.json 变更 -> 绑定失效 ----------
         art7, pages7 = make_verified_fixture(tmp / "f7")
