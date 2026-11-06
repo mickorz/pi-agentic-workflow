@@ -141,34 +141,76 @@ def main() -> int:
     check("ai-image 有 asset 构建成功", ok)
     check("ai-image 画板 xhs-03 就位", 'id="xhs-03"' in ai_html)
 
+    # 8b manual-crop 变换数值断言（T2.6）：shot-01 900x1200，图框 4:3
+    #   A_i=0.75 → sx=0.5625, sy=1；crop(0.2,0.1,0.5,0.5) → k=2, f(c)=(0.4719,0.5) → tx=1.4063%,ty=2.5000%
+    bad = copy.deepcopy(FIXTURE)
+    bad["pages"][1]["crop"] = {"mode": "manual", "x": 0.2, "y": 0.1, "width": 0.5, "height": 0.5}
+    (art / "_cards" / "pages.json").write_text(json.dumps(bad, ensure_ascii=False), encoding="utf-8")
+    ok, _ = build(pages_path, art / "_cards" / "manual.html", cards_root=art)
+    manual_html = (art / "_cards" / "manual.html").read_text(encoding="utf-8") if ok else ""
+    check("manual-crop 构建成功", ok)
+    check("manual-crop 几何数值精确(cover)",
+          "left:-40.0000%;top:-35.5556%;width:200.0000%;height:355.5556%" in manual_html,
+          manual_html[manual_idx:manual_idx + 150] if (manual_idx := manual_html.find("position:absolute")) != -1 else "no style")
+
     # 9 真实渲染：fixture 两页 → render.mjs --no-embed → PNG IHDR 精确 1080x1440
+    node = shutil.which("node")
+    render_ready = bool(node) and RENDER_MJS.is_file()
+
+    def render_and_assert(html_path: Path, page_ids: list[str]) -> None:
+        """渲染指定 HTML 并断言各画板 PNG 尺寸精确 1080x1440。"""
+        if not render_ready:
+            check("渲染段前置就绪", False, f"node={node} render.mjs={RENDER_MJS.is_file()}")
+            return
+        try:
+            r = subprocess.run(
+                [node, str(RENDER_MJS), str(html_path), "--no-embed",
+                 "--out", str(html_path.parent / "output")],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=RENDER_TIMEOUT, cwd=str(RENDER_MJS.parents[1]),
+            )
+            check("render.mjs 退出码 0", r.returncode == 0,
+                  f"rc={r.returncode} stderr={r.stderr[-300:]}")
+            for pid in page_ids:
+                png = html_path.parent / "output" / f"{pid}.png"
+                if png.is_file():
+                    w, h = png_size(png)
+                    check(f"PNG {pid} 精确 1080x1440（实际 {w}x{h}）", (w, h) == (1080, 1440))
+                else:
+                    check(f"PNG {pid} 存在", False, str(png))
+        except subprocess.TimeoutExpired:
+            check("render.mjs 超时", False, f">{RENDER_TIMEOUT}s（诊断不重试）")
+
     if not args.no_render:
-        node = shutil.which("node")
         check("node 可用(渲染段)", node is not None)
-        if node and RENDER_MJS.is_file():
+        if render_ready:
             (art / "_cards" / "pages.json").write_text(
                 json.dumps(FIXTURE, ensure_ascii=False), encoding="utf-8")
             ok, _ = build(pages_path, out_path, cards_root=art)
             check("渲染前重建成功", ok)
-            try:
-                r = subprocess.run(
-                    [node, str(RENDER_MJS), str(out_path.parent), "--no-embed", "--out", "output"],
-                    capture_output=True, text=True, encoding="utf-8", errors="replace",
-                    timeout=RENDER_TIMEOUT, cwd=str(RENDER_MJS.parents[1]),
-                )
-                check("render.mjs 退出码 0", r.returncode == 0,
-                      f"rc={r.returncode} stderr={r.stderr[-300:]}")
-                for no in (1, 2):
-                    png = out_path.parent / "output" / f"xhs-{no:02d}.png"
-                    if png.is_file():
-                        w, h = png_size(png)
-                        check(f"PNG xhs-{no:02d} 精确 1080x1440（实际 {w}x{h}）", (w, h) == (1080, 1440))
-                    else:
-                        check(f"PNG xhs-{no:02d} 存在", False, str(png))
-            except subprocess.TimeoutExpired:
-                check("render.mjs 超时", False, f">{RENDER_TIMEOUT}s（诊断不重试）")
-        else:
-            check("渲染段前置就绪", False, f"node={node} render.mjs={RENDER_MJS.is_file()}")
+            render_and_assert(out_path, ["xhs-01", "xhs-02"])
+
+    # 9b T2.7 真实截图视觉链：github-shot(2100x900) manual crop 裁掉顶部地址栏 + 21x9 宽图框 → 渲染
+    bad = copy.deepcopy(FIXTURE)
+    bad["pages"][1] = {
+        "no": 2, "role": "screenshot-evidence", "source": "html",
+        "layout": "screenshot-with-caption", "well_ratio": "21x9",
+        "asset": "_cards/assets/github-shot.png",
+        "crop": {"mode": "manual", "x": 0.0, "y": 0.08, "width": 1.0, "height": 0.92, "fit": "contain"},
+        "copy": {"title": "真实截图裁切", "caption": "已裁去浏览器地址栏，代码区完整呈现"},
+    }
+    (art / "_cards" / "pages.json").write_text(json.dumps(bad, ensure_ascii=False), encoding="utf-8")
+    shutil.copy2(HERE / "fixtures" / "_cards" / "assets" / "github-shot.png",
+                 art / "_cards" / "assets" / "github-shot.png")
+    ok, _ = build(pages_path, art / "_cards" / "t27.html", cards_root=art)
+    check("T2.7 裁切页构建成功", ok)
+    t27_html = (art / "_cards" / "t27.html").read_text(encoding="utf-8") if ok else ""
+    check("T2.7 含 21x9 图框与几何裁切",
+          'data-ratio="21x9"' in t27_html and "object-fit:fill" in t27_html
+          and "left:0.0000%;top:-8.0000%;width:100.0000%;height:100.0000%" in t27_html,
+          t27_html[t27_idx:t27_idx + 160] if (t27_idx := t27_html.find("position:absolute")) != -1 else "no style")
+    if not args.no_render:
+        render_and_assert(art / "_cards" / "t27.html", ["xhs-01", "xhs-02"])
 
     shutil.rmtree(tmp, ignore_errors=True)
     print(f"\n汇总 OK={len(PASS)} FAIL={len(FAIL)}")

@@ -71,7 +71,10 @@ def build(pages_path: Path, out_path: Path, template_path: Path | None = None,
     for page in data["pages"]:
         source = page["source"]
         if source == "html":
-            inner = COMPONENTS[page["layout"]]["render"](page, page["no"])
+            try:
+                inner = COMPONENTS[page["layout"]]["render"](page, page["no"], root)
+            except ValueError as e:  # 如 manual-crop 读图片尺寸失败（不支持格式/损坏文件）
+                return False, [f"[FAIL] 画板 xhs-{page['no']:02d} 渲染失败: {e}", "=== BUILD INVALID ==="]
         else:  # ai-image：整页图卡（生图产物经 well contain 呈现，3:4 画板）
             src = page["asset"][len("_cards/"):]
             inner = (

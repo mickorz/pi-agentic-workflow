@@ -73,6 +73,17 @@ def main() -> int:
     bad = copy.deepcopy(FIXTURE); bad["pages"][1]["image_fit"] = "cover"
     check("screenshot image_fit=cover 拒绝", any("image_fit" in e or "cover" in e for e in errs_of(bad)))
 
+    # 9b crop 契约（T2.5）：manual 合法 / mode 非法 / 缺数值字段 / 区域越界
+    ok = copy.deepcopy(FIXTURE)
+    ok["pages"][1]["crop"] = {"mode": "manual", "x": 0.1, "y": 0.15, "width": 0.8, "height": 0.7}
+    check("crop manual 合法通过", errs_of(ok) == [])
+    bad = copy.deepcopy(ok); bad["pages"][1]["crop"]["mode"] = "auto-magic"
+    check("crop mode 非法拒绝", any("crop.mode" in e for e in errs_of(bad)))
+    bad = copy.deepcopy(ok); del bad["pages"][1]["crop"]["height"]
+    check("crop manual 缺字段拒绝", any("height" in e for e in errs_of(bad)))
+    bad = copy.deepcopy(ok); bad["pages"][1]["crop"]["width"] = 0.95
+    check("crop manual 区域越界拒绝(x+w>1)", any("越界" in e for e in errs_of(bad)))
+
     # 10 ai-image 缺 prompt
     bad = copy.deepcopy(FIXTURE)
     bad["pages"].append({"no": 3, "role": "ai-illustration", "source": "ai-image"})

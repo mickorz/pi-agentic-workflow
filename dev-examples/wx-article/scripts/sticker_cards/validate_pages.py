@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from components import ASSET_PREFIX, COMPONENTS, SOURCE_ROUTES, THEMES  # noqa: E402
+from components import ASSET_PREFIX, COMPONENTS, SOURCE_ROUTES, THEMES, WELL_RATIOS  # noqa: E402
 
 MAX_PAGES = 9
 TITLE_MAX = 32
@@ -89,6 +89,37 @@ def _check_asset(page: dict, errs: list, article_root: Path | None) -> None:
         p = article_root / asset
         if not p.is_file():
             errs.append(f"page.no={page.get('no')} asset 文件不存在: {asset}")
+
+
+def _check_crop(page: dict, errs: list) -> None:
+    """crop 契约（T2.5）：mode=contain（缺省）| manual；manual 必带归一化 x/y/width/height
+    （0~1，w/h>0，x+w<=1，y+h<=1）；fit=cover（缺省）|contain；position 仅 contain 模式有效。"""
+    crop = page.get("crop")
+    if not isinstance(crop, dict):
+        return
+    mode = crop.get("mode", "contain")
+    if mode not in ("contain", "manual"):
+        errs.append(f"page.no={page.get('no')} crop.mode 必须是 contain|manual，当前 {mode!r}")
+        return
+    fit = crop.get("fit", "cover")
+    if fit not in ("cover", "contain"):
+        errs.append(f"page.no={page.get('no')} crop.fit 必须是 cover|contain，当前 {fit!r}")
+    if mode == "manual":
+        for k in ("x", "y", "width", "height"):
+            v = crop.get(k)
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                errs.append(f"page.no={page.get('no')} crop.manual 缺少数值字段 {k}")
+                return
+        x, y, w, h = crop["x"], crop["y"], crop["width"], crop["height"]
+        eps = 1e-6
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            errs.append(f"page.no={page.get('no')} crop.manual x/y 必须在 0~1")
+        if not (0 < w <= 1 and 0 < h <= 1):
+            errs.append(f"page.no={page.get('no')} crop.manual width/height 必须在 (0,1]")
+        if x + w > 1 + eps or y + h > 1 + eps:
+            errs.append(f"page.no={page.get('no')} crop.manual 区域越界（x+w={x + w:.4f}, y+h={y + h:.4f}）")
+    elif "position" in crop and not isinstance(crop["position"], str):
+        errs.append(f"page.no={page.get('no')} crop.position 类型应为 str（object-position）")
 
 
 def validate_pages(data: dict, article_root: Path | None = None,
@@ -154,6 +185,10 @@ def validate_pages(data: dict, article_root: Path | None = None,
             else:
                 spec = COMPONENTS[layout]
                 _check_required_fields(page, spec, errs)
+                _check_crop(page, errs)
+                wr = page.get("well_ratio")
+                if wr is not None and wr not in WELL_RATIOS:
+                    errs.append(f"page.no={no} well_ratio 非法: {wr}（允许 {'|'.join(WELL_RATIOS)}）")
                 allow = spec.get("image_fit_allow")
                 if allow is not None:
                     fit = page.get("image_fit") or spec.get("image_fit_default", "contain")
