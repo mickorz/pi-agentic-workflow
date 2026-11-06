@@ -1,0 +1,49 @@
+{
+  "name": "sticker-cards-unknown",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-sticker-cards"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "unknown-recover"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-sticker-cards\", \"args\": {\"articleDir\": \"{runDir}/work/sc-unk\", \"outFile\": \"{runDir}/work/sc-unk-out.txt\", \"mode\": \"unknown-recover\"}, \"missingFields\": [], \"reason\": \"wx-mock 卡片化 Gate B sticker-cards-unknown\", \"confidence\": 0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "S1",
+      "name": "sticker-cards-unknown",
+      "send": "cherry-ice UNKNOWN 恢复",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-sticker-cards",
+        "timeoutSec": 300,
+        "special": {
+          "justified": true
+        },
+        "reason": "渲染+规范化+发布全链确定性执行，180s 不够"
+      },
+      "assertFile": [
+        "{runDir}/work/sc-unk-out.txt"
+      ],
+      "assertFileContains": {
+        "file": "{runDir}/work/sc-unk-out.txt",
+        "contains": "markers=BUILD,RENDER,NORMALIZE,APPROVED,VERIFY,FP,UNKNOWN-OBSERVED,PUBLISH-DRAFTED"
+      },
+      "special": {
+        "justified": true
+      },
+      "reason": "渲染+规范化+发布全链确定性执行（playwright 含浏览器启动与字体开销），180s 不够"
+    }
+  ],
+  "vars": {
+    "articleDir": "{runDir}/work/sc-unk",
+    "outFile": "{runDir}/work/sc-unk-out.txt",
+    "mode": "unknown-recover"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "name": "sticker-cards-full",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-sticker-cards"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "full"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-sticker-cards\", \"args\": {\"articleDir\": \"{runDir}/work/sc-full\", \"outFile\": \"{runDir}/work/sc-full-out.txt\", \"mode\": \"full\"}, \"missingFields\": [], \"reason\": \"wx-mock 卡片化 Gate B sticker-cards-full\", \"confidence\": 0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "S1",
+      "name": "sticker-cards-full",
+      "send": "apple-pie 小绿书全链",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-sticker-cards",
+        "timeoutSec": 300,
+        "special": {
+          "justified": true
+        },
+        "reason": "渲染+规范化+发布全链确定性执行，180s 不够"
+      },
+      "assertFile": [
+        "{runDir}/work/sc-full-out.txt"
+      ],
+      "assertFileContains": {
+        "file": "{runDir}/work/sc-full-out.txt",
+        "contains": "markers=BUILD,RENDER,NORMALIZE,APPROVED,VERIFY,FP,PUBLISH-DRAFTED"
+      },
+      "special": {
+        "justified": true
+      },
+      "reason": "渲染+规范化+发布全链确定性执行（playwright 含浏览器启动与字体开销），180s 不够"
+    }
+  ],
+  "vars": {
+    "articleDir": "{runDir}/work/sc-full",
+    "outFile": "{runDir}/work/sc-full-out.txt",
+    "mode": "full"
+  }
+}

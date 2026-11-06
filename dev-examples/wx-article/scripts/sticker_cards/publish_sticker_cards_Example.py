@@ -196,6 +196,27 @@ def main() -> int:
                 "--mock-store", str(art9 / "_cards" / "s.json"))
         check("UNKNOWN 后重跑仍 UNKNOWN（pending 守卫防重复草稿）",
               r.returncode == 2 and "pending" in r.stdout, r.stdout[-200:])
+        # ---------- 8b P1-1/P1-2：恢复沿用原审批槽位 + 恢复失败退出码 ----------
+        art8b, pages8b = make_fixture(tmp / "f8b")
+        # cfg 加 slot2 凭证，审批用 slot2
+        with (art8b / "aws.env").open("a", encoding="utf-8") as f:
+            f.write("WECHAT_2_APPID=wxbbb" + chr(10) + "WECHAT_2_APPSECRET=s2" + chr(10))
+        r = run(art8b, pages8b, "--prepare", "--account-slot", "2")
+        fp8b = json.loads((art8b / "_cards" / "publish-approval.json").read_text(
+            encoding="utf-8"))["fingerprint"]
+        r = run(art8b, pages8b, "--execute", "--approval", fp8b, "--account-slot", "2",
+                "--mock", "--mock-store", str(art8b / "_cards" / "s8b.json"),
+                "--inject", "add-timeout")
+        check("8b slot2 发布超时 UNKNOWN", r.returncode == 2, r.stdout[-200:])
+        # P1-1：恢复不带 --account-slot，应沿用审批的 slot2（state accounts 键=wxbbb）
+        r = run(art8b, pages8b, "--clear-pending", "--mock",
+                "--mock-store", str(art8b / "_cards" / "s8b.json"))
+        ps = json.loads((art8b / "publish-state.json").read_text(encoding="utf-8"))
+        check("P1-1 恢复沿用原审批账号槽位(wxbbb)", "wxbbb" in ps.get("accounts", {}), str(ps.get("accounts")))
+        r = run(art8b, pages8b, "--execute", "--approval", fp8b, "--account-slot", "2",
+                "--mock", "--mock-store", str(art8b / "_cards" / "s8b.json"))
+        check("8b slot2 恢复后发布 DRAFTED", r.returncode == 0, r.stdout[-200:])
+        # （P1-2 恢复失败用例移至 8c：需先制造 publish.py pending-unknown 场景）
         # 人工恢复通道：确认未产生草稿 -> clear-pending -> 重跑 execute -> DRAFTED
         r = run(art9, pages9, "--clear-pending", "--mock",
                 "--mock-store", str(art9 / "_cards" / "s.json"))
@@ -210,6 +231,20 @@ def main() -> int:
 
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+    # ---------- 8c P1-2：pending-unknown 下 resolve 错误 id -> 恢复失败 RECOVERY_FAILED ----------
+    art8c, pages8c = make_fixture(tmp / "f8c")
+    r = run(art8c, pages8c, "--prepare")
+    fp8c = json.loads((art8c / "_cards" / "publish-approval.json").read_text(
+        encoding="utf-8"))["fingerprint"]
+    r = run(art8c, pages8c, "--execute", "--approval", fp8c, "--mock",
+            "--mock-store", str(art8c / "_cards" / "s8c.json"),
+            "--inject", "add-timeout")
+    check("8c 制造 pending-unknown", r.returncode == 2, r.stdout[-150:])
+    r = run(art8c, pages8c, "--resolve-media-id", "mock-wrong-id", "--mock",
+            "--mock-store", str(art8c / "_cards" / "s8c.json"))
+    check("P1-2 恢复失败返回非 0（RECOVERY_FAILED）",
+          r.returncode != 0 and "RECOVERY_FAILED" in r.stdout, r.stdout[-300:])
 
     print(f"\n汇总 OK={len(PASS)} FAIL={len(FAIL)}")
     if FAIL:

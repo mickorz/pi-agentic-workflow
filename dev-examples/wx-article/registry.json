@@ -977,5 +977,72 @@
       "推荐这个 GitHub 项目 https://github.com/xxx/yyy 做成文章",
       "推荐 https://github.com/xxx/yyy 并写成公众号文章"
     ]
+  },
+  {
+    "workflowId": "sticker-cards",
+    "scriptPath": "scripts/wechat_sticker_cards.js",
+    "name": "小绿书卡片化",
+    "description": "文章/截图/笔记 -> pages.json 页面规划 -> 版式卡片渲染+AI生图 -> 规范化与人工审图 -> 两阶段发布授权 -> 发布小绿书(newspic 入草稿箱)。贴图=小绿书(2026-11 术语定案)",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "article_dir": {
+          "type": "string",
+          "description": "文章目录(必需;_cards/ 与产物所在)"
+        },
+        "source_text": {
+          "type": "string",
+          "description": "素材文本(笔记/要点,可选)"
+        },
+        "shots_dir": {
+          "type": "string",
+          "description": "截图目录(可选;png/jpg 将预处理为截图证据页)"
+        },
+        "count": {
+          "type": "number",
+          "description": "页数上限(缺省 6,硬上限 9)"
+        },
+        "style_mode": {
+          "type": "string",
+          "description": "editorial|swiss,缺省 editorial"
+        },
+        "title": {
+          "type": "string",
+          "description": "小绿书标题(<=32字,可选)"
+        },
+        "content": {
+          "type": "string",
+          "description": "配文(<=1000字,可选)"
+        },
+        "publish_method": {
+          "type": "string",
+          "description": "draft(缺省)|none;发布小绿书入草稿箱或只制作"
+        },
+        "account_slot": {
+          "type": "number",
+          "description": "账号槽位(缺省 1)"
+        },
+        "skip_confirm": {
+          "type": "boolean",
+          "description": "仅跳过制作类确认;生图付费与发布授权不受影响"
+        }
+      },
+      "required": [
+        "article_dir"
+      ]
+    },
+    "riskLevel": "write",
+    "enabled": true,
+    "keywords": [
+      "小绿书卡片",
+      "做成卡片",
+      "卡片化",
+      "sticker-cards"
+    ],
+    "examples": [
+      "帮我把这篇文章做成小绿书卡片",
+      "把这些截图做成小绿书卡片并发布",
+      "sticker-cards 文章目录 E:/notes/xxx"
+    ]
   }
 ]

@@ -123,11 +123,11 @@ def main() -> int:
         if rv.get("sha256_at_review") and rv["sha256_at_review"] != sha:
             stale_ok = False  # 审核后图又变了：旧审核失效
 
-    if not args.require_approved:
-        check("审核状态全部非 PENDING_REVIEW", review_ok)
-    else:
-        check("审核状态全部 APPROVED（发布门）", approved_ok and review_ok)
-    check("审核未过期（审核后产物未变化）", stale_ok)
+    if args.require_approved:
+        # 发布门：全部 APPROVED + 审核后产物未变化（审核过期检查）
+        check("审核状态全部 APPROVED（发布门）", approved_ok)
+        check("审核未过期（审核后产物未变化）", stale_ok)
+    # 非 require-approved（制作验收）不检查审核状态：normalize 后 review 必然 PENDING_REVIEW
 
     print(f"\n汇总 OK={len(PASS)} FAIL={len(FAIL)}")
     if FAIL:

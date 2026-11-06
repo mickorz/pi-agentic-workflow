@@ -1,0 +1,57 @@
+{
+  "name": "sticker-cards-dup-only",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-sticker-cards"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "gatbf1",
+        "小绿书卡片GateB mockstikercards"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-sticker-cards\", \"args\": {\"articleDir\": \"{articleDirFull}\", \"outFile\": \"{outFileFull}\", \"mode\": \"full\"}, \"missingFields\": [], \"reason\": \"wx-mock 卡片化 Gate B C1\", \"confidence\": 0.99}"
+    },
+    {
+      "ifPromptContains": [
+        "gatbdup"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-sticker-cards\", \"args\": {\"articleDir\": \"{articleDirDup}\", \"outFile\": \"{outFileDup}\", \"mode\": \"duplicate\"}, \"missingFields\": [], \"reason\": \"wx-mock 卡片化 Gate B C2\", \"confidence\": 0.99}"
+    },
+    {
+      "ifPromptContains": [
+        "gatbu"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-sticker-cards\", \"args\": {\"articleDir\": \"{articleDirU}\", \"outFile\": \"{outFileU}\", \"mode\": \"unknown-recover\"}, \"missingFields\": [], \"reason\": \"wx-mock 卡片化 Gate B C3\", \"confidence\": 0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "C2",
+      "name": "重复发布防护：CONSUMED 授权重复 execute 被拒（不产生重复草稿）",
+      "send": "小绿书卡片GateB gatbdup（mock 重复发布防护）",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-sticker-cards",
+        "timeoutSec": 300
+      },
+      "assertFile": [
+        "{outFileDup}"
+      ],
+      "assertFileContains": {
+        "file": "{outFileDup}",
+        "contains": "PUBLISH-REJECTED"
+      },
+      "special": {
+        "justified": true
+      },
+      "reason": "渲染+规范化+发布全链确定性执行（playwright 渲染含浏览器启动与字体开销），180s 不够"
+    }
+  ],
+  "vars": {
+    "articleDirDup": "{runDir}/work/sticker-dup",
+    "outFileDup": "{runDir}/work/sticker-dup-out.txt"
+  }
+}

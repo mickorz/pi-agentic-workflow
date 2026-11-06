@@ -141,7 +141,8 @@ def main() -> int:
                    "--article-dir", str(art_dir), "--xiaolvshu",
                    "--images-from", "_cards/output",
                    "--title", title, "--content", content,
-                   "--account-slot", str(args.account_slot), *rec_mock]
+                   # P1-1：沿用原审批账号槽位（approval 优先，避免退化到缺省 slot 账号错位）
+                   "--account-slot", str(approval.get("account_slot", args.account_slot)), *rec_mock]
         if args.clear_pending:
             rec_cmd += ["--clear-pending"]
         else:
@@ -151,9 +152,18 @@ def main() -> int:
         if r.stderr.strip():
             print("[publish.py stderr] " + r.stderr.strip()[-300:])
         print("\n".join(r.stdout.splitlines()[-8:]))
-        print(f"=== PUBLISH DONE ({'CLEARED' if args.clear_pending else 'RESOLVED'}) ===")
-        return 0
-
+        # P1-2：按 publish.py 实际结果返回，恢复失败不得误报成功
+        if r.returncode == 0:
+            print(f"=== PUBLISH DONE ({'CLEARED' if args.clear_pending else 'RESOLVED'}) ===")
+            return 0
+        print(f"=== PUBLISH DONE (RECOVERY_FAILED, rc={r.returncode}) ===")
+        return r.returncode
+        # P1-2：按 publish.py 实际结果返回，恢复失败不得误报成功
+        if r.returncode == 0:
+            print(f"=== PUBLISH DONE ({'CLEARED' if args.clear_pending else 'RESOLVED'}) ===")
+            return 0
+        print(f"=== PUBLISH DONE (RECOVERY_FAILED, rc={r.returncode}) ===")
+        return r.returncode
     if bool(args.prepare) == bool(args.execute):
         print("[FAIL] 必须且只能选择一个阶段：--prepare 或 --execute")
         print("=== PUBLISH REJECTED ===")
@@ -224,24 +234,6 @@ def main() -> int:
         print("=== PUBLISH REJECTED ===")
         return 1
 
-    if args.clear_pending or args.resolve_media_id:
-        # 人工恢复通道：不创建新内容，不消耗授权指纹
-        rec_cmd = [sys.executable, str(PUBLISH_SCRIPT),
-                   "--article-dir", str(art_dir), "--xiaolvshu",
-                   "--images-from", "_cards/output",
-                   "--title", approval.get("title", ""), "--content", approval.get("content", ""),
-                   "--account-slot", str(args.account_slot), *mock_args]
-        if args.clear_pending:
-            rec_cmd += ["--clear-pending"]
-        else:
-            rec_cmd += ["--resolve-media-id", args.resolve_media_id]
-        r = subprocess.run(rec_cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=300)
-        if r.stderr.strip():
-            print("[publish.py stderr] " + r.stderr.strip()[-300:])
-        print("\n".join(r.stdout.splitlines()[-8:]))
-        print(f"=== PUBLISH DONE ({'CLEARED' if args.clear_pending else 'RESOLVED'}) ===")
-        return 0
 
     # Gate 1 重验（P0-1：审批期间内容可能被改）
     ok, tail = gate1_verify(pages_path, cards_dir)

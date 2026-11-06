@@ -1,0 +1,49 @@
+{
+  "name": "sticker-cards-duplicate",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-sticker-cards"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "duplicate"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-sticker-cards\", \"args\": {\"articleDir\": \"{runDir}/work/sc-dup\", \"outFile\": \"{runDir}/work/sc-dup-out.txt\", \"mode\": \"duplicate\"}, \"missingFields\": [], \"reason\": \"wx-mock 卡片化 Gate B sticker-cards-duplicate\", \"confidence\": 0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "S1",
+      "name": "sticker-cards-duplicate",
+      "send": "banana-fry 重复防护",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-sticker-cards",
+        "timeoutSec": 300,
+        "special": {
+          "justified": true
+        },
+        "reason": "渲染+规范化+发布全链确定性执行，180s 不够"
+      },
+      "assertFile": [
+        "{runDir}/work/sc-dup-out.txt"
+      ],
+      "assertFileContains": {
+        "file": "{runDir}/work/sc-dup-out.txt",
+        "contains": "markers=BUILD,RENDER,NORMALIZE,APPROVED,VERIFY,FP,PUBLISH-DRAFTED,PUBLISH-REJECTED"
+      },
+      "special": {
+        "justified": true
+      },
+      "reason": "渲染+规范化+发布全链确定性执行（playwright 含浏览器启动与字体开销），180s 不够"
+    }
+  ],
+  "vars": {
+    "articleDir": "{runDir}/work/sc-dup",
+    "outFile": "{runDir}/work/sc-dup-out.txt",
+    "mode": "duplicate"
+  }
+}

@@ -6,11 +6,24 @@
     "description": "确定性测试：回显 marker 并落盘产物文件",
     "enabled": true,
     "riskLevel": "read-only",
-    "keywords": ["mockecho", "回显测试"],
+    "keywords": [
+      "mockecho",
+      "回显测试"
+    ],
     "argsSchema": {
       "type": "object",
-      "properties": { "marker": { "type": "string" }, "outFile": { "type": "string" } },
-      "required": ["marker", "outFile"]
+      "properties": {
+        "marker": {
+          "type": "string"
+        },
+        "outFile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "marker",
+        "outFile"
+      ]
     }
   },
   {
@@ -20,11 +33,20 @@
     "description": "确定性测试：按 reason 抛出确定性失败",
     "enabled": true,
     "riskLevel": "read-only",
-    "keywords": ["mockfail", "失败测试"],
+    "keywords": [
+      "mockfail",
+      "失败测试"
+    ],
     "argsSchema": {
       "type": "object",
-      "properties": { "reason": { "type": "string" } },
-      "required": ["reason"]
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ]
     }
   },
   {
@@ -34,11 +56,24 @@
     "description": "确定性测试：marker 追加 + 长眠 + 终态文件（中断恢复用）",
     "enabled": true,
     "riskLevel": "read-only",
-    "keywords": ["mockslow", "慢任务测试"],
+    "keywords": [
+      "mockslow",
+      "慢任务测试"
+    ],
     "argsSchema": {
       "type": "object",
-      "properties": { "markerFile": { "type": "string" }, "finalFile": { "type": "string" } },
-      "required": ["markerFile", "finalFile"]
+      "properties": {
+        "markerFile": {
+          "type": "string"
+        },
+        "finalFile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "markerFile",
+        "finalFile"
+      ]
     }
   },
   {
@@ -48,11 +83,24 @@
     "description": "确定性测试：外部副作用（授权门）批准后落盘产物",
     "enabled": true,
     "riskLevel": "external-side-effect",
-    "keywords": ["mockeffect", "副作用测试"],
+    "keywords": [
+      "mockeffect",
+      "副作用测试"
+    ],
     "argsSchema": {
       "type": "object",
-      "properties": { "outFile": { "type": "string" }, "anchor": { "type": "string" } },
-      "required": ["outFile", "anchor"]
+      "properties": {
+        "outFile": {
+          "type": "string"
+        },
+        "anchor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "outFile",
+        "anchor"
+      ]
     }
   },
   {
@@ -62,11 +110,25 @@
     "description": "确定性测试：publish.py --xiaolvshu --mock 入箱（newspic 图片帖，零 LLM 零外部服务）",
     "enabled": true,
     "riskLevel": "read-only",
-    "keywords": ["mocksticker", "小绿书发布", "小绿书"],
+    "keywords": [
+      "mocksticker",
+      "小绿书发布",
+      "小绿书"
+    ],
     "argsSchema": {
       "type": "object",
-      "properties": { "articleDir": { "type": "string" }, "outFile": { "type": "string" } },
-      "required": ["articleDir", "outFile"]
+      "properties": {
+        "articleDir": {
+          "type": "string"
+        },
+        "outFile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "articleDir",
+        "outFile"
+      ]
     }
   },
   {
@@ -76,7 +138,58 @@
     "description": "R2 冲突靶子：贪心关键词镜像 1b5c968 修复前的 demo 抢跑形态（勿启用）",
     "enabled": false,
     "riskLevel": "read-only",
-    "keywords": ["仓库研究", "github", "demo", "演示"],
-    "argsSchema": { "type": "object", "properties": { "marker": { "type": "string" }, "outFile": { "type": "string" } }, "required": ["marker", "outFile"] }
+    "keywords": [
+      "仓库研究",
+      "github",
+      "demo",
+      "演示"
+    ],
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "marker": {
+          "type": "string"
+        },
+        "outFile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "marker",
+        "outFile"
+      ]
+    }
+  },
+  {
+    "workflowId": "mock-sticker-cards",
+    "scriptPath": "mock-sticker-cards.js",
+    "name": "Mock 小绿书卡片化全链",
+    "description": "确定性测试：build→render→normalize→审图→verify→发布授权→mock 入草稿箱（mode=full|duplicate|unknown-recover）",
+    "enabled": true,
+    "riskLevel": "read-only",
+    "keywords": [
+      "apple-pie",
+      "banana-fry",
+      "cherry-ice"
+    ],
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "articleDir": {
+          "type": "string"
+        },
+        "outFile": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "description": "full|duplicate|unknown-recover"
+        }
+      },
+      "required": [
+        "articleDir",
+        "outFile"
+      ]
+    }
   }
 ]
