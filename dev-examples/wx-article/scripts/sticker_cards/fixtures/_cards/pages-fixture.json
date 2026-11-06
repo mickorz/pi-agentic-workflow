@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "style_mode": "editorial",
+  "theme": "ink-classic",
+  "title": "小绿书卡片化测试",
+  "content": "T1 注入器冒烟配文：Agent 只产数据，程序构建 HTML。",
+  "pages": [
+    {
+      "no": 1,
+      "role": "cover",
+      "source": "html",
+      "layout": "cover-hook",
+      "copy": {
+        "title": "程序注入的封面",
+        "points": ["确定性构建", "Agent 零 HTML", "模板程序复制"]
+      },
+      "emphasis": "Agent 只产数据，程序负责构建"
+    },
+    {
+      "no": 2,
+      "role": "screenshot-evidence",
+      "source": "html",
+      "layout": "screenshot-with-caption",
+      "asset": "_cards/assets/shot-01.png",
+      "copy": {
+        "title": "实际渲染效果",
+        "caption": "fixture 截图 900x1200，contain 呈现"
+      }
+    }
+  ]
+}
