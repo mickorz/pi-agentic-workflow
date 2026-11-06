@@ -86,7 +86,7 @@ def main() -> int:
     check("编号连续 01~NN", sorted(nos) == list(range(1, len(nos) + 1)), str(sorted(nos)))
 
     shas: dict[str, int] = {}
-    review_ok, approved_ok, stale_ok = True, True, True
+    approved_ok, stale_ok = True, True
     for page in pages:
         no = page["no"]
         m = m_by_no.get(no)
@@ -112,12 +112,13 @@ def main() -> int:
         if m.get("sha256") != sha:
             check(f"页 {no:02d} manifest 与实际文件一致", False,
                   f"manifest={str(m.get('sha256'))[:12]} 实际={sha[:12]}")
-            review_ok = False
+            approved_ok = False
+            stale_ok = False
             continue
         check(f"页 {no:02d} manifest 一致", True)
         rv = m.get("review") or {}
         if rv.get("status") == "PENDING_REVIEW":
-            review_ok = False
+            approved_ok = False
         if args.require_approved and rv.get("status") != "APPROVED":
             approved_ok = False
         if rv.get("sha256_at_review") and rv["sha256_at_review"] != sha:
