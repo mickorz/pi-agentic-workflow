@@ -40,6 +40,17 @@
 （模拟 GitHub 页：地址栏 + 代码高亮），裁切正确性可由视觉模型断言（地址栏是否消失、
 行首关键字是否完整）。
 
+## 坑 4：Windows 下 Path.rename 覆盖已存在目标会抛 FileExistsError
+
+**现象**：UNKNOWN 恢复路径（产物已在位，校验后回写状态）在 Windows 上崩。
+
+**根因**：`tmp.rename(real)` 当 real 已存在时 Windows 抛 FileExistsError（POSIX 语义是静默覆盖）。
+
+**解决**：`os.replace(str(tmp), str(real))`（原子且跨平台语义一致）。
+
+**预防**：涉及“写产物可能覆盖旧文件”的场景一律 os.replace；与本仓 article_state 的 os.replace
+约定一致。
+
 ## 相关文件
 
 - `dev-examples/wx-article/scripts/sticker_cards/components.py`（WELL_RATIOS + manual 几何）
