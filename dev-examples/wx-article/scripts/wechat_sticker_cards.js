@@ -128,8 +128,8 @@ if (prep.output.indexOf('需人工确认') !== -1) {
 
 phase('AI 生图（如页表含 ai-image 页）')
 const genPlan = await runPy(SC + '/generate_ai_images.py',
-  ['--pages', pagesPath, '--cards-dir', CARD, '--config-dir', args.article_dir,
-   '--max-images', String(Math.min(args.count || 6, 9))].concat(mockArgs), 'generate_plan(dry)')
+  ['--pages', pagesPath, '--cards-dir', CARD, '--article-dir', args.article_dir,
+   '--max-images', String(Math.min(args.count || 6, 9))], 'generate_plan(dry)')
 if (genPlan.output.indexOf('无 ai-image 页面') !== -1) {
   log('无 ai-image 页，跳过生图')
 } else {
@@ -140,11 +140,11 @@ if (genPlan.output.indexOf('无 ai-image 页面') !== -1) {
     await checkpoint(
       'AI 生图付费授权（独立 checkpoint，skip_confirm 不影响本授权）：\n' +
       genPlan.output.split('\n').filter(l => l.startsWith('[计划]') || l.startsWith('[OK] 提示词')).join('\n') + '\n' +
-      '确认后将以 --yes 发起真实付费请求。允许=生成；拒绝=终止（提示词已存档，可稍后重跑）。')
+      '通道：image-use（chrome-use 驱动已登录浏览器 + ChatGPT 订阅 web，零 API 计费，消耗订阅配额）。确认后以 --yes 发起生成；拒绝=终止（提示词已存档，可稍后重跑）。')
     const gen = await runPy(SC + '/generate_ai_images.py',
-      ['--pages', pagesPath, '--cards-dir', CARD, '--config-dir', args.article_dir,
+      ['--pages', pagesPath, '--cards-dir', CARD, '--article-dir', args.article_dir,
        '--yes', '--max-images', String(Math.min(args.count || 6, 9))].concat(mockArgs),
-      'generate_ai_images', 600000)
+      'generate_ai_images', 900000)
     log(gen.output.split('\n').filter(l => l.startsWith('[')).join('\n'))
     if (gen.exitCode === 2) {
       return { cards_status: 'GENERATING', publish_status: 'NOT_STARTED', artifacts,
