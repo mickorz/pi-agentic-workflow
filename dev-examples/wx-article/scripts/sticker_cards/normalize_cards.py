@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import struct
 import sys
@@ -96,18 +97,23 @@ def main() -> int:
     out_dir = cards_dir / "output"
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # 旧 Manifest 失效保护（评审 T5 P0）：normalize 启动即挪走旧 manifest（原子），
+    # 全部页面成功后才原子写新 manifest；中途失败时旧 manifest 不在位，verify 必然拒绝发布
+    manifest_path = cards_dir / "cards-manifest.json"
+    stale_path = cards_dir / "cards-manifest.stale.json"
+    old_manifest = {}
+    if manifest_path.is_file():
+        os.replace(str(manifest_path), str(stale_path))  # 失去发布资格（verify 读不到即拒绝）
+    if stale_path.is_file():
+        try:
+            old_manifest = json.loads(stale_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            pass
+    old_by_no = {p.get("no"): p for p in old_manifest.get("pages", [])}
     try:
         aigen_state = json.loads((cards_dir / "aigen-state.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         aigen_state = {}
-    old_manifest = {}
-    manifest_path = cards_dir / "cards-manifest.json"
-    if manifest_path.is_file():
-        try:
-            old_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            pass
-    old_by_no = {p.get("no"): p for p in old_manifest.get("pages", [])}
 
     entries: list[dict] = []
     seen_sha: dict[str, int] = {}
@@ -158,7 +164,8 @@ def main() -> int:
         print(f"      审图: {kind} | {REVIEW_STANDARDS[kind]}{inherited}")
 
     if failed:
-        print(f"=== NORMALIZE FAILED ===")
+        print("[WARN] 本次 normalize 未完成：旧 manifest 已失效挪出，发布前必须重新 normalize")
+        print("=== NORMALIZE FAILED ===")
         return 1
 
     manifest = {
@@ -166,7 +173,9 @@ def main() -> int:
         "generated_from_pages_sha256": pages_sha,
         "pages": entries,
     }
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp = manifest_path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.replace(str(tmp), str(manifest_path))  # 原子替换：不存在半份 manifest
     print(f"[OK] manifest -> {manifest_path}")
 
     # 人读审图清单（T4.3；人工按此逐页审核后用 mark_review.py 记录结论）

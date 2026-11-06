@@ -147,6 +147,23 @@ def main() -> int:
         r = run_norm(art7, pages7)
         check("源尺寸不符拒绝", r.returncode == 1 and "1080x1440" in r.stdout, r.stdout[-200:])
 
+        # ---------- 7b 失败时旧 manifest 失效保护（评审 T5 P0） ----------
+        art7b, pages7b = make_fixture(tmp / "f7b")
+        r = run_norm(art7b, pages7b)  # 先成功一次，manifest 在位
+        check("7b 首次 normalize 后 manifest 在位",
+              (art7b / "_cards" / "cards-manifest.json").is_file())
+        (art7b / "_cards" / "render" / "xhs-02.png").unlink()  # 制造失败：源缺失
+        r = run_norm(art7b, pages7b)
+        check("7b 失败 normalize 退出码 1", r.returncode == 1)
+        check("7b 失败后旧 manifest 已失效挪出",
+              not (art7b / "_cards" / "cards-manifest.json").is_file())
+        r = subprocess.run(
+            [sys.executable, str(HERE / "verify_cards.py"),
+             "--pages", str(pages7b), "--cards-dir", str(art7b / "_cards"),
+             "--require-approved"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
+        check("7b 失败后 verify 拒绝发布", r.returncode == 1)
+
         # ---------- 8 硬性拒绝：重复图片 ----------
         art8, pages8 = make_fixture(tmp / "f8")
         shutil.copy2(art8 / "_cards" / "render" / "xhs-01.png",

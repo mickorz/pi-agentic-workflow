@@ -220,9 +220,13 @@ def sticker_content_hash(images: list, title: str, content: str, appid: str) -> 
     return h.hexdigest()
 
 
-def select_sticker_images(article_dir: Path) -> list:
-    """imgs/ 下图片按自然序(数字前缀)全量入选；无图/超 20 张报错。"""
-    imgs_dir = article_dir / "imgs"
+def select_sticker_images(article_dir: Path, images_from: str | None = None) -> list:
+    """选图目录下图片按自然序(数字前缀)全量入选；无图/超 20 张报错。
+    images_from：相对文章目录的选图目录（T5 发布入口用 output/；缺省 imgs/）。"""
+    rel = images_from or "imgs"
+    if rel.startswith(("/", "\\")) or ".." in Path(rel).parts or Path(rel).is_absolute():
+        raise ValueError(f"--images-from 非法（须为文章目录内相对路径）: {rel}")
+    imgs_dir = article_dir / rel
     if not imgs_dir.is_dir():
         raise FileNotFoundError(f"imgs/ not found in {article_dir}")
     files = [p for p in imgs_dir.iterdir() if p.is_file() and p.suffix.lower() in STICKER_IMG_EXT]
@@ -242,7 +246,7 @@ def select_sticker_images(article_dir: Path) -> list:
 def sticker_prepare(article_dir: Path, args, appid: str) -> dict:
     """小绿书本地阶段：选图 + 元数据 + Hash。标题 > article.yaml > 报错；
     配文 > --content > --digest > article.yaml digest > 空；超长按句读截断。"""
-    imgs = select_sticker_images(article_dir)
+    imgs = select_sticker_images(article_dir, getattr(args, "images_from", None))
     ym = read_article_yaml(article_dir)
     title = _unquote(args.title or ym.get("title", ""))
     if not title:
@@ -465,6 +469,8 @@ def main() -> int:
                          "无 cover/md/html;freepublish 不支持,发表请到公众号后台")
     ap.add_argument("--content", default=None,
                     help="小绿书配文(纯文本);缺省 --digest > article.yaml digest > 空")
+    ap.add_argument("--images-from", default=None,
+                    help="小绿书选图目录(相对文章目录;缺省 imgs/)。T5 发布入口传 output/")
     ap.add_argument("--html-file", default=None,
                     help="跳过内置 convert_md,直接用指定 HTML 文件入箱(GZH 排版工作台导出的 layout.html;"
                          "相对路径相对文章目录解析)。图片引用须保持 imgs/ 相对路径,上传时统一替换微信 URL")
@@ -481,6 +487,8 @@ def main() -> int:
         return fail("--xiaolvshu 不接受 --md-file/--html-file(小绿书无正文)")
     if args.xiaolvshu and args.cover:
         return fail("--xiaolvshu 不接受 --cover(首图即封面)")
+    if args.images_from and not args.xiaolvshu:
+        return fail("--images-from 仅小绿书模式(--xiaolvshu)支持")
     cover_path = None
     if not args.xiaolvshu:
         if not args.cover:
