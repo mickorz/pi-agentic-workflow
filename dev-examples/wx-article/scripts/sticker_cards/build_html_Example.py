@@ -165,14 +165,14 @@ def main() -> int:
         try:
             r = subprocess.run(
                 [node, str(RENDER_MJS), str(html_path), "--no-embed",
-                 "--out", str(html_path.parent / "output")],
+                 "--out", str(html_path.parent / "render")],
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=RENDER_TIMEOUT, cwd=str(RENDER_MJS.parents[1]),
             )
             check("render.mjs 退出码 0", r.returncode == 0,
                   f"rc={r.returncode} stderr={r.stderr[-300:]}")
             for pid in page_ids:
-                png = html_path.parent / "output" / f"{pid}.png"
+                png = html_path.parent / "render" / f"{pid}.png"
                 if png.is_file():
                     w, h = png_size(png)
                     check(f"PNG {pid} 精确 1080x1440（实际 {w}x{h}）", (w, h) == (1080, 1440))

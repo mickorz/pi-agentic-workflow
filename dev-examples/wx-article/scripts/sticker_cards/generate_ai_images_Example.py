@@ -159,6 +159,51 @@ def main() -> int:
         st5 = state_of(card5)
         check("FAILED 页重跑恢复", st5["pages"]["3"]["status"] in ("SUCCEEDED", "UNKNOWN"), str(st5))
 
+        # ---------- 5b 完整 SHA256（T3 收口 P0-3） ----------
+        check("SHA256 完整 64 位", len(first_sha) == 64, f"len={len(first_sha)}")
+
+        # ---------- 5c GENERATING 崩溃恢复（T3 收口 P0-1） ----------
+        art5c, pages5c, cfg5c = make_fixture(tmp / "f5c")
+        card5c = art5c / "_cards"
+        # 模拟上次进程崩溃：状态停在 GENERATING 且 run_id 是旧值
+        st5c = {"pages": {"2": {"status": "GENERATING", "attempts": 1, "run_id": "rOLD-999"},
+                          "3": {"status": "GENERATING", "attempts": 1, "run_id": "rOLD-999"}}}
+        (card5c / "aigen-state.json").write_text(json.dumps(st5c, ensure_ascii=False), encoding="utf-8")
+        # 页2 有产物（请求其实已成功），页3 无产物
+        (card5c / "assets").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(HERE / "fixtures" / "_cards" / "assets" / "shot-01.png",
+                     card5c / "assets" / "ai-02.png")
+        r = run(["--pages", str(pages5c), "--cards-dir", str(card5c), "--config-dir", str(cfg5c), "--yes"])
+        st5c = state_of(card5c)
+        check("崩溃页有产物 -> SUCCEEDED（自动恢复）", st5c["pages"]["2"]["status"] == "SUCCEEDED", str(st5c["pages"]["2"]))
+        check("崩溃页无产物 -> UNKNOWN（HOLD 禁重付费）", st5c["pages"]["3"]["status"] == "UNKNOWN", str(st5c["pages"]["3"]))
+        check("崩溃恢复退出码 2", r.returncode == 2, f"rc={r.returncode}")
+
+        # 5c-2 expected_sha256 不匹配 -> HOLD 不转 SUCCEEDED
+        (card5c / "aigen-state.json").write_text(json.dumps({"pages": {
+            "2": {"status": "GENERATING", "attempts": 1, "run_id": "rOLD-998",
+                  "expected_sha256": "deadbeef" * 8}}}, ensure_ascii=False), encoding="utf-8")
+        r = run(["--pages", str(pages5c), "--cards-dir", str(card5c), "--config-dir", str(cfg5c), "--yes"])
+        st5c = state_of(card5c)
+        check("expected SHA256 不匹配 -> 保持 UNKNOWN(HOLD)",
+              st5c["pages"]["2"]["status"] == "UNKNOWN" and "不符" in (st5c["pages"]["2"].get("error") or ""),
+              str(st5c["pages"]["2"]))
+
+        # ---------- 5d 下载失败区分（T3 收口 P0-2）：UNKNOWN + download_url 保留，不重付费 ----------
+        art5d, pages5d, cfg5d = make_fixture(tmp / "f5d")
+        card5d = art5d / "_cards"
+        r = run(["--pages", str(pages5d), "--cards-dir", str(card5d), "--config-dir", str(cfg5d),
+                 "--inject", "dl-fail", "--yes"])
+        check("下载失败进 UNKNOWN 退出码 2", r.returncode == 2, f"rc={r.returncode} {r.stdout[-200:]}")
+        st5d = state_of(card5d)
+        check("download_url 证据保留",
+              all(st5d["pages"][str(n)].get("download_url") for n in ("2", "3")), str(st5d))
+        r = run(["--pages", str(pages5d), "--cards-dir", str(card5d), "--config-dir", str(cfg5d), "--yes"])
+        st5d = state_of(card5d)
+        check("恢复重试下载仍失败 -> 保持 UNKNOWN（不重新付费）",
+              all(st5d["pages"][str(n)]["status"] == "UNKNOWN" for n in ("2", "3"))
+              and all(st5d["pages"][str(n)].get("download_url") for n in ("2", "3")), str(st5d))
+
         # ---------- 6 明确失败隔离：单张 FAILED 不影响其他页 ----------
         art6, pages6, cfg6 = make_fixture(tmp / "f6")
         card6 = art6 / "_cards"
