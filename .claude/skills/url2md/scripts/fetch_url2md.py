@@ -31,6 +31,7 @@ import os
 import re
 import sys
 import time
+import shutil
 import urllib.request
 from pathlib import Path
 from urllib.parse import unquote
@@ -56,6 +57,13 @@ def slugify(title: str) -> str:
     s = re.sub(r"[\\/:*?\"<>|]+", " ", title)
     s = re.sub(r"\s+", "-", s.strip()).strip("-.")
     return s[:80] or "page"
+
+
+def zh_ratio(text: str) -> float:
+    """中文字符（含中日韩）占全部字母类字符的比例。"""
+    cjk = len(re.findall(r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", text))
+    letters = len(re.findall(r"[A-Za-z\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]", text))
+    return cjk / letters if letters else 0.0
 
 
 def extract_images(raw: str) -> list[str]:
@@ -170,6 +178,9 @@ def main() -> int:
     ap.add_argument("--url", required=True)
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--title", default=None, help="覆盖标题（缺省从 <title> 提取）")
+    ap.add_argument("--zh-title", default=None,
+                    help="中文标题（原文非中文时：翻译副本将以此命名并作为文档标题；"
+                         "调用方 LLM 翻译标题后传入）")
     ap.add_argument("--img-subdir", default="imgs")
     ap.add_argument("--max-images", type=int, default=30)
     args = ap.parse_args()
@@ -202,6 +213,18 @@ def main() -> int:
     md_path.write_text(md, encoding="utf-8")
     print(f"[OK] Markdown -> {md_path}（{len(md)} 字符）")
 
+    # 语言检测：非中文正文 -> 复制原文为中文命名副本（内容由调用方 LLM 翻译填充）
+    ratio = zh_ratio(strip_tags(md))
+    if ratio < 0.05:
+        zh_title = args.zh_title or ("中文翻译 - " + slug)
+        zh_slug = slugify(zh_title)
+        zh_path = out_dir / f"{zh_slug}.md"
+        if zh_path.resolve() != md_path.resolve():
+            shutil.copyfile(md_path, zh_path)
+        print(f"[LANG] 原文非中文（中文字符占比 {ratio:.1%}），原文已保留：{md_path.name}")
+        print(f"[LANG] 翻译副本已创建：{zh_path.name}（内容待翻译）")
+        print("[LANG] 请调用方 LLM 将副本全文翻译为中文：保留 frontmatter 的 source/collected、"
+              "保留图片引用（同目录相对路径不变），标题改为中文标题，正文逐段忠实翻译。")
     # 自检
     refs = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", md)
     missing = [r for r in refs if not (out_dir / r).is_file()]

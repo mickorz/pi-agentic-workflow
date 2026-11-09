@@ -10,20 +10,23 @@ description: 下载网页文章转 Markdown 并抓取全部图片到本地（支
 ## 用法
 
 ```bash
-python3 <skill目录>/scripts/fetch_url2md.py --url <文章URL> --out-dir <目标目录> [--title 覆盖标题] [--img-subdir imgs] [--max-images 30]
+python3 <skill目录>/scripts/fetch_url2md.py --url <文章URL> --out-dir <目标目录> \
+    [--title 覆盖标题] [--zh-title 中文标题] [--img-subdir imgs] [--max-images 30]
 ```
 
 - `--out-dir`：目标目录（如 Obsidian 单篇目录 `E:/Obsidian/newsky/60_Workspace/写作/单篇/<日期>`）
 - `--title`：覆盖标题（缺省从页面 `<title>` 提取并清理站点后缀）
+- `--zh-title`：中文标题。**原文非中文时必传**（调用前 LLM 先根据原文拟定中文标题）——翻译副本将以此命名
 - 退出码：0 全部成功；1 存在 MISSING 图片引用（部分下载时正文仍已写出）
 
 ## 产出结构
 
 ```text
 <out-dir>/
-├── <标题-slug>.md      # frontmatter(title/source/collected) + 正文 + 本地图片引用
+├── <标题-slug>.md         # 原文（非中文页保留原文，永不改动）
+├── <中文标题>.md          # 非中文页的翻译副本（LLM 翻译填充）
 └── imgs/
-    └── img-NN.png/jpg  # 按正文出现顺序编号
+    └── img-NN.png/jpg     # 按正文出现顺序编号（两份 md 共用）
 ```
 
 ## 处理逻辑（已实测沉淀）
@@ -33,6 +36,13 @@ python3 <skill目录>/scripts/fetch_url2md.py --url <文章URL> --out-dir <目�
 3. Markdown 转换：h1→h2（文章标题已是 H1）、h2/h3、li→列表项、img→本地引用（保留 alt）、段落分隔。
 4. 正文裁剪：起点=首个标题行或含文章主标题的行；结尾=页脚关键词（related content / subscribe / cookie / sign in / join the discussion / was this page helpful）。
 5. 自检（stdout 逐项 [OK]/[FAIL]）：图片引用全部本地存在（MISSING → 退出码 1）、无残留块级 HTML 标签、正文 >1000 字符。
+6. **语言检测与翻译副本**（原文非中文时）：脚本检测中文字符占比，非中文则——
+   - 原文 md **原样保留**（英文 slug 文件名）；
+   - 自动复制一份**中文命名副本**（`<zh-title>.md`，内容暂为原文，标记待翻译）；
+   - stdout 输出 `[LANG]` 三行提示。
+   **调用方（LLM）随后必须**：将副本全文逐段忠实翻译为中文——保留 frontmatter 的 source/collected、
+   title 改为中文标题、正文逐段翻译、**图片引用（imgs/ 相对路径）保持不变**（同目录有效）。
+   原文文件永远不改动。
 
 ## 适用与不适用
 
