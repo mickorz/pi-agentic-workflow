@@ -73,7 +73,7 @@ schema（`version / article_id / style_prefix / items[]`），每 item：`id, ki
 
 **第一章必须有中心图（2026-10-29 定案）**：第一章是全文定调章，必须生成一张能表达全文核心论点的生成图（`01-` 前缀，diagram_type 如实标注），不是装饰图：先问“这篇文章的中心思想用一句话是什么”，把那句话翻译成画面；封面表达钩子，01 图表达中心，两者分工不同不重复。跳过 01 图视为流程违规。
 
-**封面风格可选 space-image 九套（2026-11-05 接入,首试 lifestyle-handdrawn 已验证)**:封面 style_prefix 除默认账号 Business AI 3D 外,可按内容气质选 `references/space-image-styles.md` 的九套风格(黑铬科技/极简角色/街头角色/生活手绘/黑白印刷/荧光黑/钴蓝 Riso/酸性影印/专色蚀刻);用 space-image 时**必须先走其"提炼五项"视觉简报**(主题/关键词/关系句/中心隐喻/视觉冲突,中心隐喻禁止每词一图标),prompt 用风格头完整语法;生图铁律(expected_text/2.35:1/filename)与正文图规则不变。
+**封面风格默认 space-image 九套(2026-11-09 定案,首次接入 2026-11-05,首试 lifestyle-handdrawn 已验证)**:封面 style_prefix 默认从 `references/space-image-styles.md` 的九套里按内容气质选(用户不指定时按该表场景映射选,如系统/工程/Agent→premium-black-chrome),用 space-image 时**必须先走其"提炼五项"视觉简报**(主题/关键词/关系句/中心隐喻/视觉冲突,中心隐喻禁止每词一图标),prompt 用风格头完整语法;账号 Business AI 3D 降为可选(用户点名时用);正文图规则不变(diagram-design/生图铁律),body 图 prompt 开头显式声明扁平编辑风覆盖风格头;生图铁律(expected_text/2.35:1/filename)照旧。
 
 **铁律（文字缺失复现教训，见 pitfalls #4）**：
 1. style_prefix **不得**带"画面中不出现任何文字"条款；写"文字只允许出现在指定标题位置"

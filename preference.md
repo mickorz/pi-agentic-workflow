@@ -14,6 +14,8 @@
 
 ## 工具与流程
 
+- **2026-11-09** 封面风格默认走 space-image 九套（按内容气质选，必走提炼五项视觉简报），账号 Business AI 3D 降为可选。
+
 - **2026-11-03** git：完成一组修改后默认主动 commit + push，不要询问用户是否提交；提交信息 `type(scope): 中文描述`；例外=用户明确叫停或改动是用户编辑中的半成品。
 - **2026-11-04** 桌面浏览器测试/复现 UI 优先用 chrome-use，不临时装 playwright-core、不让用户手动开 Web Inspector。
 - **2026-11-04** G.5 排版审阅优先用 chrome-use 免粘贴打开器（open_preview.py）自动注入 token 打开页面，用户只需看；不要让用户手动复制 URL+token。
