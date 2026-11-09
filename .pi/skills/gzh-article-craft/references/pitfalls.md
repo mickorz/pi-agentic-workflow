@@ -87,3 +87,11 @@
 - 现象:多Agent篇章题"第一层怎么做?""第二层怎么做?""第三层怎么做?"入箱后被用户抓出——读者不会搜"第一层怎么做",这类章题 GEO 完全无匹配,被迫改题重导 layout 重发草稿
 - 根因:方法论文章自造了"三层"框架,章题顺手拿框架序号词当了开头;大纲阶段就该拦,拖到了发布后
 - 规矩(已入 SKILL.md A/B 两处):章题=真实用户搜索问法(疑问词开头+关键词入题);框架序号词(第一层/第二步/阶段一)禁进章题,层号/步骤号在章内正文交代;大纲确认时逐章题检查
+
+## 14. E_CRASH 后 ChatGPT composer 残留草稿挡住全部重试（2026-11-09）
+
+- 现象：batch 生图进程崩溃（条目 unknown/E_CRASH、无产物），此后重试全部静默失败：workflow 秒完且 [RESULT] 虚报 succeeded、executor `requests_issued=0`
+- 根因：崩溃瞬间提示词已敲进 ChatGPT 输入框、未提交，草稿残留；image-use 的防误提交检查（composer 非空即拒发）挡下后续每次重试。unknown 默认禁自动重试（扣费不确定）加重了排查干扰
+- 修复（实测一次过）：chrome-use 打开 chatgpt.com → eval 聚焦 `#prompt-textarea`/contenteditable → `execCommand('selectAll'+'delete')` 清草稿 → `--retry-failed` 重跑
+- 规避：①重试失败先看 `[image-use] 完整 stderr 尾部`（requests_issued=0 必有静默拦截）②生成真实状态只认 image-manifest entries，workflow 汇总含 unknown 时可能虚报 ③unknown 条目重试必须显式 `retry_unknown:true` ④E_CRASH 后先清 composer 再重试，别指望开新聊天（草稿会恢复）
+- 关联：`dev-docs/experience/image-use-ecrash-composer-leftover-blocks-retry.md`
