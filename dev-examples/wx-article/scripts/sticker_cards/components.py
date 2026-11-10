@@ -89,7 +89,7 @@ def _render_cover(page: dict, page_no: int, article_root: Path | None = None) ->
         + '        <header class="gz-cover">' + NL
         + f'          <div class="gz-cover__kicker gz-t-label">{esc(KICKERS["cover"])}</div>' + NL
         + '          <div class="gz-cover__body">' + NL
-        + f'            <h1 class="gz-cover__title gz-t-display-zh" style="--chars:{chars}">{esc(title)}</h1>' + NL
+        + f'            <h1 class="gz-cover__title gz-t-display-zh" style="--chars:{chars}">{esc_multiline(title)}</h1>' + NL
         + '            <div class="gz-cover__rule"></div>' + NL
         + sub
         + "          </div>" + NL
@@ -183,7 +183,7 @@ def _render_screenshot(page: dict, page_no: int, article_root: Path | None = Non
         poster_open(page_no)
         + '      <div class="content stack gap-4">' + NL
         + _kicker(KICKERS["evidence"])
-        + f'        <h1 class="h-display">{esc(title)}</h1>' + NL
+        + f'        <h1 class="h-display">{esc_multiline(title)}</h1>' + NL
         + f'        <figure class="gz-figure" data-kind="{kind}" data-ratio="{well_ratio}"{figure_style}>' + NL
         + '          <div class="gz-figure__well">' + NL
         + (f'            <img src="{esc(asset_src(page["asset"]))}" alt="{esc(title)}"'
@@ -219,7 +219,7 @@ def _render_checklist(page: dict, page_no: int, article_root: Path | None = None
         poster_open(page_no)
         + '      <div class="content stack gap-4">' + NL
         + _kicker(KICKERS["checklist"])
-        + f'        <h1 class="h-display">{esc(title)}</h1>' + NL
+        + f'        <h1 class="h-display">{esc_multiline(title)}</h1>' + NL
         + '        <ol class="gz-ledger">' + NL
         + "".join(rows)
         + "        </ol>" + NL
