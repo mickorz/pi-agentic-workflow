@@ -3,7 +3,7 @@
 
 契约（方案 2026-11-05 V1.1 D4）：
 - schema_version 必须 == 2
-- style_mode / theme 枚举；title 必填 <=32 字；content 可选 <=1000 字
+- style_mode / theme 枚举；title 必填 <=20 字；content 可选 <=1000 字
 - pages 1~9 项；no 唯一且递增；page 1 必须 role=cover
 - source 仅 html|ai-image；html 路由 layout 必填且必须在 COMPONENTS 组件表内
 - 字段规格（required/optional/types/points_range）以 components.COMPONENTS 为唯一事实来源
@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from components import ASSET_PREFIX, COMPONENTS, SOURCE_ROUTES, THEMES, WELL_RATIOS  # noqa: E402
 
 MAX_PAGES = 9
-TITLE_MAX = 32
+TITLE_MAX = 20  # 微信小绿书后台标题上限 20 字（2026-11-10 实测修正，draft/add 接口不拦后台拦）
 CONTENT_MAX = 1000
 
 

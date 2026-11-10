@@ -201,7 +201,8 @@ def build_image_post(title: str, content: str, image_media_ids: list, cfg: dict)
 # ---------------------------------------------------------------- 小绿书模式 --
 
 STICKER_IMG_EXT = {".png", ".jpg", ".jpeg", ".gif"}  # 永久素材支持的图片格式(webp 不入内)
-STICKER_TITLE_MAX = 32    # 微信 newspic 标题上限
+STICKER_TITLE_MAX = 20    # 微信小绿书（图片帖）后台标题上限：20 字（2026-11-10 用户实测；
+                          # draft/add 接口本身不拦，后台编辑/发表才拦——不能拿接口不报错当规则不存在）
 STICKER_CONTENT_MAX = 1000  # 配文纯文本上限
 
 

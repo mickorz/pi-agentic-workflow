@@ -89,7 +89,7 @@ if (pagesExists) {
     '- source 仅 html|ai-image；html 页 layout 必须是组件表枚举：cover-hook/text-card/screenshot-with-caption/checklist/quote\n' +
     '- screenshot 页 asset 以 _cards/assets/ 开头且文件真实存在（把用户截图复制到 ' + CARD + '/assets/）\n' +
     '- ai-image 页必须写 prompt（画面语义+3:4 竖版+中文文字直写+统一色板）\n' +
-    '- title <=32 字；content(配文) <=1000 字\n\n' +
+    '- title <=20 字（微信小绿书后台标题上限，2026-11-10 实测）；content(配文) <=1000 字\n\n' +
     '写完后返回：页表摘要（页号/角色/layout/素材）。',
     { label: '页面规划', agentType: 'general' })
 }

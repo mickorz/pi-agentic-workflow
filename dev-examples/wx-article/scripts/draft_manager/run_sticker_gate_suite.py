@@ -12,7 +12,7 @@
 - 网络不确定（add-timeout）进 unknown 禁自动重试；人工 --resolve-media-id 补记恢复
 - 明确失败（add-errcode）清 pending 保留 not_drafted
 - 无图/无 imgs 目录明确报错
-- 标题超 32 字截断
+- 标题超 20 字截断（微信小绿书后台上限，2026-11-10 实测修正，原 32）
 - 文章模式缺 --cover 回归（参数改可选后必须仍显式报错）
 
 运行：python3 run_sticker_gate_suite.py [--keep]
@@ -190,7 +190,7 @@ def main() -> int:
         check("T9 截断后入箱 rc=0", r.returncode == 0, f"rc={r.returncode} out={r.stdout[-300:]}")
         store9 = store_of(art9)
         d9 = list(sticker_drafts(store9).values())[0]
-        check("T9 标题 32 字", len(d9.get("title") or "") == 32, f"len={len(d9.get('title') or '')}")
+        check("T9 标题 20 字", len(d9.get("title") or "") == 20, f"len={len(d9.get('title') or '')}")
 
         # ---------- T10 文章模式缺 cover 回归 ----------
         artA, cfgA = make_fixture(root, "t10")

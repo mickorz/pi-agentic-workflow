@@ -28,5 +28,12 @@
 ## 遗留
 
 - Gate C 的 C 环节：公众号后台手动发表后的实际显示效果待用户确认（newspic 无 freepublish，发表靠后台手发）
-- 审图 agent 对"截断"类判断的误读率高（5 判 4 误），改进方向登记：审图 prompt 要求"疑似截断必须二次开图确认，OCR 假阴性不得单独作为 REVISION 依据"
+- 审图 agent 对“截断”类判断的误读率高（5 判 4 误），改进方向登记：审图 prompt 要求“疑似截断必须二次开图确认，OCR 假阴性不得单独作为 REVISION 依据”
 - render.mjs 字体内嵌路径在弱网下载 Noto Serif SC 超 300s（本次用 `--no-embed` 旁路成功）；可考虑字体本地缓存
+
+## 追补（2026-11-10 当日）：标题超限返工
+
+- 用户实测：小绿书后台标题上限 **20 字**（非设计假定的 32）；draft/add 接口不拦、后台拦，32 字标题曾入箱成功但后台无法正常编辑/发表
+- 修正三处 32→20：`publish.py STICKER_TITLE_MAX`（Gate 套件 T9 断言同步，33/33 绿）、`validate_pages.py TITLE_MAX`（Example 20/20 绿）、规划 agent 提示词；详见 `dev-docs/experience/xiaolvshu-title-limit-20.md`
+- 草稿以 20 字新标题「Claude Code 自用工作流开源了」走 `draft_update` 原地更新成功（media_id 不变）——同时补上 draft_update 对 newspic 的真机验证（此前仅 mock 覆盖）
+- `pages.json.title` 同步 20 字，normalize 幂等继承审图，verify --require-approved 20/20 绿
