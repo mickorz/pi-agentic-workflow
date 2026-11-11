@@ -86,6 +86,12 @@ python $SC/verify_cards.py    --pages $C/pages.json --cards-dir $C [--require-ap
 
 AI 生图页（可选）：付费授权 checkpoint 独立于 skip_confirm；走 image-use 通道（chrome-use 驱动已登录浏览器，零 API key）；拒绝=终止，提示词已存档可稍后重跑。纯文字+截图页的组合零费用，素材类内容优先这条路。
 
+**图形页（流程图/架构图/结构化清单，2026-11-11 新增）**：内容含流程/架构/分组关系、纯文字卡表达不了时，用 diagram-design 规范手绘 SVG（参考 `.pi/skills/xiaolvshu/assets/diagram-templates/` 两个模板：workflow-map 架构图 / install-flow 流程图，参数化点见文件头注释）。硬纪律：
+- **SVG viewBox 正方形 800×800 = well_ratio 1x1 比例**——图比例=框比例，免疫 contain/cover/fill 一切裁切与变形坑（pitfalls #19）
+- 文字 ≥16px（viewBox 基准，落卡后 ≈14px）；命令/路径一律 Geist Mono；accent 单色 ≤2 处
+- 产出链：chrome emulate 1200×1200 打开 HTML → 截图 → 裁出 svg 区域（body flex 居中：x=(宽-800)/2, y=(高-800)/2，尺寸 800×800）→ 存 `_cards/assets/<名称>.png` → pages.json 用 screenshot-with-caption + well_ratio 1x1 + crop manual contain
+- 渲染前跑 `python3 .pi/skills/xiaolvshu/scripts/preflight_fonts.py` 预置字体内嵌缓存（首次必跑，否则字体内嵌下载超时，见 pitfalls #20）
+
 ## C. 审图
 
 逐页用视觉工具（zai_mcp_server_analyze_image）读 `_cards/output/NN.png`，分类型核验：

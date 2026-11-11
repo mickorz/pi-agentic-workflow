@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<!--
+  xiaolvshu 图形页模板（diagram-design 编辑风，正方形 800x800 = well 1x1 比例）
+  ============================================================================
+  用法：复制本文件到 <文章目录>/_cards/diagrams/<名称>.html，只改以下参数化点，
+        其余（token/布局骨架/字体栈）保持不动。
+  参数化点：
+    1. <title> / <title id> / <desc id>：diagram-slug 换成你的文件名
+    2. svg viewBox 保持 0 0 800 800 不变（正方形 = well_ratio 1x1，比例匹配免疫裁切）
+    3. 入口/产出节点与卡片文字：每行不超过 7 个汉字，断行写在文本内
+    4. 命令/路径一律 Geist Mono（13px），节点名中文 sans 600（16px）
+    5. accent（琥珀 #e9a83c）只给 1-2 个焦点元素
+  产出流程：chrome 打开本文件（emulate 视口 1200x1200）-> 截图 -> 裁出 svg 区域
+        （body flex 居中：x=(视口宽-800)/2, y=(视口高-800)/2, 尺寸 800x800）
+        -> 存为 _cards/assets/<名称>.png -> pages.json 用 screenshot-with-caption
+        + well_ratio 1x1 + crop manual contain。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>mcode-stack install flow</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #faf9f6; display: flex; align-items: center; justify-content: center; }
+    svg { display: block; width: 800px; }
+  </style>
+</head>
+<body>
+  <div class="diagram-container">
+    <!-- mcode-stack-install-flow 正方形（1:1）：三选一路径，主路径单 accent -->
+    <svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="ifl-title ifl-desc">
+      <title id="ifl-title">mcode-stack 三种安装路径，殊途同归</title>
+      <desc id="ifl-desc">Claude Code 一条命令、Codex 两条命令、或只复制单个 Skill 目录，三种装法任选其一，装好后在会话里一句话调用。</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b7280"/></marker>
+        <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#e9a83c"/></marker>
+      </defs>
+      <rect width="800" height="800" fill="#faf9f6"/>
+
+      <!-- start -->
+      <rect x="240" y="32" width="320" height="60" rx="30" fill="#ffffff" stroke="#111827" stroke-width="1.2"/>
+      <text x="400" y="69" fill="#111827" font-size="17" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">想用 mcode-stack</text>
+
+      <!-- 箭头：start -> 路径区 -->
+      <path d="M 400,92 V 128" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="316" y="100" width="168" height="20" rx="4" fill="#faf9f6"/>
+      <text x="400" y="115" fill="#374151" font-size="13" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">三种装法，任选其一</text>
+
+      <!-- 路径 1：Claude Code（focal 主路径） -->
+      <rect x="40" y="136" width="720" height="148" rx="6" fill="rgba(233,168,60,0.10)" stroke="#e9a83c" stroke-width="1.2"/>
+      <text x="64" y="174" fill="#111827" font-size="16" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">Claude Code</text>
+      <text x="736" y="174" fill="#8a6a1f" font-size="12" font-family="'Geist Mono',monospace" text-anchor="end" letter-spacing="0.1em">PATH 1 · 主推</text>
+      <text x="64" y="212" fill="#111827" font-size="13" font-family="'Geist Mono',monospace">claude plugin install ronny --marketplace MiniMax-AI/mcode-stack</text>
+      <text x="64" y="252" fill="#6b7280" font-size="14" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">一条命令，整份 stack 到手</text>
+
+      <!-- 路径 2：Codex -->
+      <rect x="40" y="300" width="720" height="172" rx="6" fill="#ffffff" stroke="#111827" stroke-width="1"/>
+      <text x="64" y="338" fill="#111827" font-size="16" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">Codex</text>
+      <text x="736" y="338" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace" text-anchor="end" letter-spacing="0.1em">PATH 2</text>
+      <text x="64" y="376" fill="#111827" font-size="13" font-family="'Geist Mono',monospace">codex plugin marketplace add MiniMax-AI/mcode-stack</text>
+      <text x="64" y="404" fill="#111827" font-size="13" font-family="'Geist Mono',monospace">codex plugin add ronny@mcode-stack</text>
+      <text x="64" y="444" fill="#6b7280" font-size="14" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">两条命令，效果相同</text>
+
+      <!-- 路径 3：只要一个 Skill -->
+      <rect x="40" y="488" width="720" height="148" rx="6" fill="#ffffff" stroke="#111827" stroke-width="1"/>
+      <text x="64" y="526" fill="#111827" font-size="16" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">只要一个 Skill</text>
+      <text x="736" y="526" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace" text-anchor="end" letter-spacing="0.1em">PATH 3</text>
+      <text x="64" y="564" fill="#111827" font-size="13" font-family="'Geist Mono',monospace">cp -R stacks/ronny/skills/long-command-check ~/.agents/skills/</text>
+      <text x="64" y="604" fill="#6b7280" font-size="14" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">单 Skill 目录，全部项目通用</text>
+
+      <!-- 汇流线 -->
+      <path d="M 400,636 V 656" fill="none" stroke="#6b7280" stroke-width="1.2"/>
+      <path d="M 40,656 H 760" fill="none" stroke="#6b7280" stroke-width="1.2"/>
+      <rect x="316" y="646" width="168" height="20" rx="4" fill="#faf9f6"/>
+      <text x="400" y="661" fill="#374151" font-size="13" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">殊途同归</text>
+      <path d="M 400,656 V 692" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+
+      <!-- end -->
+      <rect x="200" y="700" width="400" height="72" rx="36" fill="#ffffff" stroke="#111827" stroke-width="1.2"/>
+      <text x="400" y="730" fill="#111827" font-size="15" font-family="'Geist Mono',monospace" text-anchor="middle">/skills 可见 · 一句话调用</text>
+      <text x="400" y="756" fill="#6b7280" font-size="14" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">重开会话即生效，所有项目通用</text>
+    </svg>
+  </div>
+</body>
+</html>

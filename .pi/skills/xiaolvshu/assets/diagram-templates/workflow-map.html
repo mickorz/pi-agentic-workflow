@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<!--
+  xiaolvshu 图形页模板（diagram-design 编辑风，正方形 800x800 = well 1x1 比例）
+  ============================================================================
+  用法：复制本文件到 <文章目录>/_cards/diagrams/<名称>.html，只改以下参数化点，
+        其余（token/布局骨架/字体栈）保持不动。
+  参数化点：
+    1. <title> / <title id> / <desc id>：diagram-slug 换成你的文件名
+    2. svg viewBox 保持 0 0 800 800 不变（正方形 = well_ratio 1x1，比例匹配免疫裁切）
+    3. 入口/产出节点与卡片文字：每行不超过 7 个汉字，断行写在文本内
+    4. 命令/路径一律 Geist Mono（13px），节点名中文 sans 600（16px）
+    5. accent（琥珀 #e9a83c）只给 1-2 个焦点元素
+  产出流程：chrome 打开本文件（emulate 视口 1200x1200）-> 截图 -> 裁出 svg 区域
+        （body flex 居中：x=(视口宽-800)/2, y=(视口高-800)/2, 尺寸 800x800）
+        -> 存为 _cards/assets/<名称>.png -> pages.json 用 screenshot-with-caption
+        + well_ratio 1x1 + crop manual contain。
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>mcode-stack workflow map</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #faf9f6; display: flex; align-items: center; justify-content: center; }
+    svg { display: block; width: 800px; }
+  </style>
+</head>
+<body>
+  <div class="diagram-container">
+    <!-- mcode-stack-workflow-map 正方形（1:1，= well 1x1 比例，任何 fit 模式免疫裁切） -->
+    <svg viewBox="0 0 800 800" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="mmsw-title mmsw-desc">
+      <title id="mmsw-title">mcode-stack 工作流全景：一条命令装入，六组场景 19 个 Skill</title>
+      <desc id="mmsw-desc">一条插件安装命令把 ronny stack 的六组场景 19 个 Skill 装进 Agent，落在本地 skills 目录，任何项目一句话调用。每组节选两个代表 Skill。</desc>
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6b7280"/></marker>
+      </defs>
+      <rect width="800" height="800" fill="#faf9f6"/>
+
+      <!-- 入口节点（input） -->
+      <rect x="180" y="24" width="440" height="88" rx="6" fill="rgba(107,114,128,0.10)" stroke="#9aa2af" stroke-width="1"/>
+      <text x="400" y="52" fill="#6b7280" font-size="13" font-family="'Geist Mono',monospace" letter-spacing="0.14em" text-anchor="middle">ONE COMMAND</text>
+      <text x="400" y="78" fill="#111827" font-size="14" font-family="'Geist Mono',monospace" text-anchor="middle">claude plugin install ronny</text>
+      <text x="400" y="100" fill="#111827" font-size="12" font-family="'Geist Mono',monospace" text-anchor="middle">--marketplace MiniMax-AI/mcode-stack</text>
+
+      <!-- 箭头：安装 -->
+      <path d="M 400,112 V 148" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="378" y="118" width="44" height="20" rx="4" fill="#faf9f6"/>
+      <text x="400" y="133" fill="#374151" font-size="13" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">安装</text>
+
+      <!-- zone：ronny stack（六组 2x3 网格） -->
+      <rect x="40" y="156" width="720" height="444" rx="8" fill="rgba(17,24,39,0.02)" stroke="rgba(17,24,39,0.10)" stroke-width="0.8"/>
+      <rect x="216" y="160" width="368" height="16" rx="2" fill="#faf9f6"/>
+      <text x="400" y="172" fill="rgba(17,24,39,0.45)" font-size="12" font-family="'Geist Mono',monospace" letter-spacing="0.12em" text-anchor="middle">RONNY STACK · 6 GROUPS · 19 SKILLS</text>
+      <text x="400" y="196" fill="rgba(17,24,39,0.40)" font-size="13" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">每组节选 2 个代表</text>
+
+      <g>
+        <rect x="64" y="216" width="336" height="112" rx="6" fill="#ffffff" stroke="#111827" stroke-width="1"/>
+        <text x="86" y="256" fill="#111827" font-size="16" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">规划与拆分</text>
+        <text x="86" y="284" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">subagent-split-check</text>
+        <text x="86" y="308" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">engineering-small-prs</text>
+      </g>
+      <g>
+        <rect x="420" y="216" width="316" height="112" rx="6" fill="#ffffff" stroke="#111827" stroke-width="1"/>
+        <text x="442" y="256" fill="#111827" font-size="16" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">Context 与工具</text>
+        <text x="442" y="284" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">tool-budget-audit</text>
+        <text x="442" y="308" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">context-tax-audit</text>
+      </g>
+      <g>
+        <rect x="64" y="344" width="336" height="112" rx="6" fill="#ffffff" stroke="#111827" stroke-width="1"/>
+        <text x="86" y="384" fill="#111827" font-size="16" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">长会话与长命令</text>
+        <text x="86" y="412" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">long-session-check</text>
+        <text x="86" y="436" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">long-command-check</text>
+      </g>
+      <g>
+        <rect x="420" y="344" width="316" height="112" rx="6" fill="#ffffff" stroke="#111827" stroke-width="1"/>
+        <text x="442" y="384" fill="#111827" font-size="16" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">代码审查</text>
+        <text x="442" y="412" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">independent-review</text>
+        <text x="442" y="436" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">engineering-code-review</text>
+      </g>
+      <g>
+        <rect x="64" y="472" width="336" height="112" rx="6" fill="#ffffff" stroke="#111827" stroke-width="1"/>
+        <text x="86" y="512" fill="#111827" font-size="16" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">实验与紧急修复</text>
+        <text x="86" y="540" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">harness-experiment</text>
+        <text x="86" y="564" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">trajectory-review</text>
+      </g>
+      <g>
+        <rect x="420" y="472" width="316" height="112" rx="6" fill="#ffffff" stroke="#111827" stroke-width="1"/>
+        <text x="442" y="512" fill="#111827" font-size="16" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif">对产出负责</text>
+        <text x="442" y="540" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">agent-brief</text>
+        <text x="442" y="564" fill="#6b7280" font-size="12" font-family="'Geist Mono',monospace">evidence-first-review</text>
+      </g>
+
+      <!-- 箭头：调用 -->
+      <path d="M 400,600 V 636" fill="none" stroke="#6b7280" stroke-width="1.2" marker-end="url(#arrow)"/>
+      <rect x="378" y="604" width="44" height="20" rx="4" fill="#faf9f6"/>
+      <text x="400" y="619" fill="#374151" font-size="13" font-family="'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">调用</text>
+
+      <!-- 产出节点（focal） -->
+      <rect x="180" y="644" width="440" height="88" rx="6" fill="rgba(233,168,60,0.10)" stroke="#e9a83c" stroke-width="1.2"/>
+      <text x="400" y="680" fill="#111827" font-size="15" font-family="'Geist Mono',monospace" text-anchor="middle">~/.agents/skills/</text>
+      <text x="400" y="710" fill="#111827" font-size="16" font-weight="600" font-family="'Geist','Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif" text-anchor="middle">装进 Agent，任何项目一句话调用</text>
+    </svg>
+  </div>
+</body>
+</html>
