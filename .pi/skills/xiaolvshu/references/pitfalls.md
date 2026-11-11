@@ -47,3 +47,6 @@
 17. **display 标题字段换行被吞**：注入器 display 级字段必须走 esc_multiline（\n -> <br>），esc() 会把 \n 折叠成空格，封面"三行设计"变自然折行、品牌名被拆（已修复：components.py 三处）。-> 新增组件片段时 display 字段一律 esc_multiline，esc 只给单行小字。（dev-docs/experience/sticker-cover-title-newline-collapsed.md）
 
 18. **双源漂移**：页面规划规范同时活在 skill（规范源）与 workflow 规划 agent 提示词（执行快照）里。-> 改规划规范先改本 skill，再对照同步 wechat_sticker_cards.js 提示词并重过 Gate B；发现两边不一致以 skill 为准并登记修正。
+19. **图形页图比例 ≠ 图框比例**：screenshot 组件嵌竖版/异比例图会三连坑——gz CSS 默认 object-fit:cover 裁切、well 3x4（1205px）加上标题区超出 1440 画板底部被裁、fit 缩放后图内小字不可读。-> 图形页资产先定 well 比例再按同比例画图；**well_ratio=1x1 + 正方形图（800x800 viewBox / 1600x1600 PNG @2x）是竖版图形页最稳组合**（比例相同 = contain/cover/fill 等价，免疫一切 fit 坑）。（dev-docs/experience/sticker-graphic-page-ratio-font-cache.md）
+20. **render.mjs 字体内嵌下载超时**：字体内嵌要从 raw.githubusercontent.com 拉 Noto Serif/Sans SC，国内直连超时，workflow 里 300s 强杀直接 fail。-> 走代理预下载 9 个 TTF 到 `~/.cache/guizang-design/fonts/<pin 前12>/ofl/...`（文件名把 `[` `]` 换 `_`），并 mkdir `<skill>/fonts/`（fetchFont 首次要写 lock.json）；预置后 embed 全程离线。或临时 `--no-embed` 降级。（dev-docs/experience/sticker-graphic-page-ratio-font-cache.md）
+21. **像素取证不要手写 PNG 解码器**：手写 zlib unfilter + 裁剪重编码链路产出损坏文件（zai 看到尺寸错乱+纯黑），此前"琥珀 0 像素"结论亦不可信。-> 卡片像素统计用 chrome canvas getImageData（页面 evaluate 内解码，100% 可靠）；zai 对变形拉伸图的"重复实例/截断"判定需封闭式三问 + 结构性修复（比例匹配）兜底，不依赖单次视觉判断。（同上）
