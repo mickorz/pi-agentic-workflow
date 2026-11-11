@@ -31,6 +31,23 @@ description_zh: 从引用材料到成文、配图提示词、入草稿箱的公�
 
 文章目录约定：`60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/`（坚果云），正文 md 与 `引用/`、`imgs/` 同级。
 
+## 耗时记录（2026-11-11 新增，scripts/track_time.py）
+
+每阶段完成时记一条时间戳（数据落文章目录 time-log.jsonl，随文章同步），发布后一键出耗时报告，支持跨篇历史分析：
+
+```bash
+S=".pi/skills/gzh-article-craft/scripts/track_time.py"
+# 阶段完成时顺手记一条（补录历史加 --ts "YYYY-MM-DDTHH:MM:SS"）
+python3 "$S" log --article-dir <文章目录> --stage 写作
+# 发布完成后：单篇报告（各阶段耗时+占比；耗时为相邻完成点间隔，含阶段内等待用户的时间）
+python3 "$S" report --article-dir <文章目录>
+# 跨篇历史分析
+python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
+```
+
+- 标准阶段名（跨篇一致）：定位 / 写作 / 截图 / 提示词审批 / 生图 / 入文 / humanizer / 入箱准备 / 排版审阅 / 发布；会话开始可加一条 `--stage 定位 --event start`
+- 报告执行时机：G publish 成功后，把 report 输出贴进当篇交付总结；需要落盘时存 `dev-docs/progress-result/<日期>-<主题>篇全流程执行报告.md`（含执行/等待拆分时按对话轮次手工补充）
+
 ## A. 定位讨论（开写前必做）
 
 先读 `引用/` 下全部材料，给用户三样东西讨论：
