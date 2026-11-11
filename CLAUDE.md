@@ -72,6 +72,9 @@
    同状态机/锁/复用语义，kind 隔离；freepublish 对 newspic 未验证，发表靠后台手发）；
    设计见 `dev-docs/design/2026-11-05-小绿书发布通道设计.md`，验收见 `dev-docs/progress-result/AP-S0-执行报告.md`；
    早期参考实现 `thirdparties/wewrite/src/wewrite/toolkit/publisher.py` 的 `create_image_post()`。
+4. **小绿书创作流程独立 skill（2026-11-10）**：小绿书/卡片/贴图类需求走 `.pi/skills/xiaolvshu/`（创作规范+流程编排+审批+救火），
+   不走 gzh-article-craft（文章线）；执行层为 `sticker-cards` workflow + `sticker_cards` 脚本族，
+   发布通道同第 3 条。拆分计划见 `dev-docs/planning/2026-11-10-xiaolvshu-skill拆分执行计划.md`。
 
 ## Git 提交约定：改动即提交推送（2026-11-03 定案）
 
