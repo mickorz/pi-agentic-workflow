@@ -25,6 +25,23 @@ description_zh: 素材到成套卡片、审图、newspic 入草稿箱的小绿�
 
 文章目录约定：`60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/`，卡片工作目录 `_cards/` 在其下，与文章线 imgs/ 天然隔离（publish-state 记 kind=sticker，混型发布显式拒绝）。
 
+## 耗时记录（2026-11-11 新增，复用文章线 track_time.py）
+
+每阶段完成时记一条时间戳（数据落文章目录 time-log.jsonl），发布后出耗时报告，与文章线共用同一脚本和历史汇总入口：
+
+```bash
+S=".pi/skills/gzh-article-craft/scripts/track_time.py"
+# 阶段完成时顺手记一条（补录历史加 --ts "YYYY-MM-DDTHH:MM:SS"；--article-dir 传文章目录，不是 _cards/）
+python3 "$S" log --article-dir <文章目录> --stage 制作
+# D execute 入箱成功后：单篇报告；跨篇历史分析同文章线
+python3 "$S" report --article-dir <文章目录>
+python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
+```
+
+- 小绿书标准阶段名（跨篇一致，与文章线区别）：规划 / 制作 / 审图 / 发布授权 / 发表；会话开始可加一条 `--stage 规划 --event start`
+- E 发表是后台手动动作，确认发表后补记一条即可（发表耗时含人工等待，分析时注意）
+- 报告算法与文章线相同：阶段耗时=相邻完成点间隔，含阶段内等待用户确认的时间
+
 ## A. 页面规划（唯一内容产出点）
 
 先回答素材三问，再动 pages.json：
