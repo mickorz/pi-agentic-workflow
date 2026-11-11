@@ -71,6 +71,32 @@ def main():
         code, out = run("report", "--article-dir", str(empty))
         assert code == 2 and "[FAIL]" in out, out
 
+        # 7) 交互点事件: interaction 缺 --result → FAIL; result 非法 → FAIL
+        code, out = run("log", "--article-dir", str(a), "--stage", "写作", "--interaction", "approval")
+        assert code == 2 and "[FAIL]" in out, out
+        code, out = run("log", "--article-dir", str(a), "--stage", "写作",
+                        "--interaction", "approval", "--result", "随便")
+        assert code == 2 and "[FAIL]" in out, out
+
+        # 8) 交互点正常记录: confirm / rework+artifacts
+        code, out = run("log", "--article-dir", str(a), "--stage", "写作",
+                        "--interaction", "approval", "--result", "confirm", "--ts", "2026-11-11T10:30:00")
+        assert code == 0 and "[OK]" in out, out
+        code, out = run("log", "--article-dir", str(a), "--stage", "写作",
+                        "--interaction", "approval", "--result", "rework",
+                        "--artifacts", "chapter-03.md,chapter-04.md", "--ts", "2026-11-11T10:55:00")
+        assert code == 0 and "chapter-03.md" in out, out
+
+        # 9) 交互不污染阶段差分: 写作仍是 10:10->10:50=40min（交互事件 10:30/10:55 被忽略）
+        code, out = run("report", "--article-dir", str(a))
+        assert code == 0, out
+        for expect in ["交互合计: 2 次", "审批返工率 1/2", "50%", "修改产物 2 个", "10:30", "10:55"]:
+            assert expect in out, (expect, out)
+
+        # 10) 旧格式兼容: b 目录无交互事件，报告无交互节且不报错
+        code, out = run("report", "--article-dir", str(b))
+        assert code == 0 and "交互合计" not in out, out
+
     print("=== ALL TESTS PASSED ===")
 
 

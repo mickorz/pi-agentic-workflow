@@ -95,3 +95,15 @@
 - 修复（实测一次过）：chrome-use 打开 chatgpt.com → eval 聚焦 `#prompt-textarea`/contenteditable → `execCommand('selectAll'+'delete')` 清草稿 → `--retry-failed` 重跑
 - 规避：①重试失败先看 `[image-use] 完整 stderr 尾部`（requests_issued=0 必有静默拦截）②生成真实状态只认 image-manifest entries，workflow 汇总含 unknown 时可能虚报 ③unknown 条目重试必须显式 `retry_unknown:true` ④E_CRASH 后先清 composer 再重试，别指望开新聊天（草稿会恢复）
 - 关联：`dev-docs/experience/image-use-ecrash-composer-leftover-blocks-retry.md`
+
+## 15. 分批审批放大返工成本（2026-11-11，三级审批制配套）
+
+- 风险：普通章两章一批后，若批内第一章就是方向性错误，继续生成第二章会把返工成本从 1 章放大到 2 章
+- 规矩（已入 SKILL.md B 节正式执行规则）：批内首章发现重大方向问题（大纲级偏差）→ 停止当前批次、不生成第二章、退回单章审批、改大纲后重排批次；已通过章节不动
+- 判定口径：方向问题=大纲级偏差（论点不成立/材料不支持/结构要调）；局部措辞问题不算，就地改句继续
+
+## 16. 分章扫描漏跨章 AI 味模式（2026-11-11，F3 两遍法配套）
+
+- 风险：F3 改分章并行精扫后，跨章模式（§7 重复句首、§2 全文节奏、§12 AI 词频）单章内看不见，会漏检
+- 规矩（已入 SKILL.md F3 节）：两遍法第一遍全文层专职跨章模式+问题索引+章节 sha，分章分支不做跨章判断；质量信号监控 humanizer 检出条目数，分章后检出量异常下降即回查
+- 关联：缓存三条件（chapter_sha/rules_sha/scanner_version 全同才有效）见 SKILL.md F3 节；`failed` 不得当 `clean`
