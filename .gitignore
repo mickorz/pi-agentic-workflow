@@ -59,3 +59,6 @@ pi-workflow.config.json
 
 # space-image 快照 47MB 不入库;九套风格语法已提炼进 .pi/skills/gzh-article-craft/references/space-image-styles.md
 thirdparties/space-image/
+
+# 抓取的第三方素材（公众号文章/图片），仅本地参照不进仓库
+templates/
