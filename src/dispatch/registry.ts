@@ -83,6 +83,22 @@ export class WorkflowRegistry {
         return { ok: false, error: `urlArg（默认 url）必须存在于 argsSchema.properties：${reg.workflowId}` };
       }
     }
+    // 市场分析 V2 P0-3：prefixTriggers/prefixArg 前缀路由声明合法性（同 urlDomains 模式）
+    if (reg.prefixTriggers !== undefined) {
+      if (!Array.isArray(reg.prefixTriggers) || reg.prefixTriggers.length === 0) {
+        return { ok: false, error: `prefixTriggers 需为非空字符串数组：${reg.workflowId}` };
+      }
+      for (const t of reg.prefixTriggers) {
+        if (typeof t !== "string" || !t.trim() || /[\s:：]/.test(t)) {
+          return { ok: false, error: `prefixTriggers 条目非法（非空且不含分隔符）：${String(t)} @ ${reg.workflowId}` };
+        }
+      }
+      const prefixArg = reg.prefixArg ?? "topic";
+      const props2 = (reg.argsSchema as { properties?: Record<string, unknown> }).properties;
+      if (typeof prefixArg !== "string" || !props2 || typeof props2 !== "object" || !(prefixArg in props2)) {
+        return { ok: false, error: `prefixArg（默认 topic）必须存在于 argsSchema.properties：${reg.workflowId}` };
+      }
+    }
     this.byId.set(reg.workflowId, {
       ...reg,
       keywords: reg.keywords ?? [],

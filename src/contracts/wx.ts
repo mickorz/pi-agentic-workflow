@@ -71,6 +71,11 @@ export interface WorkflowRegistration {
   urlArg?: string;
   /** P1a Phase W（方案 §3）：能力声明（如 "obsidian-write"）；注册面校验与 registryDigest 均纳入 */
   capabilities?: string[];
+  /** 前缀确定性前置路由（市场分析 V2 P0-3，2026-11-12）：消息以任一触发词开头
+   *  （后跟 ：/:/空分割符）→ 直连该 workflow，剩余文本作为 prefixArg 参数（不经 LLM）。 */
+  prefixTriggers?: string[];
+  /** 前缀路由注入的参数名（缺省 "topic"；必须存在于 argsSchema.properties） */
+  prefixArg?: string;
 }
 
 // ── 意图路由结果 ──
@@ -194,6 +199,7 @@ export interface NotificationOutboxItem {
 export type AuditAction =
   | "intent.route"
   | "url.route.direct"
+  | "prefix.route.direct"
   | "run.start"
   | "run.cancel"
   | "run.resume"

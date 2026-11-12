@@ -1128,5 +1128,51 @@
       "推荐这个 GitHub 项目 https://github.com/xxx/yyy 做成文章",
       "推荐 https://github.com/xxx/yyy 并写成公众号文章"
     ]
+  },
+  {
+    "workflowId": "market-analysis",
+    "scriptPath": "wx-article/scripts/market_analysis.js",
+    "name": "市场分析",
+    "description": "微信触发市场分析：「市场分析: <主题>」确定性前缀启动 → 三渠道采集(小红书/公众号/抖音 chrome-use) → 报告落 Obsidian 60_Workspace/写作/市场分析/ → MA 编号回执。RESEARCH_READY 不代表方向确认，回复「确认 MA-xxx 方向N」生效。",
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string",
+          "description": "分析主题（前缀路由自动注入，如「市场分析: 企业知识库」的主题部分）"
+        },
+        "limit": {
+          "type": "number",
+          "description": "每渠道采样条数（3-10，缺省 5）"
+        }
+      },
+      "required": [
+        "topic"
+      ]
+    },
+    "riskLevel": "write",
+    "capabilities": [
+      "obsidian-write"
+    ],
+    "enabled": true,
+    "prefixTriggers": [
+      "市场分析",
+      "选题分析"
+    ],
+    "prefixArg": "topic",
+    "keywords": [
+      "市场分析",
+      "选题分析",
+      "竞品分析",
+      "market-analysis"
+    ],
+    "examples": [
+      "市场分析: 企业知识库",
+      "选题分析: AI 编程课",
+      "帮我做个市场分析，主题是咖啡创业"
+    ],
+    "anyOfArgs": [
+      "topic"
+    ]
   }
 ]

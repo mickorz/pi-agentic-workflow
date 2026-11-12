@@ -21,6 +21,7 @@ import { Dispatcher } from "../dispatch/dispatcher.js";
 import type { ExecutionService } from "../dispatch/dispatcher.js";
 import { IntentRouter, type RoutingLLM } from "../dispatch/intent-router.js";
 import { routeByUrlDirect } from "../dispatch/url-router.js";
+import { routeByPrefixDirect } from "../dispatch/prefix-router.js";
 import { WORKFLOW_CATALOG_RE, renderWorkflowCatalog } from "./catalog.js";
 import { BudgetTracker, RateLimiter } from "../dispatch/limits.js";
 import type { WorkflowRegistry } from "../dispatch/registry.js";
@@ -501,19 +502,26 @@ export class WechatApp {
     // 产出与 agent 工具同一形态 → facade.executeWorkflow：read-only 直启 / write 创建审批项
     //（AM-P0 链路原样生效，LLM 无自授权通路；审计 url.route.direct）。
     const urlHit = routeByUrlDirect(message.text, this.deps.registry);
-    if (urlHit) {
+    const prefixHit = urlHit ? null : routeByPrefixDirect(message.text, this.deps.registry);
+    const directHit = urlHit
+      ? { workflowId: urlHit.workflowId, args: { [urlHit.argName]: urlHit.url } as Record<string, unknown>, kind: "url" }
+      : prefixHit
+        ? { workflowId: prefixHit.workflowId, args: { [prefixHit.argName]: prefixHit.topic } as Record<string, unknown>, kind: "prefix" }
+        : null;
+    if (directHit) {
+      const routeAction = directHit.kind === "url" ? "url.route.direct" : "prefix.route.direct";
       const out = await this.agentFacade!.executeWorkflow({
         userId: message.userId,
-        workflowId: urlHit.workflowId,
-        args: { [urlHit.argName]: urlHit.url },
-        agentTurnId: `url-route-${randomUUID()}`,
+        workflowId: directHit.workflowId,
+        args: directHit.args,
+        agentTurnId: `${directHit.kind}-route-${randomUUID()}`,
         originMessageId: message.messageId,
       });
       if ("error" in out) {
         this.audit.record({
           actor: message.userId,
-          action: "url.route.direct",
-          target: { workflowId: urlHit.workflowId },
+          action: routeAction,
+          target: { workflowId: directHit.workflowId },
           outcome: "rejected",
           detail: out.error,
         });
@@ -524,21 +532,21 @@ export class WechatApp {
         // 审批卡已由 onPendingCreated 服务端生成并入队（VR #12），此处不重复回复
         this.audit.record({
           actor: message.userId,
-          action: "url.route.direct",
-          target: { workflowId: urlHit.workflowId },
+          action: routeAction,
+          target: { workflowId: directHit.workflowId },
           outcome: "ok",
-          detail: `url=${urlHit.url} → 待审批`,
+          detail: `args=${JSON.stringify(directHit.args).slice(0, 80)} → 待审批`,
         });
         return { duplicate: false, reply: "" };
       }
       this.audit.record({
         actor: message.userId,
-        action: "url.route.direct",
-        target: { workflowId: urlHit.workflowId },
+        action: routeAction,
+        target: { workflowId: directHit.workflowId },
         outcome: "ok",
-        detail: `url=${urlHit.url}`,
+        detail: JSON.stringify(directHit.args).slice(0, 80),
       });
-      const reply = `▶️ 已启动「${urlHit.workflowId}」（任务 ${out.taskBindingId}）。可发「进度」查询。`;
+      const reply = `▶️ 已启动「${directHit.workflowId}」（任务 ${out.taskBindingId}）。可发「进度」查询。`;
       this.enqueueReply(message.userId, reply);
       return { duplicate: false, reply };
     }
