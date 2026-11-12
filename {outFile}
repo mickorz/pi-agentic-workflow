@@ -1,1 +1,0 @@
-report OK ["probe raw: {\"vault_root\": \"/Users/michaelchang/Desktop/WorkProjects/pi-agentic-workflow/dev-examples/manual-tes","idem raw: {\"exists\": false, \"ok\": true}","begin raw: {\"analysisId\": \"MA-20261113-001\", \"ok\": true}","report :: {\"ok\": true, \"report_rel\": \"60_Workspace/写作/市场分析/20261113-{topic}.md\"}"]
