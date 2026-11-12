@@ -62,3 +62,4 @@ thirdparties/space-image/
 
 # 抓取的第三方素材（公众号文章/图片），仅本地参照不进仓库
 templates/
+dev-examples/content-intelligence/collectors/out/
