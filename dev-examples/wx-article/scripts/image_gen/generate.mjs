@@ -1107,7 +1107,13 @@ async function runReviewText({ id, approve }, { articleDir, manifestPath, prompt
 }
 function enrichPlan(plan, prompts) {
   for (const step of plan) {
-    step.__fullPrompt = `${prompts.style_prefix}\n---\n${step.item.prompt}`;
+    // 2026-11-12 前缀缓存审计篇教训：style_prefix（黑铬海报）与 body 扁平示意图风格冲突，
+    // ChatGPT 会反问澄清导致不出图/随机站队。非 cover 条目在两段之间插消歧指令（下方为准+直接出图），
+    // fullPrompt 只是发送文本，哈希口径 promptHash(style_prefix, prompt) 不变，风格审批不受影响。
+    const bridge = step.item.kind === "cover"
+      ? ""
+      : "\n注意：若上方风格段与下方风格描述冲突，以下方风格描述为准直接出图，不要询问澄清。\n";
+    step.__fullPrompt = `${prompts.style_prefix}${bridge}\n---\n${step.item.prompt}`;
   }
 }
 

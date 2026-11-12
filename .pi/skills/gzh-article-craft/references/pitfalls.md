@@ -108,3 +108,11 @@
 - 风险：F3 改分章并行精扫后，跨章模式（§7 重复句首、§2 全文节奏、§12 AI 词频）单章内看不见，会漏检
 - 规矩（已入 SKILL.md F3 节）：两遍法第一遍全文层专职跨章模式+问题索引+章节 sha，分章分支不做跨章判断；质量信号监控 humanizer 检出条目数，分章后检出量异常下降即回查
 - 关联：缓存三条件（chapter_sha/rules_sha/scanner_version 全同才有效）见 SKILL.md F3 节；`failed` 不得当 `clean`
+
+## 17. 生图风格头与 body 示意图风格冲突，ChatGPT 反问致不出图/跑偏（2026-11-12，前缀缓存审计篇首例）
+
+- 症状：batch 中 body 图被画成封面风格的海报；单独 regenerate 时 ChatGPT 回复澄清问题不出图，325s 超时 E_TIMEOUT
+- 根因：generate.mjs enrichPlan 把 style_prefix（黑铬海报）无差别拼给所有 item，与 body 扁平示意图风格段硬冲突；模型行为不确定（反问/随机站队）
+- 修复（已入 generate.mjs）：非 cover 条目在两段之间自动插消歧指令"以下方风格描述为准直接出图，不要询问澄清"；fullPrompt 不参与哈希，风格审批不受影响
+- 伴生教训：竖版示意图要"上下两栏、文字尽量大、禁英文代码注记行"，否则 390px 手机宽下半数标签失读
+- E_TIMEOUT 处置：先开会话 URL 看 ChatGPT 是否在等澄清，再决定 recover 或改 prompt，勿盲目重试；详见 dev-docs/experience/imagegen-style-prefix-conflict-chatgpt-clarification.md
