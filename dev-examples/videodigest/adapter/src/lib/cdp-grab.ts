@@ -15,13 +15,16 @@ import type { VideoMetadata } from './types.js';
 export const CHROME_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36';
 
-/** 页内抓取脚本（与 dev-examples/videodigest/scripts/vd-cdp-grab.py 保持一致） */
+/** 页内抓取脚本（与 dev-examples/videodigest/scripts/vd-cdp-grab.py 保持一致）
+ * 2026-11-10 修复：抖音 11-06 起静态资源先把 resource timing buffer（250 封顶）打满，媒体分片不进 entries，
+ * 关键字过滤（media-audio/douyinvod）实测 0 命中；video.currentSrc 直接挂签名 CDN URL（v11-weba.douyinvod.com），
+ * 带 Referer 可直接下载（实测 206/MP4），故作为首选兕底。 */
 const GRAB_JS =
-  "(() => { const urls = performance.getEntriesByType('resource').map(e => e.name);"
-  + " const au = urls.filter(u => u.includes('media-audio') || u.includes('douyinvod')).pop() || '';"
-
+  "(() => { const v = document.querySelector('video');"
+  + " const urls = performance.getEntriesByType('resource').map(e => e.name);"
+  + " const cs = (v && v.currentSrc && v.currentSrc.indexOf('http') === 0) ? v.currentSrc : '';"
+  + " const au = urls.filter(u => u.includes('media-audio') || u.includes('douyinvod')).pop() || cs || '';"
   + " const vi = urls.filter(u => u.includes('media-video') || u.includes('douyinvod')).pop() || '';"
-  + " const v = document.querySelector('video');"
   + " const authorEl = document.querySelector(`[data-e2e='video-author-name']`) || null;" // 反引号+单引号：Windows 经 cmd 包装传参，参数内不得含双引号（proc.ts cmdQuote）
   + ' return JSON.stringify({au, vi, dur: v ? Math.round(v.duration) : null,'
   + " title: document.title.split(' - 抖音')[0],"
