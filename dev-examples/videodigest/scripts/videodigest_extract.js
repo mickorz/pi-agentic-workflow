@@ -101,7 +101,7 @@ if (idempotentState.archived === true) {
     title: idempotentState.title,
     rel_dir: idempotentState.rel_dir,
     file_rel: idempotentState.file_rel,
-    receipt: '已归档（幂等命中）: ' + idempotentState.title + ' → 60_Workspace/写作/灵感/' + idempotentState.rel_dir + '/',
+    receipt: '已归档（幂等命中）: ' + idempotentState.title + ' → 60_Workspace/写作/灵感/' + idempotentState.file_rel,
     timings: null,
   }
 }

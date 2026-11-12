@@ -209,9 +209,15 @@ def scan_frontmatter(md_file: Path) -> dict:
 
 
 def find_archived(inspire_root: Path, source_platform: str, source_id: str) -> tuple[str, Path] | None:
-    """扫描灵感根各 <标题>/*.md frontmatter，拼 sourceKey 比对（百级目录全扫描成本可忽略）。"""
+    """扫 frontmatter 拼 sourceKey 比对（百级文件全扫描成本可忽略）。
+    2026-11-10 扁平化：先扫灵感根 *.md（新格式 YYYYMMDD-标题.md），
+    再回落旧 <标题>/子目录/*.md（迁移残留/活跃灵感目录），幂等两代格式都命中。"""
     if not inspire_root.is_dir():
         return None
+    for md in sorted(inspire_root.glob("*.md")):
+        meta = scan_frontmatter(md)
+        if meta.get("source_platform") == source_platform and meta.get("source_id") == source_id:
+            return md.stem, md
     for sub in sorted(inspire_root.iterdir()):
         if not sub.is_dir() or sub.name.startswith("."):
             continue
@@ -287,12 +293,13 @@ def yaml_escape(value: str) -> str:
 
 
 
-def dedupe_dir(inspire_root: Path, title: str) -> Path:
-    """不同视频撞标题 → 序号后缀确定性递增（§4.1）。"""
-    candidate = inspire_root / title
+def dedupe_flat_file(inspire_root: Path, date_prefix: str, title: str) -> Path:
+    """扁平文件名撞名（同日同题）→ 序号后缀确定性递增；不同日同题自然错开。"""
+    base = f"{date_prefix}-{title}"
+    candidate = inspire_root / (base + ".md")
     n = 2
     while candidate.exists():
-        candidate = inspire_root / f"{title} ({n})"
+        candidate = inspire_root / f"{base} ({n}).md"
         n += 1
     return candidate
 
@@ -344,12 +351,12 @@ def cmd_archive(args) -> int:
         except (OSError, ValueError) as e:
             return fail(f"transcript.json 不可读：{e}")
 
-    target_dir = dedupe_dir(inspire, title)
+    # 扁平归档（用户流程调整 2026-11-10）：不建子目录，直接 灵感/YYYYMMDD-标题.md
+    date_prefix = time.strftime("%Y%m%d")
+    md_file = dedupe_flat_file(inspire, date_prefix, title)
     # 硬约束：写入路径必须位于灵感根前缀内（防 ../ 逃逸；sanitize 已去 /，双保险）
-    if not ensure_under(target_dir / (title + ".md"), inspire):
-        return fail(f"目标路径越界（必须在 {inspire} 内）：{target_dir}")
-    target_dir.mkdir(parents=True, exist_ok=False)
-    md_file = target_dir / "0-raw.md"  # 用户流程调整 2026-10-24：文章=整理排版后的逐字稿，固定文件名，零 AI 评论
+    if not ensure_under(md_file, inspire):
+        return fail(f"目标路径越界（必须在 {inspire} 内）：{md_file}")
 
     tags = [t for t in (args.source_platform, args.uploader) if t]
     fm_lines = [
@@ -388,7 +395,7 @@ def cmd_archive(args) -> int:
         return fail(f"写入失败：{e}", target=str(md_file))
 
     return out({"ok": True, "duplicate": False, "title": title,
-                "rel_dir": target_dir.name,
+                "rel_dir": ".",
                 "file_rel": str(md_file.relative_to(inspire)),
                 "vault_root": str(vault), "inspire_root": str(inspire)}, 0)
 
