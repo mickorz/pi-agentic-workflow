@@ -199,9 +199,10 @@ function summarizeResult(result: unknown): string {
     }
   }
   if (obj && typeof obj === "object") {
-    const rec = (obj as Record<string, unknown>).receipt;
+    // 2026-11-13：runner 返回 {meta, result} 包装——receipt/message 可能藏一层，兼容直挂与嵌套两形态
+    const rec = (obj as Record<string, unknown>).receipt ?? ((obj as Record<string, unknown>).result as Record<string, unknown> | undefined)?.receipt ?? ((obj as Record<string, unknown>).output as Record<string, unknown> | undefined)?.receipt;
     if (typeof rec === "string" && rec.trim()) return rec.length <= 500 ? rec : `${rec.slice(0, 500)}…`;
-    const msg = (obj as Record<string, unknown>).message;
+    const msg = (obj as Record<string, unknown>).message ?? ((obj as Record<string, unknown>).result as Record<string, unknown> | undefined)?.message;
     if (typeof msg === "string" && msg.trim()) return msg.length <= 500 ? msg : `${msg.slice(0, 500)}…`;
     const text = JSON.stringify(obj);
     return text.length <= 500 ? text : `${text.slice(0, 500)}…`;

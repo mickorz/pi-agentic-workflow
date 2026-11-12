@@ -100,7 +100,7 @@ def main(argv):
     p3 = sub.add_parser("fail"); p3.add_argument("--analysis-id", required=True); p3.add_argument("--coverage", default="{}")
     p4 = sub.add_parser("report")
     p4.add_argument("--analysis-id", required=True); p4.add_argument("--topic", required=True); p4.add_argument("--topic-key", required=True); p4.add_argument("--today", required=True)
-    p4.add_argument("--coverage", default="{}"); p4.add_argument("--partial", default="0"); p4.add_argument("--samples-json", required=True)
+    p4.add_argument("--coverage", default="{}"); p4.add_argument("--partial", default="0"); p4.add_argument("--samples-json", required=True); p4.add_argument("--analysis-json", default=None)
     a = ap.parse_args(argv)
 
     _, market, state_dir = market_paths()
@@ -143,6 +143,10 @@ def main(argv):
         except ValueError:
             coverage = {}
         partial = str(a.partial) == "1"
+        try:
+            analysis = json.loads(a.analysis_json) if a.analysis_json else None
+        except ValueError:
+            analysis = None
         name = f"{a.today}-{a.topic_key}.md"
         rp = ensure_under(market / name, market)
         lines = [
@@ -161,7 +165,7 @@ def main(argv):
             f"> 研究编号 {a.analysis_id} ｜ 状态 RESEARCH_READY（报告可读，方向待人工确认）",
             f"> 样本 {len(samples)} 条｜" + " / ".join(f"{k} {v.get('count', '未采') if v.get('ok') else '未采'}" for k, v in coverage.items()) + ("（部分覆盖）" if partial else ""),
             "",
-            "## 样本清单（分类/证据分级/六维拆解由 T3 分析段填充）",
+            "## 样本清单（卡片级采集；分类/证据分级见下节）",
             "",
             "| # | 渠道 | 标题 | 作者 | 指标 | 链接 |",
             "|---|---|---|---|---|---|",
@@ -170,7 +174,26 @@ def main(argv):
             m = " ".join(f"{k}:{v}" for k, v in (s.get("metrics") or {}).items()) or "-"
             lines.append(f"| {i} | {s.get('channel','')} | {str(s.get('title',''))[:40].replace('|','/')} | "
                          f"{str(s.get('author',''))[:16].replace('|','/')} | {m[:40]} | {s.get('url','')} |")
-        lines += ["", f"## 待确认（回复「确认 {a.analysis_id} 方向N」）", "", "> 方向候选由 T3 分析段生成；当前为 T1 骨架。", ""]
+        lines += ["", f"## 待确认（回复「确认 {a.analysis_id} 方向N」）", ""]
+        if analysis:
+            lines += ["## 样本分类（八类 × 证据分级）", ""]
+            for c in analysis.get("classification", []):
+                lines.append(f"- #{c.get('i')} {c.get('content_type')}（证据 {c.get('evidence')}）")
+            lines += ["", "分布: " + json.dumps(analysis.get("type_stats", {}), ensure_ascii=False), ""]
+            lines += ["## 六维拆解", ""]
+            for k, v in (analysis.get("dims") or {}).items():
+                lines += [f"### {k}", str(v), ""]
+            lines += ["## 竞品真空带", "", str(analysis.get("gaps", "")), ""]
+            lines += ["## 建议方向（【策略建议】，需人工拍板）", ""]
+            for d in analysis.get("directions", []):
+                lines += [f"### 方向 {d.get('n')}：{d.get('类型')}（可执行性 {d.get('可执行性')}）",
+                          f"- 切入角度: {d.get('切入角度')}",
+                          f"- 差异化理由: {d.get('差异化理由')}",
+                          f"- 标题策略: {d.get('标题策略')}", ""]
+            lines += ["## 样本局限", "", str(analysis.get("caveats", "")), ""]
+            lines += [f"---", f"确认后流转：回复「确认 {a.analysis_id} 方向N」→ 作为引用材料输入 gzh-article-craft A 定位阶段。", ""]
+        else:
+            lines += ["> 方向候选由 T3 分析段生成；当前为 T1 骨架。", ""]
         tmp = rp.with_name(rp.name + ".tmp")
         tmp.write_text("\n".join(lines), encoding="utf-8", newline="\n")
         os.replace(tmp, rp)
