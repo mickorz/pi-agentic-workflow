@@ -211,9 +211,9 @@ pi-workflow run dev-examples/wx-article/scripts/article_image_generate.js --non-
    1. **打开工作台**:若 Server 未起,先跑 `pi-workflow web`(或 `node dist/cli/index.js web`)。**优先用 chrome-use 免粘贴打开器(2026-11-04 定案)**:`python3 dev-examples/gzh-preview/open_preview.py --dir <文章目录绝对路径>`——自动读 pi-workflow.config.json 固定 token、注入 localStorage、在用户 Chrome 里直接打开已登录页面,用户只需看;chrome-use 不可用/relay 未连时才回落旧方式(把横幅 URL + token 给用户,让用户打开 `<URL>/gzh-preview` 粘贴 token)。vault root 自动从 `.aws-article/config.json` 解析,也可用 `GZH_PREVIEW_VAULT_ROOT` 指定
    2. **用户操作**:左侧改正文、切主题、看图(含 GIF);页面上的"保存"直接写回文章目录(md 原子替换,切主题只写 article.yaml 的 style 字段不动正文)
    3. **确认点 2（预览内编辑+聊天确认，与确认点 1 同为全流程仅有的两个用户门）**:用户在预览工作台内编辑正文、切主题、看图(含 GIF)、点"保存"写回文章目录(md 原子替换,切主题只写 article.yaml 的 style 字段不动正文);对图/文不满意可当场在聊天提出,agent 修订后重新进本确认点。改完在聊天里回复确认后才能继续;若用户改了正文,保存后**必须重跑 check_state**(digest/图片引用可能变化),通过才进第 5 步。**确认即停台+关台(2026-11-12 定案,Minimax H3-Image/前缀缓存审计篇两例纠偏)**:用户回复确认发布的同时,agent 自己起的预览 web 服务(`pi-workflow web`,默认端口 4317)就地停掉——起服务时记下 PID(或 netstat 查端口监听进程)后 kill,不留到事后收尾再停;**同时处理 agent 用 open_preview.py 打开的 Chrome 预览标签页**:服务已死页面是死链,提醒用户 Ctrl+W 手动关闭(agent 进程对浏览器标签无所有权关不掉;待 open_preview.py 支持 --close 或发布后由工作台前端自杀再改自动关);不是 agent 起的服务(用户自己常驻的)不动
-   4. **原则**:切模板不改正文;预览页无发布权限,发布仍走第 5 步 publish。**入箱分支(2026-11-04 补定案,立体书篇踩坑):用户在工作台切过主题并确认发布的,必须走 layout-html 入箱**——先确保工作台已点「导出渲染 HTML」生成文章目录 layout.html(或 POST /api/gzh/article/export),检查 layout.html 比正文新、图片引用齐全,然后 publish 加 `--html-file layout.html`(图片引用保持 imgs/ 相对路径,上传时统一替换微信 URL);只有用户未选主题时才走默认固定转换。**发布前还要确认草稿未在后台设置定时发布**(定时中的草稿被微信锁定,draft_update 报 errcode 53407,需先在后台取消定时才能更新)
+   4. **原则**:切模板不改正文;预览页无发布权限,发布仍走第 5 步 publish。**入箱方式唯一:layout-html（2026-11-12 强制定案，前缀缓存审计篇踩坑：动过主题仍走默认转换被用户纠出）**——所有文章 publish 必须加 `--html-file layout.html`，不再支持默认固定转换：G.5 确认后先确保工作台已点「导出渲染 HTML」生成文章目录 layout.html(或 POST /api/gzh/article/export)，检查 layout.html 比正文新、图片引用齐全，然后 publish 加 `--html-file layout.html`(图片引用保持 imgs/ 相对路径，上传时统一替换微信 URL)。**发布前还要确认草稿未在后台设置定时发布**(定时中的草稿被微信锁定，draft_update 报 errcode 53407，需先在后台取消定时才能更新；前缀缓存审计篇同日踩坑)
    5. 主题推荐初表(实际键名见 huasheng_editor styles.js,18 个):AI 术语科普→`wechat-anthropic`;技术教程→`wechat-tech`;GitHub 项目推荐→`warm-docs`;企业 AI 案例→`warm-dossier`;行业趋势分析→`wechat-ft`;深度观点→`wechat-apple`;杂志风→`warm-dossier`;极简→`wechat-apple`。仅推荐,最终用户拍板
-5. `publish.py --article-dir <dir> --cover imgs/cover-*.png --account-slot 1 --md-file <md> --title <t> --digest <d> --author AI奇点`(封面非精确 2.35:1 会自动缩放并备份 `_cover-original/`;[COVER] 行看动作)。**标题/摘要不得带包裹引号**(2026-10-29 定案):昨天发生过 article.yaml 里 `title: "xxx"` 连引号进微信草稿标题的事故;publish.py 已加 `_unquote` 防护(去掉一层成对引号),但传参时仍直接裸串,不要手滑把引号写进值里
+5. `publish.py --article-dir <dir> --cover imgs/cover-*.png --account-slot 1 --md-file <md> --title <t> --digest <d> --author AI奇点 --html-file layout.html`(layout-html 为唯一入箱方式,见上;封面非精确 2.35:1 会自动缩放并备份 `_cover-original/`;[COVER] 行看动作)。**标题/摘要不得带包裹引号**(2026-10-29 定案):昨天发生过 article.yaml 里 `title: "xxx"` 连引号进微信草稿标题的事故;publish.py 已加 `_unquote` 防护(去掉一层成对引号),但传参时仍直接裸串,不要手滑把引号写进值里
 6. 成功标志:`[5] DRAFT OK media_id=...` + `=== ALL DONE draft_media_id=... ===`
 
 ## 交付前自检清单
@@ -231,4 +231,5 @@ pi-workflow run dev-examples/wx-article/scripts/article_image_generate.js --non-
 - [ ] 每张生成图都有关键词文字设计 + expected_text
 - [ ] 封面 prompt 是 2.35:1 且主标题关键词入画
 - [ ] 踩坑清单（references/pitfalls.md）逐条过一遍再发布
+- [ ] **入箱走 layout-html（唯一方式）**：G.5 确认后已导出 layout.html 且比正文新、图片引用齐全；publish 带 --html-file layout.html；发布前确认草稿未设定时（53407）
 - [ ] 发布前核对 article.yaml digest 是一句话导语而非章题；发布后确认 [5] DRAFT OK + publish-state.json status=drafted
