@@ -24,6 +24,7 @@
 - **2026-11-12** G.5 用户聊天确认发布的同时，agent 自己起的预览 web 服务（pi-workflow web，端口 4317）就地停掉（记 PID 或查端口 kill），不留到事后收尾；用户自己常驻的服务不动。已同步入 gzh-article-craft SKILL.md G.5。
 - **2026-11-12（补充）** 确认即停台同时要处理 agent 用 open_preview.py 打开的 Chrome 预览标签页（服务已死页面是死链）：当前 agent 对浏览器标签无所有权关不掉，提醒用户 Ctrl+W 手动关；待 open_preview.py 支持 --close 后改自动关。已同步入 gzh-article-craft SKILL.md G.5。
 - **2026-11-12** 入箱方式唯一：layout-html——所有文章 publish 必须带 --html-file layout.html（G.5 确认后先导出 layout.html、检查比正文新且图片齐全），不再支持默认固定转换；发布前确认草稿未设定时（53407 锁定）。前缀缓存审计篇踩坑（动过主题仍走默认转换 + 53407 两连漏）后定案。已同步入 gzh-article-craft SKILL.md G.5 与自检清单。
+- **2026-11-12** xiaolvshu 三确认点改两点（对齐文章线）：①规划审批门改为大纲.md 用户确认（agent 先产 _cards/大纲.md，用户修改后确认，再 skip_confirm:true 跑 workflow）；②AI 生图付费授权门取消——生图通道唯一 image-use（ChatGPT 订阅，零 API 计费），代码路径保留其他 provider 但默认不用；③发布授权两阶段指纹门不变。已同步入 xiaolvshu SKILL.md + wechat_sticker_cards.js。
 - **2026-11-12** 浏览器通道优先级：需要浏览器采集/操作时默认 chrome-use（已登录态、零 API key），chrome-use 不可用才回落 pi-browser-use 等替代通道；不跳过 chrome-use 直接走替代。已同步入 gzh-article-craft SKILL.md（顶部通则 + C 截图下载通道）。
 - **2026-11-12** 生图偏好（前缀缓存审计篇 02-七件套 定样）：技术讲解类 body 示意图优先用该张的提示词风格——纵向堆叠条块清单式构图：暖白 #F5F8FC 底、深海蓝 #142B49 文字、科技蓝 #1776E8 焦点、青绿 #16B6AF 次强调、暖橙 #FF9B35 仅一处警示；顶部大号中文标题，主体为等宽横向条块纵向排列，关键行用色底+短注记，无需英文代码注记行；用户明确表示很喜欢这种风格，后续同类配图（分层/清单/对比类）默认沿用此风格。参考 prompt 见 前缀缓存审计/image-prompts.json items[context-stack]。
 - **2026-11-04** 工作台切过主题的文章必须走 layout-html 入箱（publish --html-file layout.html），不能落回默认固定转换。

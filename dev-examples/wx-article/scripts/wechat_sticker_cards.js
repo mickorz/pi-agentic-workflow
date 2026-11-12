@@ -5,7 +5,7 @@ export const meta = {
 
 // 术语(2026-11 定案)：贴图=小绿书。
 // 架构约束(T6 定案)：Agent 只负责页面规划/内容交互/审图；所有 Python/渲染脚本为确定性执行节点。
-// 两个独立授权：AI 生图付费授权、发布授权——均不受 skip_confirm 影响(P0-5)。
+// 独立授权：仅发布授权不受 skip_confirm 影响(P0-5)；AI 生图付费授权已取消(2026-11-12，image-use 唯一通道订阅内消耗)
 // 状态机(P0-6)：cards_status ∈ PLANNING|GENERATING|READY|RENDER_BLOCKED|REVIEW_REJECTED|FAILED
 //              publish_status ∈ NOT_STARTED|SKIPPED|DRAFTED|UNKNOWN|FAILED|LOCKED
 // 断点续跑：pages.json/aigen-state.json/publish-state.json 落盘，重跑跳过已完成步骤。
@@ -136,11 +136,9 @@ if (genPlan.output.indexOf('无 ai-image 页面') !== -1) {
   const m = genPlan.output.match(/张数=(\d+)/)
   const n = m ? parseInt(m[1], 10) : 0
   if (n > 0) {
-    // 付费授权：独立 checkpoint，不受 skip_confirm 影响（P0-5/D6）
-    await checkpoint(
-      'AI 生图付费授权（独立 checkpoint，skip_confirm 不影响本授权）：\n' +
-      genPlan.output.split('\n').filter(l => l.startsWith('[计划]') || l.startsWith('[OK] 提示词')).join('\n') + '\n' +
-      '通道：image-use（chrome-use 驱动已登录浏览器 + ChatGPT 订阅 web，零 API 计费，消耗订阅配额）。确认后以 --yes 发起生成；拒绝=终止（提示词已存档，可稍后重跑）。')
+    // 2026-11-12 定案：付费授权 checkpoint 取消——生图通道唯一 image-use（ChatGPT 订阅 web，
+    // 零 API 计费，消耗订阅配额，无边际费用），订阅内使用不再需要逐次人工授权。
+    log('[INFO] AI 生图 ' + n + ' 张，通道 image-use（chrome-use + ChatGPT 订阅 web，零 API 计费；唯一通道，无需授权门）')
     const gen = await runPy(SC + '/generate_ai_images.py',
       ['--pages', pagesPath, '--cards-dir', CARD, '--article-dir', args.article_dir,
        '--yes', '--max-images', String(Math.min(args.count || 6, 9))].concat(mockArgs),

@@ -1,7 +1,7 @@
 ---
 name: xiaolvshu
 display_name: 小绿书创作全流程
-description: 素材(README/笔记/截图/文章)到成套 3:4 小绿书卡片(封面+内容页)的完整流程：页面规划(pages.json 容量纪律)->规划审批->版式渲染与截图证据页->审图(误读亲核)->两阶段发布授权->newspic 入草稿箱(后台手发)。Use when 用户要把素材"做成小绿书/做成卡片/卡片化/发布贴图/发布图片帖"。
+description: 素材(README/笔记/截图/文章)到成套 3:4 小绿书卡片(封面+内容页)的完整流程：页面规划(大纲.md 用户确认，两确认点制 2026-11-12)->版式渲染与截图证据页->审图(误读亲核)->两阶段发布授权->newspic 入草稿箱(后台手发)。生图唯一通道 image-use(ChatGPT 订阅，无授权门)。Use when 用户要把素材"做成小绿书/做成卡片/卡片化/发布贴图/发布图片帖"。
 description_zh: 素材到成套卡片、审图、newspic 入草稿箱的小绿书生产全流程，含页面容量纪律与踩坑规避清单。
 ---
 
@@ -17,8 +17,8 @@ description_zh: 素材到成套卡片、审图、newspic 入草稿箱的小绿�
 
 | 阶段 | 动作 | 产物 / 落盘点 |
 |---|---|---|
-| A 页面规划 | 素材三问 -> 写 pages.json -> 规划审批门 | `<文章目录>/_cards/pages.json` |
-| B 制作 | 截图预处理 -> (可选 AI 生图付费门) -> HTML 构建 -> 渲染 -> normalize -> verify | `_cards/output/01..NN.png` |
+| A 页面规划 | 素材三问 -> 写大纲.md -> **用户确认（确认点 1，2026-11-12 改制）** -> 写 pages.json | `<文章目录>/_cards/大纲.md`、`pages.json` |
+| B 制作 | 截图预处理 -> AI 生图（image-use 唯一通道，无授权门）-> HTML 构建 -> 渲染 -> normalize -> verify | `_cards/output/01..NN.png` |
 | C 审图 | 逐页读图核验 -> mark_review 结构化判定 | `_cards/cards-manifest.json` 审核状态 |
 | D 发布授权 | prepare 取指纹 -> 人工批准 -> execute 同指纹 | `publish-state.json` kind=sticker, DRAFTED |
 | E 发表 | 公众号后台手动发表（无自动发表通道） | — |
@@ -71,7 +71,7 @@ pages.json（schema v2）硬约束，`validate_pages.py` 会拦：
 
 截图页素材规则：UI/代码截图强制 image_fit=contain（禁 cover 裁切）；宽 <720px 的图文字可能不可读，换高清图或放大局部；**过扁横幅（宽高比 >2:1）不做截图页**——contain 后只剩一条细带。
 
-规划审批门：页表+主题（editorial 六色板/swiss 四色板）+截图预处理报告+生图费用提示，人工批准后才进生产。
+**确认点 1 = 大纲.md（2026-11-12 改制，替代规划审批门；与文章线同构）**：agent 先产出 `_cards/大纲.md`（每页一行：页码/版式/标题/要点/素材来源，含主题色板与容量预算），落盘并聊天摘要给用户；用户改文件或聊天提修改，多轮均可；确认后锁页表写 pages.json，以 skip_confirm:true 非交互跑 workflow（workflow 内规划 checkpoint 仅作交互模式的兼容门）。容量纪律（下方表格）在写大纲.md 时就按住，确认后不再因容量返工。
 
 ## B. 制作
 
@@ -82,7 +82,7 @@ pi-workflow run dev-examples/wx-article/scripts/wechat_sticker_cards.js \
   --args '{"article_dir":"<文章目录绝对路径>","shots_dir":"<截图目录>","count":7,"style_mode":"editorial","publish_method":"draft"}'
 ```
 
-args 契约：article_dir 必需；shots_dir 截图目录（规划 agent 会复制进 _cards/assets）；count 页数上限（缺 6，硬上限 9）；title/content 可显式传（覆盖 pages.json）；publish_method draft(缺省)|none；account_slot 缺 1；skip_confirm 只跳规划门——**AI 生图付费授权与发布授权两个 checkpoint 永不可 skip**。
+args 契约：article_dir 必需；shots_dir 截图目录（规划 agent 会复制进 _cards/assets）；count 页数上限（缺 6，硬上限 9）；title/content 可显式传（覆盖 pages.json）；publish_method draft(缺省)|none；account_slot 缺 1；skip_confirm 跳规划门——**确认点 1 已在 workflow 外经大纲.md 完成（2026-11-12 改制），常规路径一律 skip_confirm:true**；发布授权 checkpoint 仍不可 skip。
 
 checkpoint 语义：带 `--non-interactive` 时人工门进入等待态（退出码 3），批准后 `printf 'y\n' | pi-workflow resume <runId> --yes` 续跑（只余 checkpoint 一个 readline，喂一个 y；详见 pitfalls #6）。
 
@@ -101,7 +101,7 @@ python $SC/verify_cards.py    --pages $C/pages.json --cards-dir $C [--require-ap
 
 铁律：**pages.json 任何变更后必须重跑 normalize**（manifest 与 pages sha 绑定，不重绑 verify/发布门直接拒）；normalize 对未变化的页幂等并**继承已有审核**，只重置产物真变了的页。改一页文案 -> render --only 该页 -> normalize -> 该页重新 mark_review。
 
-AI 生图页（可选）：付费授权 checkpoint 独立于 skip_confirm；走 image-use 通道（chrome-use 驱动已登录浏览器，零 API key）；拒绝=终止，提示词已存档可稍后重跑。纯文字+截图页的组合零费用，素材类内容优先这条路。
+AI 生图页（可选）：**通道唯一 image-use（2026-11-12 定案：ChatGPT 订阅 web，chrome-use 驱动已登录浏览器，零 API 计费、订阅内消耗，不再设付费授权门）**；支持 pi-image-gen 等其他 provider 的代码路径保留但默认不用。拒绝/失败=终止，提示词已存档可稍后重跑。纯文字+截图页的组合零费用，素材类内容优先这条路。
 
 **图形页（流程图/架构图/结构化清单，2026-11-11 新增）**：内容含流程/架构/分组关系、纯文字卡表达不了时，用 diagram-design 规范手绘 SVG（参考 `.pi/skills/xiaolvshu/assets/diagram-templates/` 两个模板：workflow-map 架构图 / install-flow 流程图，参数化点见文件头注释）。硬纪律：
 - **SVG viewBox 正方形 800×800 = well_ratio 1x1 比例**——图比例=框比例，免疫 contain/cover/fill 一切裁切与变形坑（pitfalls #19）
