@@ -11,10 +11,13 @@
 ---
 source:
   url: "https://..."            # 原始链接（转载按原始出处计一条）
-  platform: juejin              # zhihu/juejin/sspai/github/bilibili/youtube/blog/hn/medium/x/other
+  platform: juejin              # wechat_mp/xiaohongshu/douyin/zhihu/juejin/sspai/github/bilibili/youtube/blog/hn/medium/x/other
   author: "作者名"
+  author_scale: unknown         # 账号量级档位：top(百万级)/mid(十万级)/small(万级以下)/unknown——对照组控制变量
   published_at: "YYYY-MM-DD"    # 未知写 unknown，不猜
   collected_at: "2026-XX-XX"    # 采集日期，必填
+
+collection_method: auto_search  # 采集方式（P0.1-D12）：auto_search(自动)/semiauto(人工导出候选+agent分析)/manual_import(人工导入截图/正文/数据)
 
 title: "样本原标题（原文照抄，不改写）"
 
@@ -32,6 +35,8 @@ evidence:                       # D8 证据分级
 performance:                    # D5 表现分层：必须有数据依据，禁止凭内容质量或主观感觉判定
   tier: medium                  # high 爆款 / medium 良好 / normal 普通 / unknown 无法判断
   basis: same_platform_comparison  # 判定基准说明；unknown 时写 unknown_basis 并说明缺什么
+  comparison_group: g1          # 对照组 ID（P0.1-D12）：同平台+同格式+发布时间相近+账号量级相近+同主题
+  metrics_observed_at: "2026-XX-XX"  # 指标观测日期汇总（与下方各指标注日期双保险）
   metrics:                      # 三值规则：真实数字（注采集日期）/ N/A 平台不公开 / 未采集（附原因）
     views: N/A 平台不公开
     likes: 3200                 # 采集日期 2026-XX-XX
@@ -65,7 +70,7 @@ takeaways:
 
 1. `url`/`platform`/`collected_at` 缺一不收
 2. metrics 出现无出处的数字 → 无效（宁空勿编）
-3. tier 无 basis 依据 → 必须改 `unknown`
+3. tier 无 basis 依据或对照组失控（平台/格式/时间/账号规模不受控）→ 必须改 `unknown`
 4. 转载多渠道 → 按原始出处计一条，转载链接写进简析备注
 
 ## 二、研究报告模板（content-research.md）
