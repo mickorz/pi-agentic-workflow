@@ -188,7 +188,25 @@ export function renderApprovalCard(binding: TaskBinding, cp: TaskControlCheckpoi
 
 function summarizeResult(result: unknown): string {
   if (result === null || result === undefined) return "（无返回值）";
-  const text = typeof result === "string" ? result : JSON.stringify(result);
+  // 2026-11-12：优先工作流自带的 receipt/message（人类可读回执）；JSON 兜底（用户反馈：直接拋 JSON 不可读）
+  let obj: unknown = result;
+  if (typeof obj === "string") {
+    const raw = obj;
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return raw.length <= 500 ? raw : `${raw.slice(0, 500)}…`;
+    }
+  }
+  if (obj && typeof obj === "object") {
+    const rec = (obj as Record<string, unknown>).receipt;
+    if (typeof rec === "string" && rec.trim()) return rec.length <= 500 ? rec : `${rec.slice(0, 500)}…`;
+    const msg = (obj as Record<string, unknown>).message;
+    if (typeof msg === "string" && msg.trim()) return msg.length <= 500 ? msg : `${msg.slice(0, 500)}…`;
+    const text = JSON.stringify(obj);
+    return text.length <= 500 ? text : `${text.slice(0, 500)}…`;
+  }
+  const text = String(obj);
   return text.length <= 500 ? text : `${text.slice(0, 500)}…`;
 }
 

@@ -101,7 +101,7 @@ if (idempotentState.archived === true) {
     title: idempotentState.title,
     rel_dir: idempotentState.rel_dir,
     file_rel: idempotentState.file_rel,
-    receipt: '已归档（幂等命中）: ' + idempotentState.title + ' → 60_Workspace/写作/灵感/' + idempotentState.file_rel,
+    receipt: '已提取过: ' + idempotentState.title + '（重发不重复处理）',
     timings: null,
   }
 }
@@ -183,11 +183,7 @@ try {
     vault_root: archiveJson.vault_root,
     sourceKey: sourceKey,
     timings: timings,
-    receipt:
-      '✅ 已归档: ' + archiveJson.title + '\n' +
-      '📁 60_Workspace/写作/灵感/' + archiveJson.file_rel + '\n' +
-      (archiveJson.danpin_rel ? '📄 60_Workspace/写作/' + archiveJson.danpin_rel + '\n' : '') +
-      (timingLine ? '⏱ ' + timingLine : ''),
+    receipt: '✅ 提取成功: ' + archiveJson.title,
   }
 } finally {
   // 归档完成或最终失败都释放锁(§4.2); 释放失败容忍(30min 陈锁接管兜底);
