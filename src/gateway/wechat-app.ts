@@ -22,6 +22,8 @@ import type { ExecutionService } from "../dispatch/dispatcher.js";
 import { IntentRouter, type RoutingLLM } from "../dispatch/intent-router.js";
 import { routeByUrlDirect } from "../dispatch/url-router.js";
 import { routeByPrefixDirect } from "../dispatch/prefix-router.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { WORKFLOW_CATALOG_RE, renderWorkflowCatalog } from "./catalog.js";
 import { BudgetTracker, RateLimiter } from "../dispatch/limits.js";
 import type { WorkflowRegistry } from "../dispatch/registry.js";
@@ -496,6 +498,63 @@ export class WechatApp {
       });
       this.enqueueReply(message.userId, reply);
       return { duplicate: false, reply };
+    }
+
+    // 1.4) 确定性通道：市场分析研究指令（确认/重跑 MA-YYYYMMDD-NNN 方向N，不经 LLM）
+    const maCmd = message.text.trim().match(/^(确认|重跑)\s*(MA-\d{8}-\d{3})(?:\s*方向\s*([1-9]))?\s*$/);
+    if (maCmd) {
+      const verb = maCmd[1]!;
+      const maId = maCmd[2]!;
+      const dirNo = maCmd[3];
+      const storeRun = (sub: string, extra: string[] = []) =>
+        promisify(execFile)("python3", ["dev-examples/wx-article/scripts/market_analysis_store.py", sub, "--analysis-id", maId, ...extra], {
+          cwd: process.cwd(), timeout: 15_000, maxBuffer: 1 << 20,
+        }).then(({ stdout }) => {
+          const line = stdout.split("\n").reverse().find((l) => l.trim().startsWith("{"));
+          return line ? (JSON.parse(line) as Record<string, unknown>) : { ok: false, error: "store 无输出" };
+        });
+      try {
+        const st = (await storeRun("state")) as Record<string, unknown>;
+        if (!st.ok) {
+          const reply = `⚠️ ${String(st.error ?? "未知错误")}`;
+          this.enqueueReply(message.userId, reply);
+          return { duplicate: false, reply };
+        }
+        if (verb === "确认") {
+          if (!dirNo) {
+            const reply = `请带方向编号，如「确认 ${maId} 方向1」（方向见报告建议方向段）`;
+            this.enqueueReply(message.userId, reply);
+            return { duplicate: false, reply };
+          }
+          const c = (await storeRun("confirm", ["--direction", dirNo])) as Record<string, unknown>;
+          const reply = c.ok
+            ? `✅ 已确认 ${maId} 方向${dirNo}（主题「${String(st.topic)}」）。报告状态已置 RESEARCH_CONFIRMED，可在电脑上以报告为引用材料进入写作流程。`
+            : `⚠️ ${String(c.error ?? "确认失败")}`;
+          this.enqueueReply(message.userId, reply);
+          return { duplicate: false, reply };
+        }
+        // 重跑：取原主题，force 跳过幂等
+        const out = await this.agentFacade!.executeWorkflow({
+          userId: message.userId,
+          workflowId: "market-analysis",
+          args: { topic: String(st.topic), force: "1" },
+          agentTurnId: `ma-rerun-${maId}`,
+          originMessageId: message.messageId,
+        });
+        const rerunOut = out as { taskBindingId?: string; needsApproval?: boolean };
+        const reply = "error" in out
+          ? `⚠️ ${String(out.error)}`
+          : rerunOut.needsApproval
+            ? `⏳ 重跑已提交，等待审批（market-analysis 为写级流程；本服务已配 autoApprove 则会直接启动）。`
+            : `▶️ 已重跑「${String(st.topic)}」（新任务 ${rerunOut.taskBindingId}），完成后会收到新报告回执。`;
+        this.enqueueReply(message.userId, reply);
+        this.audit.record({ actor: message.userId, action: "prefix.route.direct", target: { workflowId: "market-analysis" }, outcome: "ok", detail: `${verb} ${maId}` });
+        return { duplicate: false, reply };
+      } catch (e) {
+        const reply = `⚠️ 研究指令处理异常：${e instanceof Error ? e.message : String(e)}`;
+        this.enqueueReply(message.userId, reply);
+        return { duplicate: false, reply };
+      }
     }
 
     // 1.5) 确定性通道：URL 前置路由（设计V2 §3：域名声明命中直连 workflow，不经 Agent/LLM）。

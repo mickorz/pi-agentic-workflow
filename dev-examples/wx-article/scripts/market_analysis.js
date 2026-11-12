@@ -41,17 +41,20 @@ const topic = String(args.topic || '').trim().slice(0, 60)
 if (!topic) throw new Error('args.topic 为空（前缀路由应保证非空）')
 const limit = Math.min(Math.max(Number(args.limit) || 5, 3), 10)
 const topicKey = topic.replace(/\s+/g, '')
+const force = String(args.force || '') === '1'
 
 const probe = await runJson('环境探测 ', PY, [STORE, 'probe'], 30_000)
 const today = probe.today
 
-const idem = await runJson('幂等检查 ', PY, [STORE, 'idem-check', '--topic-key', topicKey, '--today', today], 30_000)
-if (idem.exists) {
-  phase('回执')
-  return {
-    ok: true, idempotent: true, topic, analysisId: idem.analysisId,
-    report_rel: idem.report_rel,
-    receipt: '已分析过: ' + topic + '（' + idem.analysisId + '，重发不重复处理；重跑请回复「重跑 ' + idem.analysisId + '」）',
+if (!force) {
+  const idem = await runJson('幂等检查 ', PY, [STORE, 'idem-check', '--topic-key', topicKey, '--today', today], 30_000)
+  if (idem.exists) {
+    phase('回执')
+    return {
+      ok: true, idempotent: true, topic, analysisId: idem.analysisId,
+      report_rel: idem.report_rel,
+      receipt: '已分析过: ' + topic + '（' + idem.analysisId + '，重发不重复处理；重跑请回复「重跑 ' + idem.analysisId + '」）',
+    }
   }
 }
 
@@ -130,7 +133,7 @@ phase('报告落盘')
 const rep = await runJson('报告落盘 ', PY, [
   STORE, 'report', '--analysis-id', analysisId, '--topic', topic, '--topic-key', topicKey, '--today', today,
   '--coverage', JSON.stringify(coverage), '--partial', partial ? '1' : '0',
-  '--samples-json', JSON.stringify(samplesAll), '--analysis-json', JSON.stringify(analysis),
+  '--samples-json', JSON.stringify(samplesAll), '--analysis-json', JSON.stringify(analysis), '--force', force ? '1' : '0',
 ], 60_000)
 
 // ── ⑤ 回执（V2 模板：编号+覆盖+编号方向+确认指令）──

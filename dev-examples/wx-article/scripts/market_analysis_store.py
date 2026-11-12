@@ -100,10 +100,27 @@ def main(argv):
     p3 = sub.add_parser("fail"); p3.add_argument("--analysis-id", required=True); p3.add_argument("--coverage", default="{}")
     p4 = sub.add_parser("report")
     p4.add_argument("--analysis-id", required=True); p4.add_argument("--topic", required=True); p4.add_argument("--topic-key", required=True); p4.add_argument("--today", required=True)
-    p4.add_argument("--coverage", default="{}"); p4.add_argument("--partial", default="0"); p4.add_argument("--samples-json", required=True); p4.add_argument("--analysis-json", default=None)
+    p4.add_argument("--coverage", default="{}"); p4.add_argument("--partial", default="0"); p4.add_argument("--samples-json", required=True); p4.add_argument("--analysis-json", default=None); p4.add_argument("--force", default="0")
+    p5 = sub.add_parser("state"); p5.add_argument("--analysis-id", required=True)
+    p6 = sub.add_parser("confirm"); p6.add_argument("--analysis-id", required=True); p6.add_argument("--direction", required=True)
     a = ap.parse_args(argv)
 
     _, market, state_dir = market_paths()
+    if a.cmd == "state":
+        st = read_state(state_dir, a.analysis_id)
+        if not st:
+            return fail("研究编号不存在：%s（可在市场分析目录 .state/ 查）" % a.analysis_id)
+        return out({"ok": True, **{k: st.get(k) for k in ("analysisId", "topic", "status", "report_rel", "direction")}}, 0)
+
+    if a.cmd == "confirm":
+        st = read_state(state_dir, a.analysis_id)
+        if not st:
+            return fail("研究编号不存在：%s" % a.analysis_id)
+        if st.get("status") not in ("RESEARCH_READY", "RESEARCH_CONFIRMED"):
+            return fail("当前状态 %s 不可确认（需 RESEARCH_READY）" % st.get("status"))
+        st.update({"status": "RESEARCH_CONFIRMED", "direction": a.direction, "confirmed_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+        write_state(state_dir, a.analysis_id, st)
+        return out({"ok": True, "analysisId": a.analysis_id, "direction": a.direction, "report_rel": st.get("report_rel", "")}, 0)
     if a.cmd == "probe":
         return out({"vault_root": str(vault_root()), "market_root": str(market), "state_dir": str(state_dir),
                     "today": time.strftime("%Y%m%d"), "iso": time.strftime("%Y-%m-%dT%H:%M:%S")}, 0)
@@ -143,12 +160,19 @@ def main(argv):
         except ValueError:
             coverage = {}
         partial = str(a.partial) == "1"
+        force = str(getattr(a, "force", "0")) == "1"
         try:
             analysis = json.loads(a.analysis_json) if a.analysis_json else None
         except ValueError:
             analysis = None
         name = f"{a.today}-{a.topic_key}.md"
         rp = ensure_under(market / name, market)
+        if rp.exists() and force:
+            n = 2
+            while (market / f"{a.today}-{a.topic_key}-r{n}.md").exists():
+                n += 1
+            name = f"{a.today}-{a.topic_key}-r{n}.md"
+            rp = ensure_under(market / name, market)
         lines = [
             "---",
             f'analysis_id: "{a.analysis_id}"',

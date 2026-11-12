@@ -191,5 +191,40 @@
         "outFile"
       ]
     }
+  },
+  {
+    "workflowId": "mock-market-analysis",
+    "scriptPath": "mock-market-analysis.js",
+    "name": "Mock 市场分析",
+    "description": "WX-MOCK：市场分析 store 链路确定性回归（fixture vault 隔离）",
+    "enabled": true,
+    "riskLevel": "read-only",
+    "keywords": [
+      "市场分析",
+      "选题分析",
+      "mockmarket"
+    ],
+    "argsSchema": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "outFile": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topic",
+        "root",
+        "outFile"
+      ]
+    },
+    "anyOfArgs": [
+      "topic"
+    ]
   }
 ]

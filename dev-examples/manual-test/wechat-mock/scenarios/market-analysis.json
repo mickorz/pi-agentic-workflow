@@ -1,0 +1,165 @@
+{
+  "name": "market-analysis",
+  "mode": "deterministic",
+  "registry": "fixtures/registry.json",
+  "requiresWorkflows": [
+    "mock-market-analysis"
+  ],
+  "routeStub": [
+    {
+      "ifPromptContains": [
+        "mock幂等"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-market-analysis\", \"args\": {\"topic\": \"mock正常主题\", \"root\": \"{root}\", \"outFile\": \"{s2}\"}, \"missingFields\": [], \"reason\": \"wx-mock 市场分析 Gate B\", \"confidence\": 0.99}"
+    },
+    {
+      "ifPromptContains": [
+        "mock正常"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-market-analysis\", \"args\": {\"topic\": \"mock正常主题\", \"root\": \"{root}\", \"outFile\": \"{s1}\"}, \"missingFields\": [], \"reason\": \"wx-mock 市场分析 Gate B\", \"confidence\": 0.99}"
+    },
+    {
+      "ifPromptContains": [
+        "mock部分"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-market-analysis\", \"args\": {\"topic\": \"mock部分覆盖主题\", \"root\": \"{root}\", \"outFile\": \"{s3}\"}, \"missingFields\": [], \"reason\": \"wx-mock 市场分析 Gate B\", \"confidence\": 0.99}"
+    },
+    {
+      "ifPromptContains": [
+        "样本不足"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-market-analysis\", \"args\": {\"topic\": \"mock样本不足主题\", \"root\": \"{root}\", \"outFile\": \"{s4}\"}, \"missingFields\": [], \"reason\": \"wx-mock 市场分析 Gate B\", \"confidence\": 0.99}"
+    },
+    {
+      "ifPromptContains": [
+        "mock越界"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-market-analysis\", \"args\": {\"topic\": \"mock越界主题\", \"root\": \"{root}\", \"outFile\": \"{s5}\"}, \"missingFields\": [], \"reason\": \"wx-mock 市场分析 Gate B\", \"confidence\": 0.99}"
+    },
+    {
+      "ifPromptContains": [
+        "mock确认"
+      ],
+      "reply": "{\"intent\": \"execute_workflow\", \"action\": \"start_execution\", \"workflowId\": \"mock-market-analysis\", \"args\": {\"topic\": \"mock确认主题\", \"root\": \"{root}\", \"outFile\": \"{s6}\"}, \"missingFields\": [], \"reason\": \"wx-mock 市场分析 Gate B\", \"confidence\": 0.99}"
+    }
+  ],
+  "steps": [
+    {
+      "caseId": "S1",
+      "name": "正常完成：begin→report→READY",
+      "send": "市场分析: mock正常主题",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-market-analysis",
+        "timeoutSec": 180
+      },
+      "assertFile": [
+        "{s1}"
+      ],
+      "assertFileContains": {
+        "file": "{s1}",
+        "contains": "report OK"
+      }
+    },
+    {
+      "caseId": "S2",
+      "name": "重复任务：幂等命中不重跑",
+      "send": "市场分析: mock幂等复跑",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-market-analysis",
+        "timeoutSec": 180
+      },
+      "assertFile": [
+        "{s2}"
+      ],
+      "assertFileContains": {
+        "file": "{s2}",
+        "contains": "已分析过"
+      }
+    },
+    {
+      "caseId": "S3",
+      "name": "浏览器不可用降级：partial_coverage 标注",
+      "send": "市场分析: mock部分覆盖主题",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-market-analysis",
+        "timeoutSec": 180
+      },
+      "assertFile": [
+        "{s3}"
+      ],
+      "assertFileContains": {
+        "file": "{s3}",
+        "contains": "partial"
+      }
+    },
+    {
+      "caseId": "S4",
+      "name": "样本不足：RESEARCH_FAILED",
+      "send": "市场分析: mock样本不足主题",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-market-analysis",
+        "timeoutSec": 180
+      },
+      "assertFile": [
+        "{s4}"
+      ],
+      "assertFileContains": {
+        "file": "{s4}",
+        "contains": "true"
+      }
+    },
+    {
+      "caseId": "S5",
+      "name": "写入异常：路径越界拦截",
+      "send": "市场分析: mock越界主题",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-market-analysis",
+        "timeoutSec": 180
+      },
+      "assertFile": [
+        "{s5}"
+      ],
+      "assertFileContains": {
+        "file": "{s5}",
+        "contains": "越界拦截 OK"
+      }
+    },
+    {
+      "caseId": "S6",
+      "name": "READY 后确认：confirm 方向→CONFIRMED",
+      "send": "市场分析: mock确认主题",
+      "approve": "never",
+      "expect": {
+        "type": "taskCompleted",
+        "workflowId": "mock-market-analysis",
+        "timeoutSec": 180
+      },
+      "assertFile": [
+        "{s6}"
+      ],
+      "assertFileContains": {
+        "file": "{s6}",
+        "contains": "confirm OK"
+      }
+    }
+  ],
+  "vars": {
+    "root": "{runDir}/work/ma-root",
+    "s1": "{runDir}/work/s1.txt",
+    "s2": "{runDir}/work/s2.txt",
+    "s3": "{runDir}/work/s3.txt",
+    "s4": "{runDir}/work/s4.txt",
+    "s5": "{runDir}/work/s5.txt",
+    "s6": "{runDir}/work/s6.txt"
+  }
+}

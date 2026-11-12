@@ -26,6 +26,7 @@ import os
 import shutil
 import subprocess
 import sys
+import sys
 import time
 from pathlib import Path
 
@@ -123,7 +124,14 @@ class MockService:
     def kill(self) -> None:
         """进程树强杀（模拟崩溃；隔离 dataDir 下无状态需要保全）"""
         if self.proc and self.proc.poll() is None:
-            subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=30)
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True, timeout=30)
+            else:
+                import signal
+                try:
+                    os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    self.proc.terminate()
             try:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
@@ -330,6 +338,8 @@ class Engine:
         case.stage = "expect"
         deadline = time.time() + timeout
         expect_type = expect.get("type", "replyContains")
+        # 2026-11-13：taskCompleted 基线快照——只认本步新增任务，防命中上一条步骤留下的旧任务
+        baseline_tbs = set(latest_tasks(self.data_dir).keys())
         matched = False
         actual = ""
         while time.time() < deadline:
@@ -353,6 +363,8 @@ class Engine:
                 wf = expect["workflowId"]
                 want = "completed" if expect_type == "taskCompleted" else "failed"
                 for tb, tk in latest_tasks(self.data_dir).items():
+                    if tb in baseline_tbs:
+                        continue  # 旧任务不算（上一条步骤的终态）
                     if tk.get("workflowId") == wf and tk.get("status") == want:
                         matched, actual = True, f"tb={tb} {want}"
                         break
