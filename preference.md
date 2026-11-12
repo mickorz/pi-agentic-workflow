@@ -22,4 +22,5 @@
 - **2026-11-04** G.5 排版审阅优先用 chrome-use 免粘贴打开器（open_preview.py）自动注入 token 打开页面，用户只需看；不要让用户手动复制 URL+token。
 - **2026-11-12** 公众号全流程两确认点制：全流程只留两个用户确认点——确认点 1=大纲包（A 阶段，用户改大纲.md 或聊天提修改，多轮均可，确认后进入全自动段）；确认点 2=gzh-preview 预览工作台（G.5，用户预览内编辑/浏览/保存+聊天确认发布）。逐章 ok 制/三级分批审批制/封面 preview 签样/humanizer 用户审批/提示词过目等用户门全部取消，agent 自主推进+自主质检（视觉核对/对账/check_state 照旧）。代价与对策：大纲要点写细（每章列引用事实与结论）作为质量契约把关前移。已同步入 gzh-article-craft SKILL.md。
 - **2026-11-12** G.5 用户聊天确认发布的同时，agent 自己起的预览 web 服务（pi-workflow web，端口 4317）就地停掉（记 PID 或查端口 kill），不留到事后收尾；用户自己常驻的服务不动。已同步入 gzh-article-craft SKILL.md G.5。
+- **2026-11-12** 浏览器通道优先级：需要浏览器采集/操作时默认 chrome-use（已登录态、零 API key），chrome-use 不可用才回落 pi-browser-use 等替代通道；不跳过 chrome-use 直接走替代。已同步入 gzh-article-craft SKILL.md（顶部通则 + C 截图下载通道）。
 - **2026-11-04** 工作台切过主题的文章必须走 layout-html 入箱（publish --html-file layout.html），不能落回默认固定转换。

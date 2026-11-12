@@ -87,13 +87,15 @@ python3 "$U" --article-dir <文章目录> --session <session.jsonl 路径>
 - **禁用网友 @handle 表达**（2026-10-29 定案）：正文不得出现 @某某 网名句柄（含不带 @ 的英文 handle，如 LinearUncle）；引用的事实与金句保留，只去掉句柄
 - **去第三人称转述框架（2026-11-04 定案）**：正文不用"一位独立开发者发推讨教""有网友分享"类人物转述框架——引用材料的事实与场景直接**去人称化**融入行文：把"他遇到两个痛点"写成"这套做法很快撞上两个真痛点"，把人物状态写成现象本身；需要保留金句时用直接引语(引号引用原句,不加"他说");需要留出处时用最轻的来源标注("评论区当场有人接话"而非"有位做产品的人回复说");禁止为叙事感虚构人物视角
 
+## 浏览器通道优先级（2026-11-12 定案）
+
+需要浏览器采集/操作（引用截图下载、网页截图、登录态页面）时：**默认 chrome-use**（image-use/open_preview 同通道，驱动用户已登录 Chrome，零 API key、免粘贴）；**chrome-use 不可用才回落 pi-browser-use**（或 curl 直下等替代通道）。不可用判定：relay 预检 `[FAIL]` 且处理后仍不连（见 dev-docs/experience/chrome-use-relay-not-connected-upgrade-1-5.md）、pi-browser-use ENOENT 等（见 dev-docs/experience/pi-browser-use-enoent-stale-nvm-execpath.md——nvm 迁移后需重启 pi 会话）。不要跳过 chrome-use 直接走替代通道。
+
 ## C. 引用截图下载
 
-```bash
-curl -s --max-time 25 -x http://127.0.0.1:7897 "<图URL>?format=jpg&name=large" -o "imgs/NN-分类-主题.jpg"
-```
+- **下载通道（2026-11-12 定案）**：默认 chrome-use（已登录态直存原图，含 X/微信等需登录页），chrome-use 不可用才回落 curl 直下（`-x http://127.0.0.1:7897` 代理按需）或其他通道；curl 下载仅适用于公开直链，登录态资源会拿到登录墙页（下载后必查可发现）
 
-- **命名**：`NN-分类-主题.jpg/png`，NN=章序号；**禁空格/括号/全角括号**（IMG_REF 正则 `[^)]+` 会在首个 `)` 截断，见 pitfalls #1）
+- 命名与校验（curl 回落通道同样适用）**：`NN-分类-主题.jpg/png`，NN=章序号；**禁空格/括号/全角括号**（IMG_REF 正则 `[^)]+` 会在首个 `)` 截断，见 pitfalls #1）
 - 下载后必查：`file -b` 非 empty、大小 >10KB；404（X 端原图下架）→ 用同段落替代图并同步改配文，或弃用
 - 全部入文后跑一遍"引用↔文件一一对应"检查（引用数=文件数、无悬空、无未引用、无违规文件名）
 
