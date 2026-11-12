@@ -24,6 +24,7 @@ summary-file 为 JSON（{title, core_points[], wechat_inspirations[], further_re
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -188,6 +189,19 @@ def safe_source_key(sk: str) -> str:
     return "".join(ch if (ch.isalnum() or ch in "-_") else "_" for ch in sk)
 
 
+DANPIN_DIR = "60_Workspace/写作/单篇"
+
+
+def sync_to_danpin(vault: Path, md_file: Path, date_prefix: str) -> str:
+    """2026-11-12 新增：同步复制到 单篇/<YYYYMMDD>/（目录缺则建；同名不覆盖）→ 返回相对 vault 路径。"""
+    dst_dir = vault / DANPIN_DIR / date_prefix
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    dst = dst_dir / md_file.name
+    if not dst.exists():
+        shutil.copyfile(md_file, dst)
+    return str(dst.relative_to(vault))
+
+
 # ── frontmatter 扫查（§4.1 幂等索引：frontmatter 即唯一事实源） ──
 
 def scan_frontmatter(md_file: Path) -> dict:
@@ -314,11 +328,19 @@ def cmd_archive(args) -> int:
     inspire = vault / inspire_dir_from_config()
     inspire.mkdir(parents=True, exist_ok=True)
 
-    # 幂等命中：同 sourceKey 已归档 → 返回既有路径，不建新目录不重写（§4.1）
+    # 幂等命中：同 sourceKey 已归档 → 补齐单篇同步副本（缺失才补），不重写灵感文件（§4.1）
     hit = find_archived(inspire, args.source_platform, args.source_id)
     if hit:
+        danpin_rel = ""
+        stem = hit[1].name
+        if hit[1].parent == inspire and len(stem) >= 9 and stem[:8].isdigit():
+            try:
+                danpin_rel = sync_to_danpin(vault, hit[1], stem[:8])
+            except OSError as e:
+                return fail(f"单篇同步复制失败：{e}")
         return out({"ok": True, "duplicate": True, "title": hit[0], "rel_dir": hit[1].parent.name,
-                    "file_rel": str(hit[1].relative_to(inspire)), "vault_root": str(vault)}, 0)
+                    "file_rel": str(hit[1].relative_to(inspire)), "danpin_rel": danpin_rel,
+                    "vault_root": str(vault)}, 0)
 
     # 标题（用户新流程 2026-10-24：标题=视频页面原标题，非 AI 生成）：目录名 sanitize（≤20字），frontmatter 存完整原题
     full_title = " ".join(str(args.title or "").split())
@@ -354,6 +376,7 @@ def cmd_archive(args) -> int:
     # 扁平归档（用户流程调整 2026-11-10）：不建子目录，直接 灵感/YYYYMMDD-标题.md
     date_prefix = time.strftime("%Y%m%d")
     md_file = dedupe_flat_file(inspire, date_prefix, title)
+    danpin_rel = ""
     # 硬约束：写入路径必须位于灵感根前缀内（防 ../ 逃逸；sanitize 已去 /，双保险）
     if not ensure_under(md_file, inspire):
         return fail(f"目标路径越界（必须在 {inspire} 内）：{md_file}")
@@ -394,9 +417,16 @@ def cmd_archive(args) -> int:
             pass
         return fail(f"写入失败：{e}", target=str(md_file))
 
+    # 2026-11-12 新增：同步复制到 单篇/<YYYYMMDD>/（失败报错；重发链接走幂等分支补齐）
+    try:
+        danpin_rel = sync_to_danpin(vault, md_file, date_prefix)
+    except OSError as e:
+        return fail(f"单篇同步复制失败：{e}", file_rel=str(md_file.relative_to(inspire)))
+
     return out({"ok": True, "duplicate": False, "title": title,
                 "rel_dir": ".",
                 "file_rel": str(md_file.relative_to(inspire)),
+                "danpin_rel": danpin_rel,
                 "vault_root": str(vault), "inspire_root": str(inspire)}, 0)
 
 

@@ -186,6 +186,7 @@ try {
     receipt:
       '✅ 已归档: ' + archiveJson.title + '\n' +
       '📁 60_Workspace/写作/灵感/' + archiveJson.file_rel + '\n' +
+      (archiveJson.danpin_rel ? '📄 60_Workspace/写作/' + archiveJson.danpin_rel + '\n' : '') +
       (timingLine ? '⏱ ' + timingLine : ''),
   }
 } finally {
