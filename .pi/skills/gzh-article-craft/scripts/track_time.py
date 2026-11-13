@@ -132,7 +132,7 @@ def fmt_span(a, b):
     return "%s %s:%s -> %s %s:%s" % (a.date(), "%02d" % a.hour, "%02d" % a.minute, b.date(), "%02d" % b.hour, "%02d" % b.minute)
 
 
-def report_one(article_dir):
+def report_one(article_dir, html_out=False):
     events = load_events(article_dir)
     if not events:
         print("[FAIL] 无 %s 或为空: %s" % (LOG_NAME, article_dir))
@@ -172,7 +172,57 @@ def report_one(article_dir):
         print("交互合计: %d 次；审批返工率 %d/%d（%d%%）；平均距上事件 %.1f min；修改产物 %d 个" % (
             n, reworks, n, round(reworks * 100 / n), avg_gap, changed))
         print("[提示] 交互耗时为距上一事件间隔（含 agent 产出+等待用户，口径近似）；rework/edit 计入返工，confirm 为纯确认")
+    if html_out:
+        write_html_report(Path(article_dir), Path(article_dir).name, rows, total_min, t0, t1, len(pts), inters)
     return 0
+
+
+def write_html_report(article_dir, name, rows, total_min, t0, t1, n_stages, inters):
+    """html 版耗时报告：纯 CSS 条形，无依赖，落 <文章目录>/耗时报告.html（2026-11-13 定案）"""
+    max_mins = max((r[2] for r in rows), default=1) or 1
+    bar_rows = "".join(
+        "<tr><td>%s</td><td class=span>%s</td>"
+        "<td><div class=bar style=width:%.0f%%></div><span class=val>%.0f min · %d%%</span></td></tr>"
+        % (stage, span, mins * 90 / max_mins, mins, pct)
+        for stage, span, mins, pct in rows)
+    inter_html = ""
+    if inters:
+        trs = "".join(
+            "<tr><td>%s</td><td>%s</td><td>%s</td><td class=%s>%s</td><td>%.1f min</td><td>%s</td></tr>"
+            % (it["ev"].get("interaction", "approval"), it["ev"]["_dt"].strftime("%m-%d %H:%M"),
+               it["ev"]["stage"], it["ev"].get("result", "?"), it["ev"].get("result", "?"),
+               it["gap"], ",".join(it["ev"].get("artifacts", [])) or "-")
+            for it in inters)
+        n = len(inters)
+        reworks = sum(1 for it in inters if it["ev"].get("result") in ("rework", "edit"))
+        inter_html = ("<h2>交互点（%d 次，返工 %d）</h2>"
+                      "<table><tr><th>类型</th><th>时间</th><th>阶段</th><th>结果</th><th>距上事件</th><th>修改产物</th></tr>"
+                      "%s</table>" % (n, reworks, trs))
+    parts = []
+    parts.append('<!doctype html><html lang="zh"><head><meta charset="utf-8"><title>耗时报告 - %s</title>' % name)
+    parts.append("""<style>
+body{font-family:"Microsoft YaHei",sans-serif;max-width:860px;margin:40px auto;color:#1c2733;line-height:1.6}
+h1{border-bottom:3px solid #1776e8;padding-bottom:8px} h2{margin-top:32px}
+table{border-collapse:collapse;width:100%} td,th{border-bottom:1px solid #dde4ec;padding:6px 10px;text-align:left}
+.bar{height:18px;background:linear-gradient(90deg,#1776e8,#16b6af);border-radius:3px;display:inline-block;vertical-align:middle}
+.val{font-size:13px;color:#5a6b7e;margin-left:8px} .span{white-space:nowrap;color:#5a6b7e;font-size:13px}
+.sum{background:#f2f6fb;border-left:4px solid #1776e8;padding:10px 16px;margin:16px 0}
+.rework{color:#c2451e;font-weight:bold} .confirm{color:#0f8a4b}
+td[class=confirm]{color:#0f8a4b} td[class=rework]{color:#c2451e;font-weight:bold}
+</style></head><body>""")
+    parts.append("<h1>单篇耗时报告：%s</h1>" % name)
+    parts.append('<div class="sum">总耗时 <b>%.0f min</b>（%s → %s）· %d 个阶段 · 含等待用户确认的时间</div>'
+                 % (total_min, t0.strftime("%m-%d %H:%M"), t1.strftime("%H:%M"), n_stages))
+    parts.append("<h2>阶段耗时</h2><table><tr><th>阶段</th><th>起止</th><th>耗时</th></tr>%s</table>" % bar_rows)
+    if inter_html:
+        parts.append(inter_html)
+    parts.append('<p style="color:#8a97a5;font-size:12px;margin-top:32px">生成：track_time.py report --html</p>')
+    parts.append("</body></html>")
+    out = Path(article_dir) / "耗时报告.html"
+    out.write_text("\n".join(parts), encoding="utf-8")
+    print("[OK] html 报告 -> %s" % out)
+    return 0
+
 
 
 def report_vault(vault_root):
@@ -221,11 +271,12 @@ def main():
     g = p2.add_mutually_exclusive_group(required=True)
     g.add_argument("--article-dir")
     g.add_argument("--vault-root")
+    p2.add_argument("--html", action="store_true", help="同时生成 耗时报告.html（仅 --article-dir 单篇模式）")
     args = ap.parse_args()
     if args.cmd == "log":
         sys.exit(cmd_log(args))
     if args.article_dir:
-        code = report_one(args.article_dir)
+        code = report_one(args.article_dir, html_out=bool(getattr(args, 'html', False)))
     else:
         code = report_vault(args.vault_root)
     if args.article_dir:

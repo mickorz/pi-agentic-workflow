@@ -34,7 +34,7 @@ S=".pi/skills/gzh-article-craft/scripts/track_time.py"
 # 阶段完成时顺手记一条（补录历史加 --ts "YYYY-MM-DDTHH:MM:SS"；--article-dir 传文章目录，不是 _cards/）
 python3 "$S" log --article-dir <文章目录> --stage 制作
 # D execute 入箱成功后：单篇报告；跨篇历史分析同文章线
-python3 "$S" report --article-dir <文章目录>
+python3 "$S" report --article-dir <文章目录> --html   # html 版落 文章目录/耗时报告.html（2026-11-13）
 python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 ```
 

@@ -50,3 +50,10 @@
 19. **图形页图比例 ≠ 图框比例**：screenshot 组件嵌竖版/异比例图会三连坑——gz CSS 默认 object-fit:cover 裁切、well 3x4（1205px）加上标题区超出 1440 画板底部被裁、fit 缩放后图内小字不可读。-> 图形页资产先定 well 比例再按同比例画图；**well_ratio=1x1 + 正方形图（800x800 viewBox / 1600x1600 PNG @2x）是竖版图形页最稳组合**（比例相同 = contain/cover/fill 等价，免疫一切 fit 坑）。（dev-docs/experience/sticker-graphic-page-ratio-font-cache.md）。现成正方形模板：assets/diagram-templates/（架构图/流程图各一）；字体预置脚本：scripts/preflight_fonts.py
 20. **render.mjs 字体内嵌下载超时**：字体内嵌要从 raw.githubusercontent.com 拉 Noto Serif/Sans SC，国内直连超时，workflow 里 300s 强杀直接 fail。-> 走代理预下载 9 个 TTF 到 `~/.cache/guizang-design/fonts/<pin 前12>/ofl/...`（文件名把 `[` `]` 换 `_`），并 mkdir `<skill>/fonts/`（fetchFont 首次要写 lock.json）；预置后 embed 全程离线。或临时 `--no-embed` 降级。（dev-docs/experience/sticker-graphic-page-ratio-font-cache.md）
 21. **像素取证不要手写 PNG 解码器**：手写 zlib unfilter + 裁剪重编码链路产出损坏文件（zai 看到尺寸错乱+纯黑），此前"琥珀 0 像素"结论亦不可信。-> 卡片像素统计用 chrome canvas getImageData（页面 evaluate 内解码，100% 可靠）；zai 对变形拉伸图的"重复实例/截断"判定需封闭式三问 + 结构性修复（比例匹配）兜底，不依赖单次视觉判断。（同上）
+
+## 22. checklist 页 6 行容量超载触底（2026-11-13，boss-agent-cli 篇）
+
+- 症状：checklist 6 points + notes 渲染后文字直达画布底 y=1439（规范底部留白 >=231px），verify --require-approved 拒发
+- 根因：6 行清单每行 = 标题行+note 行，叠加双行 h-display 大标题后纵向超高；notes 长度精简不解决行数问题
+- 规矩：checklist 页规划时按 **5 行**预算（6 是 schema 上限不是推荐值）；双行大标题页更紧，notes 每条 <=10 字；pages.json 改后必须 build_html -> render -> normalize 全链重跑（只重渲不重建 index.html 是无效返工，本次连踩两次）
+- 视觉工具不可用时的核验口径：PIL 像素扫描（ink<200 最后一行 y、底部 300px 墨迹行数），全组对比底部留白；触底即真缺陷
