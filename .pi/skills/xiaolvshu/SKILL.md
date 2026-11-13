@@ -1,7 +1,7 @@
 ---
 name: xiaolvshu
 display_name: 小绿书创作全流程
-description: 素材(README/笔记/截图/文章)到成套 3:4 小绿书卡片(封面+内容页)的完整流程：页面规划(大纲.md 用户确认，两确认点制 2026-11-12)->版式渲染与截图证据页->审图(误读亲核)->两阶段发布授权->newspic 入草稿箱(后台手发)。生图唯一通道 image-use(ChatGPT 订阅，无授权门)。Use when 用户要把素材"做成小绿书/做成卡片/卡片化/发布贴图/发布图片帖"。
+description: 素材(本地文章目录或 GitHub 仓库链接，2026-11-12 起支持 GitHub 链接，clone 入 引用/ 后流程同本地)到成套 3:4 小绿书卡片(封面+内容页)的完整流程：页面规划(大纲.md 用户确认，两确认点制 2026-11-12)->版式渲染与截图证据页->审图(误读亲核)->两阶段发布授权->newspic 入草稿箱(后台手发)。生图唯一通道 image-use(ChatGPT 订阅，无授权门)。Use when 用户要把素材/github 项目"做成小绿书/做成卡片/卡片化/发布贴图/发布图片帖"。
 description_zh: 素材到成套卡片、审图、newspic 入草稿箱的小绿书生产全流程，含页面容量纪律与踩坑规避清单。
 ---
 
@@ -43,6 +43,11 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 - 报告算法与文章线相同：阶段耗时=相邻完成点间隔，含阶段内等待用户确认的时间
 
 ## A. 页面规划（唯一内容产出点）
+
+**输入两种（2026-11-12 新增 GitHub 链接）**：
+
+1. **本地文章目录**（现有方式）：素材已在 `60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/` 下
+2. **GitHub 仓库链接**（如 `https://github.com/can4hou6joeng4/boss-agent-cli`）：agent 建文章目录（主题取 repo 名）后 `git clone --depth 1 <url> "<文章目录>/引用/<repo名>/"`，从 README/docs/仓库结构提取素材三问的答案；截图素材从仓库内图片/演示 assets 取（复制进 `_cards/assets/` 走 prep_screenshots）；仓库拉取失败（私有/网络）→ 用 zread 系列 GitHub 工具读结构化内容作为回落；后续流程与本地目录完全一致
 
 先回答素材三问，再动 pages.json：
 
