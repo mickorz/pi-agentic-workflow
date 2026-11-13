@@ -40,3 +40,6 @@
 [submodule "thirdparties/guizang-social-card-skill"]
 	path = thirdparties/guizang-social-card-skill
 	url = https://github.com/op7418/guizang-social-card-skill
+[submodule "thirdparties/switch"]
+	path = thirdparties/switch
+	url = https://github.com/sandbox-quantum/switch
