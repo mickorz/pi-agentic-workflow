@@ -119,6 +119,23 @@ def main() -> int:
     art_dir = cards_dir.parent
     pages_path = Path(args.pages).resolve()
 
+    # 守卫(2026-11-14)：文章目录禁止位于本仓库内——仓库根 .aws-article（仅存 vault_root 指针）
+    # 会截胡 publish.py 向上查找致凭据找不到，且仓库内目录未 gitignore 会混入 git。
+    # 文章目录必须建在 vault E:/Obsidian/newsky/60_Workspace/ 下。
+    # 踩坑记录：dev-docs/experience/xiaolvshu-article-dir-must-be-in-vault.md
+    _repo_root = Path(__file__).resolve().parents[4]  # sticker_cards -> scripts -> wx-article -> dev-examples -> repo
+    if not args.mock:
+        try:
+            rel = art_dir.resolve().relative_to(_repo_root)
+            # dev-examples/ 是开发期沙盒（mock 场景 runDir 数据目录在此），豁免守卫
+            if rel.parts and rel.parts[0] != "dev-examples":
+                print(f"[FAIL] 文章目录位于本仓库内：{art_dir}")
+                print("       文章目录必须建在 vault E:/Obsidian/newsky/60_Workspace/写作/单篇/ 下，禁止建在仓库内。")
+                print("       详见 dev-docs/experience/xiaolvshu-article-dir-must-be-in-vault.md")
+                return 1
+        except ValueError:
+            pass
+
     # ---------- 人工恢复通道（不消耗授权指纹，不创建新内容） ----------
     if args.clear_pending or args.resolve_media_id:
         ap_path = cards_dir / "publish-approval.json"

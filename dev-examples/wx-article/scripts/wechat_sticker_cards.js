@@ -68,6 +68,20 @@ if (!args.article_dir) {
   return { cards_status: 'FAILED', publish_status, artifacts,
     report: '缺少 article_dir（文章目录）。小绿书卡片化需要文章目录存放 _cards/ 与产物。' }
 }
+// 守卫(2026-11-14)：article_dir 禁止位于本仓库内——仓库根 .aws-article 会截胡 publish.py 向上查找致凭据找不到，
+// 且仓库内目录未 gitignore 会把素材混入 git；文章目录必须建在 vault E:/Obsidian/newsky/60_Workspace/ 下
+// （踩坑：dev-docs/experience/xiaolvshu-article-dir-must-be-in-vault.md）
+{
+  const guard = await command({
+    executable: 'node',
+    args: ['-e', "const path=require('path');const a=path.resolve(process.argv[1]);const rel=path.relative(process.cwd(),a);const inRepo=rel && !rel.startsWith('..') && !path.isAbsolute(rel);const sandbox=rel.split(path.sep)[0]==='dev-examples';process.exit(inRepo && !sandbox ? 7 : 0)", args.article_dir],
+    timeoutMs: 15000, label: 'guard:article-dir-not-in-repo',
+  })
+  if (guard.exitCode === 7) {
+    return { cards_status: 'FAILED', publish_status, artifacts,
+      report: 'article_dir 位于 pi-workflow 仓库内（' + args.article_dir + '）。文章目录必须建在 vault E:/Obsidian/newsky/60_Workspace/写作/单篇/ 下，禁止建在仓库内；详见 dev-docs/experience/xiaolvshu-article-dir-must-be-in-vault.md。' }
+  }
+}
 const pagesExists = await fileExists(pagesPath)
 if (pagesExists) {
   log('检测到既有 pages.json，跳过规划（断点续跑）')

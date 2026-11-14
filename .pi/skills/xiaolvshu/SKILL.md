@@ -23,7 +23,7 @@ description_zh: 素材到成套卡片、审图、newspic 入草稿箱的小绿�
 | D 发布授权 | prepare 取指纹 -> 人工批准 -> execute 同指纹 | `publish-state.json` kind=sticker, DRAFTED |
 | E 发表 | 公众号后台手动发表（无自动发表通道） | — |
 
-文章目录约定：`60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/`，卡片工作目录 `_cards/` 在其下，与文章线 imgs/ 天然隔离（publish-state 记 kind=sticker，混型发布显式拒绝）。
+文章目录约定：**一律建在 Obsidian vault 内** `E:/Obsidian/newsky/60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/`（2026-11-14 定案）。红线：**严禁建在 pi-workflow 仓库内**（含新建仓库内 60_Workspace）——仓库根 `.aws-article/` 只存 vault_root 指针无 aws.env，会让 publish.py 向上查找提前命中致凭据找不到；且仓库内目录未 gitignore，素材/产物会混入 git。踩坑记录：dev-docs/experience/xiaolvshu-article-dir-must-be-in-vault.md。卡片工作目录 `_cards/` 在文章目录下，与文章线 imgs/ 天然隔离（publish-state 记 kind=sticker，混型发布显式拒绝）。
 
 ## 耗时记录（2026-11-11 新增，复用文章线 track_time.py）
 
@@ -46,8 +46,8 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 
 **输入两种（2026-11-12 新增 GitHub 链接）**：
 
-1. **本地文章目录**（现有方式）：素材已在 `60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/` 下
-2. **GitHub 仓库链接**（如 `https://github.com/can4hou6joeng4/boss-agent-cli`）：agent 建文章目录（主题取 repo 名）后 `git clone --depth 1 <url> "<文章目录>/引用/<repo名>/"`，从 README/docs/仓库结构提取素材三问的答案；截图素材从仓库内图片/演示 assets 取（复制进 `_cards/assets/` 走 prep_screenshots）；仓库拉取失败（私有/网络）→ 用 zread 系列 GitHub 工具读结构化内容作为回落；后续流程与本地目录完全一致
+1. **本地文章目录**（现有方式）：素材已在 vault `E:/Obsidian/newsky/60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/` 下
+2. **GitHub 仓库链接**（如 `https://github.com/can4hou6joeng4/boss-agent-cli`）：agent 建文章目录（主题取 repo 名，**必须建在 vault `E:/Obsidian/newsky/60_Workspace/写作/单篇/` 下**，见上方红线）后 `git clone --depth 1 <url> "<文章目录>/引用/<repo名>/"`，从 README/docs/仓库结构提取素材三问的答案；截图素材从仓库内图片/演示 assets 取（复制进 `_cards/assets/` 走 prep_screenshots）；仓库拉取失败（私有/网络）→ 用 zread 系列 GitHub 工具读结构化内容作为回落；后续流程与本地目录完全一致
 
 先回答素材三问，再动 pages.json：
 
