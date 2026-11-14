@@ -129,13 +129,40 @@ try {
   const workDir = WORK_ROOT + '/' + sourceKey.replace(/[^a-zA-Z0-9_-]/g, '_')
   const extractArgv = ['extract', '--url', canonicalUrl, '--workdir', workDir]
   let extractJson
+  // 登录二维码远程扫码（2026-11-15 用户需求）：兜底通道探到抖音登录/验证二维码时，
+  // 存 PNG → checkpoint 附图推微信 → 用户手机扫码后回复「批准」 → 重试提取
+  const qrPng = workDir + '/login-qr.png'
+  const tryExtract = async (label) => {
+    try {
+      return await runJson(label, 'node', [ADAPTER_CLI, ...extractArgv], 40 * 60 * 1000)
+    } catch (e) {
+      const msg = String(e.message || e)
+      // runJson 失败 message 内嵌 adapter 的完整 JSON 输出：解析取 error.details=完整 base64
+      let data = ''
+      try {
+        const j = JSON.parse(msg.slice(msg.indexOf('{'), msg.lastIndexOf('}') + 1))
+        const det = String(j && j.error && j.error.details || '')
+        if (det.length > 500 && String(j.error && j.error.message || '').startsWith('LOGIN_QR')) data = det.trim()
+      } catch (parseErr) { /* 非 JSON 失败照常抛 */ }
+      if (data) {
+          const safeB64 = data.replace(/[^A-Za-z0-9+/=]/g, '')
+          await commandSuccess(PY + ' -c "import base64,sys; open(sys.argv[1],\'wb\').write(base64.b64decode(sys.argv[2]))" ' + qrPng + ' ' + safeB64, 30_000)
+          log('检测到抖音登录二维码，已存 ' + qrPng)
+          await checkpoint('抖音登录/验证二维码已发到微信（见图片），请用手机抖音扫码后回复「批准」继续；不扫码请回复「拒绝」', { imagePath: qrPng })
+          log('扫码批准通过，重试音频提取')
+          return await runJson(label + '(扫码后重试) ', 'node', [ADAPTER_CLI, ...extractArgv], 40 * 60 * 1000)
+        }
+      }
+      throw e
+    }
+  }
   try {
-    extractJson = await runJson('音频提取 ', 'node', [ADAPTER_CLI, ...extractArgv], 40 * 60 * 1000)
+    extractJson = await tryExtract('音频提取 ')
   } catch (firstErr) {
     log('音频提取首次失败，暂停 10s 后重试一次（CDP/风控偶发）: ' + String(firstErr.message || firstErr).slice(0, 200))
     // 沙箱无 sleep/setTimeout，用已探测的 PY 解释器暂停（跨平台）
     await commandSuccess(PY + ' -c "import time; time.sleep(10)"', 20_000)
-    extractJson = await runJson('音频提取(重试) ', 'node', [ADAPTER_CLI, ...extractArgv], 40 * 60 * 1000)
+    extractJson = await tryExtract('音频提取(重试) ')
   }
   await check(
     () => typeof extractJson.transcriptText === 'string' && extractJson.transcriptText.trim().length > 0,

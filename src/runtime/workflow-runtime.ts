@@ -112,6 +112,8 @@ export interface WorkflowRunOptions {
 export interface CheckpointOptions {
   default?: unknown;
   headless?: "default" | "abort";
+  /** 2026-11-15：随审批卡推送的图片路径（二维码远程扫码等）；进 hash（换图重问） */
+  imagePath?: string;
 }
 
 /** 并发闸门封装：limiter 与 concurrency 两份状态不可能失同步；仅 agent dispatch 进入 */
@@ -1288,7 +1290,7 @@ async function executeWorkflow(
     const callIndex = scope.callSeq++;
     const journalKey = scopedKey(shared, scope, callIndex);
     const callHash = createHash("sha256")
-      .update(JSON.stringify({ promptText, default: checkpointOptions.default ?? null, headless: checkpointOptions.headless ?? null }))
+      .update(JSON.stringify({ promptText, default: checkpointOptions.default ?? null, headless: checkpointOptions.headless ?? null, imagePath: checkpointOptions.imagePath ?? null }))
       .digest("hex");
     const displayPhase = scope.phasePrefix ? scope.phasePrefix + (scope.currentPhase ?? "") : scope.currentPhase;
     const cpRecord: AgentRecord = {
@@ -1327,7 +1329,7 @@ async function executeWorkflow(
     shared.agentCount++;
 
     cpRecord.startedAt = Date.now();
-    shared.events.emit("checkpoint.requested", { nodeId: journalKey, payload: { prompt: promptText } });
+    shared.events.emit("checkpoint.requested", { nodeId: journalKey, payload: { prompt: promptText, ...(checkpointOptions.imagePath ? { imagePath: checkpointOptions.imagePath } : {}) } });
     let reply: unknown;
     if (shared.confirm) {
       try {

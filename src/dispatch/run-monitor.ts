@@ -171,6 +171,7 @@ export class RunMonitor {
       runId: binding.runId,
       taskBindingId: binding.taskBindingId,
       text: renderApprovalCard(binding, cp),
+      ...(cp.imagePath ? { imagePath: cp.imagePath } : {}),
     });
   }
 }

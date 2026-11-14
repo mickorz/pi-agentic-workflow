@@ -18,6 +18,8 @@ export interface TaskControlCheckpoint {
   question: string;
   status: "pending" | "approved" | "rejected";
   version: number;
+  /** 2026-11-15：随审批卡推送的图片（二维码远程扫码） */
+  imagePath?: string;
 }
 
 /** RunApplicationService 的结构化子集（生产直传；测试 fake） */

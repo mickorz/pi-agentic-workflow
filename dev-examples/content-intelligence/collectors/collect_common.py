@@ -81,6 +81,64 @@ class BrowserLock:
         self.release()
 
 
+def relay_connected(binary):
+    """chrome-use browsers 是否有任一 profile CONNECTED=yes。"""
+    try:
+        for _ in range(2):
+            try:
+                proc = subprocess.run([binary, "browsers"], capture_output=True, text=True, timeout=30)
+                # 注意：数据行不以 PROFILE 开头（首列是 profile 名）；与 preflight_relay 同判定=任一行第 4 列 yes
+                if any(len(line.split()) >= 4 and line.split()[3].lower() == "yes" for line in proc.stdout.splitlines()):
+                    return True
+            except (OSError, subprocess.SubprocessError):
+                pass
+        return False
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def chrome_process_running():
+    if sys.platform == "darwin":
+        return subprocess.run(["pgrep", "-x", "Google Chrome"], capture_output=True).returncode == 0
+    if sys.platform == "win32":
+        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq chrome.exe"], capture_output=True, text=True)
+        return "chrome.exe" in (r.stdout or "")
+    return subprocess.run(["pgrep", "-x", "chrome"], capture_output=True).returncode == 0
+
+
+def launch_chrome():
+    """正常方式启动用户 Chrome（等同双击；绝不杀进程——pitfalls #5）。"""
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", "-a", "Google Chrome"])
+    elif sys.platform == "win32":
+        subprocess.Popen(["cmd", "/c", "start", "", "chrome"], shell=False)
+    else:
+        subprocess.Popen(["chrome"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def ensure_chrome_ready(binary=None, timeout_sec=75, wait_sec=3):
+    """Chrome/relay 兜底（2026-11-14 用户定案）：未连接→先 reconnect 重绑；Chrome 进程不在→正常启动；
+    轮询至 CONNECTED。失败抛 RuntimeError。已连接时零开销直通。"""
+    binary = binary or find_binary()
+    if not binary:
+        raise RuntimeError("未找到 chrome-use")
+    if relay_connected(binary):
+        return
+    subprocess.run([binary, "reconnect"], capture_output=True, text=True, timeout=30)
+    if relay_connected(binary):
+        return
+    if not chrome_process_running():
+        launch_chrome()
+        time.sleep(8)
+        subprocess.run([binary, "reconnect"], capture_output=True, text=True, timeout=30)
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        if relay_connected(binary):
+            return
+        time.sleep(wait_sec)
+    raise RuntimeError("Chrome/relay 兜底失败：75s 内未达 CONNECTED（扩展是否安装/启用？）")
+
+
 class ChromeUse:
     def __init__(self, binary=None):
         self.binary = binary or find_binary()

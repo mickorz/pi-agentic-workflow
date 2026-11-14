@@ -403,6 +403,22 @@ const CU_PLAY_JS =
   "(() => { try { performance.setResourceTimingBufferSize(10000); } catch (e) {}" +
   " const v = document.querySelector('video'); if (v) { v.muted = true; v.play().catch(() => {}); } })()";
 
+  /** 抖音登录二维码探测+导出（2026-11-15 用户需求：远程手机扫码）：
+ *  登录面板/验证弹窗里的二维码（canvas 或 img[data:]），导出 dataURL base64。 */
+const CU_QR_JS =
+  "(() => {" +
+  " const panels = [...document.querySelectorAll('[class*=login], [id*=login], [class*= Login], [class*=dy-account], [class*=web-login]')]" +
+  "   .filter(e => e.offsetWidth > 100 && e.offsetHeight > 100);" +
+  " let src = '';" +
+  " for (const p of panels) {" +
+  "   const img = p.querySelector('img[src^=\"data:image\"], img[src*=\"qrcode\"], img[src*=\"QRCode\"]');" +
+  "   if (img) { src = img.src; break; }" +
+  "   const cv = p.querySelector('canvas');" +
+  "   if (cv && cv.width >= 80) { try { src = cv.toDataURL('image/png'); } catch (e) {} break; }" +
+  " }" +
+  " if (!src) { const any = document.querySelector('img[src*=\"qrcode\"], img[src^=\"data:image/png;base64\"]'); if (any) src = any.src; }" +
+  " return JSON.stringify({ hasQr: !!src, data: src.slice(0, 22) === 'data:image/png;base64,' ? src.slice(22, src.length) : (src.startsWith('data:image/') && src.includes('base64,') ? src.slice(src.indexOf('base64,') + 7) : '')}) })()";
+
 /** chrome-use 兜底抓取：全局锁 → open 视频页 → muted play → eval GRAB_JS → 让出页面（about:blank）。
  *  返回与 grabMediaViaCdp 相同的 info 形态（audioUrl 等），复用下游下载/转码。 */
 export async function grabMediaViaChromeUse(opts: {
@@ -466,6 +482,16 @@ export async function grabMediaViaChromeUse(opts: {
       author: wire.author || '',
     };
     if (!info.audioUrl) {
+      // 登录二维码探测（2026-11-15）：登录墙/验证弹窗场景导出二维码给微信远程扫码
+      const qrRaw = parseChromeUseEval(runSyncArgs(bin, ['eval', CU_QR_JS]).stdout);
+      try {
+        const qr = JSON.parse(qrRaw) as { hasQr?: boolean; data?: string };
+        if (qr.hasQr && qr.data && qr.data.length > 500) {
+          throw new CliError(`LOGIN_QR:${qr.data.slice(0, 8)}…(len=${qr.data.length})`, 'chrome-use 兜底', qr.data);
+        }
+      } catch (e) {
+        if (e instanceof CliError && e.message.startsWith('LOGIN_QR:')) throw e;
+      }
       throw new CliError('chrome-use 兜底未抓到音频 URL（播放未触发或资源未加载）', 'chrome-use 兜底');
     }
     if (isAdUrl(info.audioUrl)) {
@@ -473,7 +499,8 @@ export async function grabMediaViaChromeUse(opts: {
     }
     // 用完让出页面（open 导航的是活动标签；about:blank 释放视频资源，不打扰用户）
     try { runSyncArgs(bin, ['open', 'about:blank']); } catch { /* 尽力而为 */ }
-    return { info };
+
+  return { info };
   } finally {
     if (locked) releaseBrowserLock();
   }

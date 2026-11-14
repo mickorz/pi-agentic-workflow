@@ -192,6 +192,8 @@ export interface NotificationOutboxItem {
   lastError?: string;
   /** 下次可重试时间（退避后） */
   nextRetryAt?: string;
+  /** 2026-11-15：可选图片路径（二维码远程扫码等） */
+  imagePath?: string;
 }
 
 // ── P2：审计（SC-006，NFR-007/008） ──

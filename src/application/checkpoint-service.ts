@@ -25,6 +25,7 @@ interface RequestedLine {
   question: string;
   version: number;
   requestedAt: string;
+  imagePath?: string;
 }
 interface DecisionLine {
   kind: "decision";
@@ -73,6 +74,7 @@ export class CheckpointService {
           status: "pending",
           version: line.version,
           requestedAt: line.requestedAt,
+          ...(line.imagePath ? { imagePath: line.imagePath } : {}),
         });
       } else {
         const record = byId.get(line.checkpointId);
@@ -91,7 +93,7 @@ export class CheckpointService {
   }
 
   /** 登记一次请求（resume 重问 → version 自增）。返回当前记录 */
-  recordRequested(runId: string, checkpointId: string, nodeId: string, question: string): CheckpointRecordV2 {
+  recordRequested(runId: string, checkpointId: string, nodeId: string, question: string, imagePath?: string): CheckpointRecordV2 {
     const existing = this.get(runId, checkpointId);
     const version = (existing?.version ?? 0) + 1;
     const line: RequestedLine = {
@@ -101,6 +103,7 @@ export class CheckpointService {
       question,
       version,
       requestedAt: new Date().toISOString(),
+      ...(imagePath ? { imagePath } : {}),
     };
     fs.mkdirSync(path.dirname(this.file(runId)), { recursive: true });
     fs.appendFileSync(this.file(runId), `${JSON.stringify(line)}\n`, "utf-8");

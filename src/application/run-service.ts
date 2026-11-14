@@ -129,7 +129,7 @@ export class RunApplicationService {
   async get(runId: string): Promise<RunDetail | null> {
     const snapshot = await this.engine.getRun(runId);
     if (!snapshot) return null;
-    return { snapshot, checkpoints: this.checkpoints.list(runId) };
+    return { snapshot, checkpoints: this.checkpoints.list(runId) };  // CheckpointRecordV2 已含 imagePath（2026-11-15），TaskControlCheckpoint 结构兼容
   }
 
   async list(): Promise<RunListItem[]> {
@@ -249,11 +249,13 @@ export class RunApplicationService {
       try {
         for await (const event of handle.events) {
           if (event.type === "checkpoint.requested" && event.nodeId) {
+            const cpPayload = event.payload as { prompt?: string; imagePath?: string } | undefined;
             this.checkpoints.recordRequested(
               handle.runId,
               event.nodeId,
               event.nodeId,
-              String((event.payload as { prompt?: string } | undefined)?.prompt ?? ""),
+              String(cpPayload?.prompt ?? ""),
+              cpPayload?.imagePath,
             );
             // 等待态持久化（V2：页面刷新/服务重启可见；仅 running 时迁移，不覆盖终态）
             const m = readManifest(this.baseDir, handle.runId);

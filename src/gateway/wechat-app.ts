@@ -258,8 +258,8 @@ export class WechatApp {
     await this.deps.bot.start();
     this.monitor.start();
     const flushMs = this.deps.flushMs ?? 5000;
-    const sendAndRecord = async (userId: string, text: string): Promise<void> => {
-      await this.deps.bot.send(userId, text);
+    const sendAndRecord = async (userId: string, text: string, imagePath?: string): Promise<void> => {
+      await this.deps.bot.send(userId, text, imagePath);
       this.deps.stats?.recordOutbound(); // 发送成功才计（完成≠送达原则的反面：送达才计）
     };
     this.flushTimer = setInterval(() => {
@@ -664,8 +664,8 @@ export class WechatApp {
   async flushOutbox(): Promise<{ sent: number; failed: number; deferred: number }> {
     const totals = { sent: 0, failed: 0, deferred: 0 };
     for (let round = 0; round < 10; round += 1) {
-      const pass = await this.outbox.flush(async (userId, text) => {
-        await this.deps.bot.send(userId, text);
+      const pass = await this.outbox.flush(async (userId, text, imagePath) => {
+        await this.deps.bot.send(userId, text, imagePath);
         this.deps.stats?.recordOutbound();
       });
       totals.sent += pass.sent;

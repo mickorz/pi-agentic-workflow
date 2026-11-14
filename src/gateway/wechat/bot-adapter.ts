@@ -15,7 +15,7 @@ export interface BotAdapter {
   start(): Promise<void>;
   stop(): Promise<void>;
   onMessage(handler: (message: BotInboundMessage) => Promise<void>): void;
-  send(userId: string, text: string): Promise<void>;
+  send(userId: string, text: string, imagePath?: string): Promise<void>;
 }
 
 export interface ReconnectOptions {
@@ -28,6 +28,7 @@ export interface ReconnectOptions {
 /** 最小客户端接口（与 WeixinClient 真实 API 同构；测试 fake 按此实现） */
 export interface WechatClientLike {
   sendText(toUserId: string, text: string): Promise<unknown>;
+  sendImage?(toUserId: string, filePath: string): Promise<unknown>;
   getUpdates(signal?: AbortSignal): Promise<
     Array<{ messageId: string; userId: string; text?: string; contextToken?: string; timestamp?: Date }>
   >;
@@ -90,9 +91,13 @@ export class WechatBotAdapter implements BotAdapter {
     this.handler = handler;
   }
 
-  async send(userId: string, text: string): Promise<void> {
+  async send(userId: string, text: string, imagePath?: string): Promise<void> {
     if (!this.client) throw new Error("Bot 未启动");
     try {
+      if (imagePath && typeof this.client.sendImage === "function") {
+        // 2026-11-15：图片消息（二维码远程扫码等）；客户端不支持时回落纯文本（路径已在文本里）
+        await this.client.sendImage(userId, imagePath);
+      }
       await this.client.sendText(userId, text);
       this.options.chatLog?.record({
         ts: new Date().toISOString(),

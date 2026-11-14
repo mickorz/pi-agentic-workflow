@@ -22,7 +22,7 @@ export interface OutboxOptions {
 }
 
 /** 发送通道（生产 = BotAdapter.send；测试 = fake） */
-export type OutboxSender = (userId: string, text: string) => Promise<void>;
+export type OutboxSender = (userId: string, text: string, imagePath?: string) => Promise<void>;
 
 export class Outbox {
   private readonly file: string;
@@ -63,6 +63,7 @@ export class Outbox {
     text: string;
     runId?: string;
     taskBindingId?: string;
+    imagePath?: string;
   }): NotificationOutboxItem {
     const item: NotificationOutboxItem = {
       outboxId: `ob-${randomUUID().slice(0, 8)}`,
@@ -71,6 +72,7 @@ export class Outbox {
       text: input.text,
       ...(input.runId ? { runId: input.runId } : {}),
       ...(input.taskBindingId ? { taskBindingId: input.taskBindingId } : {}),
+      ...(input.imagePath ? { imagePath: input.imagePath } : {}),
       status: "pending",
       attempts: 0,
       createdAt: new Date().toISOString(),
@@ -106,7 +108,7 @@ export class Outbox {
         continue;
       }
       try {
-        await sender(item.userId, item.text);
+        await sender(item.userId, item.text, item.imagePath);
         this.append({ ...item, status: "sent", sentAt: new Date().toISOString() });
         sent += 1;
       } catch (error) {
