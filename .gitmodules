@@ -43,3 +43,7 @@
 [submodule "thirdparties/switch"]
 	path = thirdparties/switch
 	url = https://github.com/sandbox-quantum/switch
+[submodule "thirdparties/linger"]
+	path = thirdparties/linger
+	url = https://github.com/simplexai-labs/linger.git
+	branch = main
