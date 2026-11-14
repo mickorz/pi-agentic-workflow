@@ -7,7 +7,7 @@ import { awemeIdFromUrl, canonicalizeUrl, firstUrlFromText, inspectDouyinCookie,
 import { dumpMetadata, fetchAudio } from './lib/download.js';
 import { resolveTool } from './lib/tools.js';
 import { cdpLaunch, exportDomainCookies, hasOwnedChrome, ownedChromePorts } from './lib/cookies.js';
-import { cdpInfoToMetadata, downloadAudioFile, ffmpegToWav, grabMediaViaCdp } from './lib/cdp-grab.js';
+import { cdpInfoToMetadata, downloadAudioFile, ffmpegToWav, grabMediaViaCdp, grabMediaViaChromeUse } from './lib/cdp-grab.js';
 import { resolveDashscopeApiKey } from './lib/bailian.js';
 import { transcribeAudio } from './lib/transcribe.js';
 import { killDebugChrome } from './lib/cleanup.js';
@@ -316,14 +316,50 @@ async function cmdExtract(opts: Record<string, string | boolean>): Promise<Extra
       downloadMs = Date.now() - tD;
     };
 
+    // chrome-use 兜底（2026-11-14 混合方案 C）：用户 Chrome relay 独立第二通道，成功概率与专用实例不相关；
+    // VD_FORCE_CHROME_USE=1 可直接跳过 cdp-cli 走兜底（调试/诊断用）
+    const extractViaChromeUse = async () => {
+      const t0 = Date.now();
+      log('chrome-use 兜底：用户 Chrome 打开视频页抓取（混合方案 C）');
+      const { info } = await grabMediaViaChromeUse({ pageUrl: resolved.canonicalUrl, logger: { info: log } });
+      metadata = cdpInfoToMetadata(info, resolved.canonicalUrl);
+      metadataMs = Date.now() - t0;
+      fs.writeFileSync(path.join(workdir, 'metadata.json'), JSON.stringify(metadata, null, 2) + '\n', 'utf8');
+      log(`元数据：${metadata.title} / ${metadata.uploader || '佚名'} / ${metadata.durationSeconds ?? '?'}s`);
+      if (!metadata.durationSeconds || metadata.durationSeconds <= 0) {
+        throw new CliError(`未取到视频时长（疑似图文笔记，V1 仅支持视频）：${metadata.title}`, '获取元数据', resolved.canonicalUrl);
+      }
+      const tD = Date.now();
+      const m4a = path.join(workdir, 'audio.m4a');
+      await downloadAudioFile({
+        url: info.audioUrl,
+        outPath: m4a,
+        referer: 'https://www.douyin.com/',
+        cookiesFile: cookie?.cookiesFile,
+        logger: { info: log },
+      });
+      audioPath = ffmpegToWav(ffmpeg, m4a, path.join(workdir, 'audio.wav'));
+      downloadMs = Date.now() - tD;
+    };
     if (useCdp) {
-      try {
-        await extractViaCdp();
-      } catch (e) {
-        if (downloader === 'cdp') throw e;
-        const msg = e instanceof Error ? e.message : String(e);
-        log(`CDP 通道失败，回落 yt-dlp：${msg}`);
-        await extractViaYtdlp();
+      if (process.env.VD_FORCE_CHROME_USE === '1') {
+        log('VD_FORCE_CHROME_USE=1：跳过 cdp-cli，直接 chrome-use 通道');
+        await extractViaChromeUse();
+      } else {
+        try {
+          await extractViaCdp();
+        } catch (e) {
+          if (downloader === 'cdp') throw e;
+          const msg = e instanceof Error ? e.message : String(e);
+          log(`CDP 通道失败，回落 chrome-use 兜底：${msg}`);
+          try {
+            await extractViaChromeUse();
+          } catch (e2) {
+            const msg2 = e2 instanceof Error ? e2.message : String(e2);
+            log(`chrome-use 兜底也失败，回落 yt-dlp：${msg2}`);
+            await extractViaYtdlp();
+          }
+        }
       }
     } else {
       await extractViaYtdlp();

@@ -58,3 +58,22 @@
 - cdp-cli 触点 grep（adapter/src 五文件）；cookies.ts 的 CDP WebSocket getAllCookies 实现行
 - chrome-use 手册：`open/eval` 活动标签语义、`cookies get/set/export --from`（macOS 标注）、`--auto-connect` 缺省共享会话、`--state/--session-name`
 - 2026-11-13 T0 实测：chrome-use 用户 Chrome 上抖音视频页标题/互动数/currentSrc 路径可读（`dy_collect.py`）
+
+## 附录：方案 C 实施记录（2026-11-14 当晚落地）
+
+**用户定案**：机器与 Chrome 长期开启、保持登录、暂无并发多类型任务（并发治理已登记 `dev-docs/todos/2026-11-14-浏览器任务并发争用治理.md`）→ 批准混合方案 C，chrome-use 作兜底（动因：11-13 凌晨两次任务失败，CDP 偶发降级 + yt-dlp 回落死路 + 重试同链路全灭）。
+
+**已落地**（`cdp-grab.ts` + `cli.ts`）：
+- 回落链：CDP 专用实例 → **chrome-use（用户 Chrome）** → yt-dlp（三层）
+- chrome-use 兜底实现：全局锁（与 collectors 同路径）→ open 视频页 → muted play（用户 Chrome autoplay 策略）→ GRAB_JS → 广告过滤+轮询 → 产出同 CdpMediaInfo
+- `VD_FORCE_CHROME_USE=1` 调试开关（跳过 cdp-cli 直测兜底）
+- 锁健壮性：写崩溃残留（空文件）立即接管；acquire 进 try 带标志位
+
+**当晚实测新发现（重要，后续维护者必读）**：
+1. **登录态前置广告**：用户 Chrome 播抖音先出广告（currentSrc=`v95-aw-web` 广告 CDN、dur null、标题空），专用实例无登录无广告——两通道页面行为本质不同
+2. **广告 CDN 偶发挂起**：该晚广告实例无限 loading（readyState 0 恒持），正片永不开始；已加"卡广告→重开重掷一次"，但当夜网络态下兜底通道未胜出（错误链清晰落 yt-dlp）
+3. SSR RENDER_DATA 无播放地址（客户端 API 拉取，需 a_bogus 签名，未深挖）；广告元素 remove/ended 事件伪造均骗不过播放器内部状态机
+4. **防误取设计**：audioUrl 命中广告 CDN 直接报错放弃（宁失败不取广告音频）
+5. 反复自动化重载会触发降级壳页（0 video 元素）——兜底重掷上限 1 次是有意的
+
+**结论修订**：兜底通道对"CDP 降级壳页"场景（11-13 失败模式）有独立成功概率，但对"广告位挂起"场景无效——两者都是抖音侧偶发，互为补充。主路（cdp-cli 无登录实例）仍是抖音最稳通道。

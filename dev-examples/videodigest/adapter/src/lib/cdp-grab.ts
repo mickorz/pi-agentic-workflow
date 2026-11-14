@@ -321,3 +321,160 @@ export function cdpInfoToMetadata(info: CdpMediaInfo, canonicalUrl: string): Vid
     webpageUrl: canonicalUrl,
   };
 }
+
+// ═══════════════ chrome-use 兜底通道（2026-11-14 混合方案 C） ═══════════════
+// 背景：CDP 专用实例偶发失败（抖音风控间歇下发降级壳页，10-27 与 11-13 两次复现），
+// 回落 yt-dlp 对抖音恒 403。chrome-use（用户 Chrome relay）是独立的第二浏览器通道，
+// 成功概率与专用实例不相关——作为 cdp-cli 失败后的兜底，最后才落 yt-dlp。
+// 用户侧前提（2026-11-14 确认）：机器与 Chrome 长期开启、保持登录。
+// 共享浏览器纪律：与 collectors（市场分析）共用全局锁 /tmp/piwf-chrome-collect.lock。
+
+/** 全局浏览器采集互斥锁（与 dev-examples/content-intelligence/collectors/collect_common.py 同路径同语义：
+ *  open(wx) 原子占位 + 30min 陈锁接管）。 */
+const BROWSER_LOCK = '/tmp/piwf-chrome-collect.lock';
+const LOCK_STALE_MS = 30 * 60 * 1000;
+
+function acquireBrowserLock(owner: string): void {
+  try {
+    const fd = fs.openSync(BROWSER_LOCK, 'wx');
+    fs.writeSync(fd, JSON.stringify({ owner, at: Date.now() }) + '\n');
+    fs.closeSync(fd);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+    try {
+      const st = fs.statSync(BROWSER_LOCK);
+      if (st.size === 0 || Date.now() - st.mtimeMs >= LOCK_STALE_MS) {  // 空文件=写崩溃残留，立即接管
+        fs.unlinkSync(BROWSER_LOCK);
+        const fd = fs.openSync(BROWSER_LOCK, 'wx');
+        fs.writeSync(fd, JSON.stringify({ owner, at: Date.now() }) + '\n');
+        fs.closeSync(fd);
+        return;
+      }
+    } catch {
+      /* 接管失败继续抛占用 */
+    }
+    throw new CliError('浏览器被其他采集任务占用（全局锁）', 'chrome-use 兜底', BROWSER_LOCK);
+  }
+}
+
+function releaseBrowserLock(): void {
+  try { fs.unlinkSync(BROWSER_LOCK); } catch { /* 尽力而为 */ }
+}
+
+/** chrome-use 二进制定位（PATH 探测，与 collect_common CANDIDATES 一致） */
+function findChromeUse(): string {
+  const pathEnv = process.env.PATH ?? '';
+  const ext = process.platform === 'win32' ? '.cmd' : '';
+  for (const name of ['chrome-use', 'agent-browser']) {
+    for (const dir of pathEnv.split(path.delimiter)) {
+      if (!dir) continue;
+      const p = path.join(dir, name + ext);
+      try {
+        if (fs.statSync(p).isFile()) return p;
+      } catch { /* 继续找 */ }
+    }
+  }
+  throw new CliError('未找到 chrome-use（兜底通道不可用）', 'chrome-use 兜底');
+}
+
+/** chrome-use eval 输出解析：兼容裸 JSON 行与 {success,value} 包装两种格式（实测混出） */
+function parseChromeUseEval(stdout: string): string {
+  const lines = stdout.split('\n').filter((l) => l.trim().startsWith('{'));
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line) continue;
+    try {
+      const d = JSON.parse(line) as Record<string, unknown>;
+      if (d && typeof d === 'object' && 'success' in d) {
+        if (d.success === false) throw new CliError(`chrome-use eval 失败：${line.slice(0, 200)}`, 'chrome-use 兜底');
+        if (typeof d.value === 'string') return d.value;
+      }
+      return line;
+    } catch (e) {
+      if (e instanceof CliError) throw e;
+      /* 非本行 JSON，试上一行 */
+    }
+  }
+  throw new CliError(`chrome-use eval 输出无可解析 JSON：${stdout.slice(0, 200)}`, 'chrome-use 兜底');
+}
+
+/** muted 起播（用户 Chrome 的 autoplay 策略比专用实例严格；静音播放不受限） */
+const CU_PLAY_JS =
+  "(() => { try { performance.setResourceTimingBufferSize(10000); } catch (e) {}" +
+  " const v = document.querySelector('video'); if (v) { v.muted = true; v.play().catch(() => {}); } })()";
+
+/** chrome-use 兜底抓取：全局锁 → open 视频页 → muted play → eval GRAB_JS → 让出页面（about:blank）。
+ *  返回与 grabMediaViaCdp 相同的 info 形态（audioUrl 等），复用下游下载/转码。 */
+export async function grabMediaViaChromeUse(opts: {
+  pageUrl: string;
+  loadWaitMs?: number;
+  playWaitMs?: number;
+  logger?: { info?: (m: string) => void };
+}): Promise<{ info: CdpMediaInfo }> {
+  const bin = findChromeUse();
+  const loadWaitMs = opts.loadWaitMs ?? 8000;
+  const playWaitMs = opts.playWaitMs ?? 8000;
+  let locked = false;
+  try {
+    acquireBrowserLock('videodigest-chrome-use');
+    locked = true;
+    const open = runSyncArgs(bin, ['open', opts.pageUrl]);
+    if (open.exitCode !== 0) {
+      throw new CliError(`chrome-use open 失败 退出码 ${open.exitCode}`, 'chrome-use 兜底', (open.stderr || open.stdout).slice(0, 300));
+    }
+    opts.logger?.info?.('chrome-use：视频页已打开（用户 Chrome）');
+    await new Promise((r) => setTimeout(r, loadWaitMs));
+    runSyncArgs(bin, ['eval', CU_PLAY_JS]);
+    await new Promise((r) => setTimeout(r, playWaitMs));
+    const isAdUrl = (u: string): boolean => u.includes('-aw-') || u.includes('aw-web'); // 登录态前置广告 CDN（v95-aw-web 实测）
+    const grabOnce = (): { au?: string; vi?: string; dur?: number | null; title?: string; author?: string } => {
+      const raw = parseChromeUseEval(runSyncArgs(bin, ['eval', GRAB_JS]).stdout);
+      try {
+        return JSON.parse(raw);
+      } catch {
+        throw new CliError(`chrome-use GRAB 返回非 JSON：${raw.slice(0, 200)}`, 'chrome-use 兜底');
+      }
+    };
+    // 广告期轮询：登录态先播广告（currentSrc=广告 CDN/dur null/标题空），静音播放等正片；
+    // 仍卡广告位时重开页面重掷一次（广告实例偶发挂起，2026-11-14 实测 v95-aw-web 无限 loading）
+    let wire = grabOnce();
+    for (let reload = 0; reload < 2; reload++) {
+      for (let poll = 0; poll < 4; poll++) {
+        const adPlaying = !wire.au || isAdUrl(wire.au) || !wire.dur || wire.dur <= 0 || !wire.title;
+        if (!adPlaying) break;
+        opts.logger?.info?.(`等待正片（第 ${poll + 1} 轮，当前${wire.au && isAdUrl(wire.au) ? '广告中' : '元数据未就绪'}）`);
+        runSyncArgs(bin, ['eval', CU_PLAY_JS]);
+        await new Promise((r) => setTimeout(r, 8000));
+        wire = grabOnce();
+      }
+      const stillAd = !wire.au || isAdUrl(wire.au) || !wire.dur || wire.dur <= 0 || !wire.title;
+      if (!stillAd) break;
+      if (reload === 0) {
+        opts.logger?.info?.('广告位挂起，重开页面重掷一次');
+        runSyncArgs(bin, ['open', opts.pageUrl]);
+        await new Promise((r) => setTimeout(r, 8000));
+        runSyncArgs(bin, ['eval', CU_PLAY_JS]);
+        await new Promise((r) => setTimeout(r, 5000));
+        wire = grabOnce();
+      }
+    }
+    const info: CdpMediaInfo = {
+      audioUrl: wire.au || '',
+      videoUrl: wire.vi || '',
+      durationSeconds: typeof wire.dur === 'number' ? wire.dur : null,
+      title: wire.title || '',
+      author: wire.author || '',
+    };
+    if (!info.audioUrl) {
+      throw new CliError('chrome-use 兜底未抓到音频 URL（播放未触发或资源未加载）', 'chrome-use 兜底');
+    }
+    if (isAdUrl(info.audioUrl)) {
+      throw new CliError('chrome-use 兜底仍停在广告位（40s 未出正片），放弃防误取广告音频', 'chrome-use 兜底');
+    }
+    // 用完让出页面（open 导航的是活动标签；about:blank 释放视频资源，不打扰用户）
+    try { runSyncArgs(bin, ['open', 'about:blank']); } catch { /* 尽力而为 */ }
+    return { info };
+  } finally {
+    if (locked) releaseBrowserLock();
+  }
+}
