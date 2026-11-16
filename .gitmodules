@@ -51,3 +51,7 @@
 	path = thirdparties/onlook
 	url = https://github.com/onlook-dev/onlook.git
 	branch = main
+[submodule "thirdparties/answer-me-with-html"]
+	path = thirdparties/answer-me-with-html
+	url = https://github.com/QingYunA/answer-me-with-html.git
+	branch = main
