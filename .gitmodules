@@ -55,3 +55,7 @@
 	path = thirdparties/answer-me-with-html
 	url = https://github.com/QingYunA/answer-me-with-html.git
 	branch = main
+[submodule "thirdparties/article2media"]
+	path = thirdparties/article2media
+	url = https://github.com/threerocks/article2media.git
+	branch = main
