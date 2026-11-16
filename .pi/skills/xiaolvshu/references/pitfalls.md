@@ -26,7 +26,7 @@
 
 ## 审图阶段
 
-10. **审图 agent 误读"缺字/截断"**：读图 OCR 假阴性率高（首发 5 判 4 误："合集/地/惯。"全部实际完好），直接采信会白白重渲甚至改错文案。-> 凡"疑似缺字/截断"，亲自开图逐字转录核验后才可采信；核验通过即推翻，notes 写明核验方式。（dev-docs/experience/sticker-review-agent-misread-truncation.md）
+10. **审图 agent 误读"缺字/截断"**：读图 OCR 假阴性率高（首发 5 判 4 误："合集/地/惯。"全部实际完好），直接采信会白白重渲甚至改错文案。-> 凡"疑似缺字/截断"，亲自开图逐字转录核验后才可采信；核验通过即推翻，notes 写明核验方式。（dev-docs/experience/sticker-review-agent-misread-truncation.md）2026-11-16 LoopForge 篇补充：workflow 审图 agent 本环境无读图工具时会自调外部视觉 API（DashScope qwen-vl）兜底，其风格性意见（"卖点横排不可辨""金句偏上留白大"）也可能把组件设计当缺陷——同样亲核后推翻，组件契约与容量纪律表是推翻依据。
 
 ## 发布阶段
 
