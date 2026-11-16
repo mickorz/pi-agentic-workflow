@@ -59,3 +59,7 @@
 	path = thirdparties/article2media
 	url = https://github.com/threerocks/article2media.git
 	branch = main
+[submodule "thirdparties/creatorhub"]
+	path = thirdparties/creatorhub
+	url = https://github.com/3441293738/creatorhub.git
+	branch = main
