@@ -63,3 +63,7 @@
 	path = thirdparties/creatorhub
 	url = https://github.com/3441293738/creatorhub.git
 	branch = main
+[submodule "thirdparties/stick-scene"]
+	path = thirdparties/stick-scene
+	url = https://github.com/nilbuild/stick-scene.git
+	branch = main
