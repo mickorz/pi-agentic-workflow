@@ -151,7 +151,6 @@ try {
           await checkpoint('抖音登录/验证二维码已发到微信（见图片），请用手机抖音扫码后回复「批准」继续；不扫码请回复「拒绝」', { imagePath: qrPng })
           log('扫码批准通过，重试音频提取')
           return await runJson(label + '(扫码后重试) ', 'node', [ADAPTER_CLI, ...extractArgv], 40 * 60 * 1000)
-        }
       }
       throw e
     }
