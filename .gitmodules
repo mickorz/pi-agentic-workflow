@@ -71,3 +71,7 @@
 	path = thirdparties/mdldm-maitian-publisher
 	url = https://github.com/mickorz/mdldm-maitian-publisher.git
 	branch = main
+[submodule "thirdparties/mdldm-maitian"]
+	path = thirdparties/mdldm-maitian
+	url = https://github.com/mickorz/mdldm-maitian.git
+	branch = main
