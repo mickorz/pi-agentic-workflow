@@ -69,5 +69,5 @@
 	branch = main
 [submodule "thirdparties/mdldm-maitian-publisher"]
 	path = thirdparties/mdldm-maitian-publisher
-	url = https://github.com/CzzzzzzJ/mdldm-maitian-publisher.git
+	url = https://github.com/mickorz/mdldm-maitian-publisher.git
 	branch = main
