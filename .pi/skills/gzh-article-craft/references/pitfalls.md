@@ -122,5 +122,5 @@
 - 现象：用户在预览工作台改了章题、点保存、点了「导出渲染 HTML」，聊天回复确认后，agent 直接用 chrome-devtools MCP 另开 Chrome 注入 token 准备自己重新导出，被用户当场指出"为什么没按流程读取我保存的文件"
 - 根因：把确认点 2 误解为"确认后由 agent 执行导出"，实际语义是"用户已在工作台完成编辑+导出，聊天确认即可发布"；没检查产物状态就动手
 - 后果：跳过用户改动检查（本次用户删了章题副题，若直接 publish 会用旧认知漏掉改动）；多开一个 Chrome 实例还会加剧 chrome-use 多实例 E_ENV 问题
-- 规避（收到确认后固定顺序）：①`ls` 看正文 md mtime，变了则 diff+重跑 check_state+更新 humanizer 缓存对应章；②查 layout.html 存在且比正文新则直接用；③缺失/过期才补导出（优先让用户在工作台点按钮）
+- 规避（脚本化，不靠 agent 自觉）：跑 `python dev-examples/wx-article/scripts/draft_manager/post_confirm_check.py --article-dir <dir>`，按输出行动——`=== READY TO PUBLISH ===` 直接 publish；`=== NEED ACTION ===` 让用户重新导出后重跑；输出 `[WARN] 正文 CHANGED` 时发布前重跑 check_state+更新 humanizer 缓存
 - 关联：`dev-docs/experience/gzh-confirm2-check-user-saved-artifacts-first.md`、SKILL.md G.5 节"收到确认后的标准动作"
