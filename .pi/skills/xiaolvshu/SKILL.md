@@ -22,6 +22,7 @@ description_zh: 素材到成套卡片、审图、newspic 入草稿箱的小绿�
 | C 审图 | 逐页读图核验 -> mark_review 结构化判定 | `_cards/cards-manifest.json` 审核状态 |
 | D 发布授权 | prepare 取指纹 -> 人工批准 -> execute 同指纹 | `publish-state.json` kind=sticker, DRAFTED |
 | E 发表 | 公众号后台手动发表（无自动发表通道） | — |
+| F 发布登记 | 发布成功后跑 publish_ledger.py 登记（含类型标签）| `<vault>/60_Workspace/写作/单篇/发布索引.json` |
 
 文章目录约定：**一律建在 Obsidian vault 内** `E:/Obsidian/newsky/60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/`（2026-11-14 定案）。红线：**严禁建在 pi-workflow 仓库内**（含新建仓库内 60_Workspace）——仓库根 `.aws-article/` 只存 vault_root 指针无 aws.env，会让 publish.py 向上查找提前命中致凭据找不到；且仓库内目录未 gitignore，素材/产物会混入 git。踩坑记录：dev-docs/experience/xiaolvshu-article-dir-must-be-in-vault.md。卡片工作目录 `_cards/` 在文章目录下，与文章线 imgs/ 天然隔离（publish-state 记 kind=sticker，混型发布显式拒绝）。
 
@@ -43,6 +44,8 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 - 报告算法与文章线相同：阶段耗时=相邻完成点间隔，含阶段内等待用户确认的时间
 
 ## A. 页面规划（唯一内容产出点）
+
+**发布索引互引（2026-11-25 新增）**：规划前先跑 `python dev-examples/wx-article/scripts/publish_ledger.py list --article-dir <dir>` 查发布历史；配文与发表时对同类型历史内容互相引用话题标签（如"AI做游戏"系列互相提及）。类型标签随内容定，可自创新词（现有：AI做游戏 / 开源项目 / Claude Code / AI行业动态 / 核实）。
 
 **输入两种（2026-11-12 新增 GitHub 链接）**：
 
@@ -141,6 +144,7 @@ python $SC/publish_sticker_cards.py ... --execute --approval <64位指纹>
 - 执行语义：同 hash 且已入箱 -> draft/get 核对后直接复用不重发；hash 变（改标题/配文/换图）-> **draft_update 原地更新**（media_id 不变，已真机验证）；旧草稿已删/已发表（40007）-> 自动重置状态，重跑即新建；网络不确定 -> UNKNOWN pending 保护，人工核对后 `--resolve-media-id <id>` 或 `--clear-pending` 恢复，**禁止盲目自动重试**
 - 成功字面量：`[5] DRAFT OK media_id=...` + `=== ALL DONE draft_media_id=... ===`
 - 发布后：到公众号后台**手动发表**（newspic 无 freepublish，通道显式拒绝自动发表）；后台若给草稿设了定时发布会被锁（errcode 53407），先取消定时才能再 update
+- **发布登记（2026-11-25 新增，D 成功即登记，发表确认后补 types 亦可）**：跑 `python dev-examples/wx-article/scripts/publish_ledger.py add --article-dir <dir> --title "<标题>" --kind sticker --types "<类型1,类型2>" --media-id <draft_media_id>`，登记进 `<vault>/60_Workspace/写作/单篇/发布索引.json`；类型标签随内容定可自创新词（现有词表见 A 节），查询用 `... list [--type <类型>]`——后续同类型发布时互相引用话题标签
 
 ## 断点续跑与救火
 
