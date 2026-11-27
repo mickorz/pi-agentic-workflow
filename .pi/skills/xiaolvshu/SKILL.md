@@ -54,6 +54,8 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 
 **README 首屏截图（2026-11-27 新增，clone 后规划前的可选步骤）**：用 chrome-use（chrome_devtools 系列）打开仓库页，截 README 渲染区首屏存 `_cards/assets/github-readme-first-screen.png`；该文件存在时 workflow 规划提示词强制第一页 role=cover + screenshot-with-caption（真实项目截图作封面，对齐真实素材优先偏好）。要点：
 
+- **语言变体优先（2026-11-27 用户纠偏）**：目标读者中文时优先截 README 中文版（README.zh-CN.md 等）——从 README 内语言切换链接解析真实路径（如 `/blob/main/README.zh-CN.md`），走 blob 页渲染预览截图，`article.markdown-body` 同样命中、钉元素法不变；无中文变体才截英文默认版
+
 - 定位 `article.markdown-body`（2026-11 实测 `#readme` / `[data-testid=readme]` 已不存在，选择器逐级回落并校验可见性与 innerText 长度）
 - **钉元素截图法**（视口直截会混入侧栏、缩窄视口又 reflow 变窄）：article 设 `position:fixed(0,0)` + 实测宽度 x 900px + `overflow:hidden` + 白底，html/body `overflow:hidden` 关滚动条，视口 emulate 成同尺寸 @dpr2，视口截图即纯 README（PNG 宽 = CSS 宽 x2，满足 >=720px 可读线）
 - 页面有 `isolation:isolate` 包裹层，任何 body 级遮罩会被整体压住（pitfalls #23），**勿用遮罩方案**；完成后还原页面样式
