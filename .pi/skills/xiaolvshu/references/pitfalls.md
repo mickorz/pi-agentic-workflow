@@ -60,6 +60,12 @@
 - 视觉工具不可用时的核验口径：PIL 像素扫描（ink<200 最后一行 y、底部 300px 墨迹行数），全组对比底部留白；触底即真缺陷
 - **1x1 井 904px 预算按单行标题计（2026-11-27 opengame 篇实测）**：两行 h-display 标题（+130px）会把 figcaption 整个推出画板、图框触底裁字（同上述超画板机制）——截图页标题放不下就改单行短语，细节挪进图注；改 pages.json 后必须 build_html 重建 index.html 再重渲（只重渲是无效返工，本篇又踩一次）
 
+## 24. crop.manual 参数语义与源图修整（2026-11-27，spritecook-skills 篇实测）
+
+- **crop manual 的可视窗口永远延伸到源图底部**：width 驱动缩放时渲染盒=100%x100%，窗口=[y*100, 100]%——调小 height 只会改变缩放，**裁不掉底部残行**（连续三轮复审同报“同一行半截”即此因，不是渲染问题）。**裁底部 X% 的正确姿势**：width=切口行号比例、height=1、x=0、y=0、fit=cover → 盒高=100/r%，底部 (1-r) 落出井外、列满宽不切行尾（切口选行间空白带，Range.getClientRects 实测行坐标）
+- **源图本身有残行/瑕疵时先修图再渲染**：chrome 打开 file:// 源图 → canvas drawImage + fillRect 涂白 → 替换 body 按 1:1 CSS px 展示 → emulate 同尺寸 @dpr1 视口截图，得像素 1:1 新 PNG（不写 PNG 解码器，#21 同源；file:// 页 canvas 无跨域污染）
+- **疑似“切边”必须实测**：Range.getClientRects() 量行右缘 vs 文章盒右缘——本次 zai 两次报“疑似轻微切到”，实测余量 168px，纯误报（C 节铁律实证）
+
 ## 23. GitHub README 首屏截图三坑（2026-11-27，markitdown 实测）
 
 - **选择器漂移**：`#readme` 与 `[data-testid="readme"]` 在 2026-11 的 GitHub react 版仓库页已不存在，命中的是 `article.markdown-body`。-> 选择器按优先级逐级回落，命中后用 innerText 长度（>=500 字符量级）+ 可见性确认是 README 正文，不假设 DOM 恒定
