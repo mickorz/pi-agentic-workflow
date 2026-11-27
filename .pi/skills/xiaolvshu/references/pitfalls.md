@@ -58,6 +58,7 @@
 - 根因：6 行清单每行 = 标题行+note 行，叠加双行 h-display 大标题后纵向超高；notes 长度精简不解决行数问题
 - 规矩：checklist 页规划时按 **5 行**预算（6 是 schema 上限不是推荐值）；双行大标题页更紧，notes 每条 <=10 字；pages.json 改后必须 build_html -> render -> normalize 全链重跑（只重渲不重建 index.html 是无效返工，本次连踩两次）
 - 视觉工具不可用时的核验口径：PIL 像素扫描（ink<200 最后一行 y、底部 300px 墨迹行数），全组对比底部留白；触底即真缺陷
+- **1x1 井 904px 预算按单行标题计（2026-11-27 opengame 篇实测）**：两行 h-display 标题（+130px）会把 figcaption 整个推出画板、图框触底裁字（同上述超画板机制）——截图页标题放不下就改单行短语，细节挪进图注；改 pages.json 后必须 build_html 重建 index.html 再重渲（只重渲是无效返工，本篇又踩一次）
 
 ## 23. GitHub README 首屏截图三坑（2026-11-27，markitdown 实测）
 
