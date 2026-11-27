@@ -57,7 +57,8 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 - **语言变体优先（2026-11-27 用户纠偏）**：目标读者中文时优先截 README 中文版（README.zh-CN.md 等）——从 README 内语言切换链接解析真实路径（如 `/blob/main/README.zh-CN.md`），走 blob 页渲染预览截图，`article.markdown-body` 同样命中、钉元素法不变；无中文变体才截英文默认版
 
 - 定位 `article.markdown-body`（2026-11 实测 `#readme` / `[data-testid=readme]` 已不存在，选择器逐级回落并校验可见性与 innerText 长度）
-- **钉元素截图法**（视口直截会混入侧栏、缩窄视口又 reflow 变窄）：article 设 `position:fixed(0,0)` + 实测宽度 x 900px + `overflow:hidden` + 白底，html/body `overflow:hidden` 关滚动条，视口 emulate 成同尺寸 @dpr2，视口截图即纯 README（PNG 宽 = CSS 宽 x2，满足 >=720px 可读线）
+- **钉元素截图法**（视口直截会混入侧栏、缩窄视口又 reflow 变窄）：article 设 `position:fixed(0,0)` + 实测宽度 x 高度 + `overflow:hidden` + 白底，html/body `overflow:hidden` 关滚动条，视口 emulate 成同尺寸 @dpr2，视口截图即纯 README（PNG 宽 = CSS 宽 x2，满足 >=720px 可读线）
+- **正方形出图（2026-11-27 比例对齐，用户纠偏）**：钉元素高度 = 实测宽度（如 846x846），出正方形图配 **well_ratio 1x1**——比例相等免疫 contain 留白/cover 裁切（pitfalls #19 同源纪律）；勿用 4x3（左右留白柱）或 3x4（1205px 井高+标题必超 1440 画板，pitfalls #22）
 - 页面有 `isolation:isolate` 包裹层，任何 body 级遮罩会被整体压住（pitfalls #23），**勿用遮罩方案**；完成后还原页面样式
 - 失败（无 README/超时/DOM 变更）→ 直接跳过走原有流程（仓库 assets 截图/文字封面），不阻塞
 

@@ -33,8 +33,9 @@ DOM 定位候选（按优先级，定位后必须校验可见性/内容/尺寸�
 | P2 | `article.markdown-body` | Markdown 正文 |
 | P3 | `.markdown-body` | 备用 |
 
-截图几何：宽度取 README 正文实际宽度；高度先取 900 CSS px（一个视口量），
-后续按实际效果调整。不强行拉伸、不裁掉 README 文字。
+截图几何：**正方形出图**（高度=实测宽度，如 846x846 @dpr2 -> 1692x1692 PNG），
+配封面页 **well_ratio 1x1**——比例相等免疫留白/裁切（pitfalls #19 纪律）。
+首版"900px 高 + 4x3 井"已作废（2026-11-27 用户纠偏：比例与规范不一致，4x3 井产生留白柱）。
 
 ## 二、接入改动（四处，不新增文件）
 
@@ -50,7 +51,7 @@ DOM 定位候选（按优先级，定位后必须校验可见性/内容/尺寸�
 ```json
 {
   "no": 1, "role": "cover", "source": "html",
-  "layout": "screenshot-with-caption", "well_ratio": "4x3",
+  "layout": "screenshot-with-caption", "well_ratio": "1x1",
   "image_fit": "contain",
   "asset": "_cards/assets/github-readme-first-screen.png",
   "copy": { "title": "项目名称", "caption": "项目一句话定位" }
