@@ -30,6 +30,7 @@
 - **2026-11-12** 生图偏好（前缀缓存审计篇 02-七件套 定样）：技术讲解类 body 示意图优先用该张的提示词风格——纵向堆叠条块清单式构图：暖白 #F5F8FC 底、深海蓝 #142B49 文字、科技蓝 #1776E8 焦点、青绿 #16B6AF 次强调、暖橙 #FF9B35 仅一处警示；顶部大号中文标题，主体为等宽横向条块纵向排列，关键行用色底+短注记，无需英文代码注记行；用户明确表示很喜欢这种风格，后续同类配图（分层/清单/对比类）默认沿用此风格。参考 prompt 见 前缀缓存审计/image-prompts.json items[context-stack]。
 - **2026-11-27** GitHub README 首屏截图优先中文变体：目标读者中文时，截图取 README 中文版（README.zh-CN.md 等），不是默认英文 README.md——从页面语言切换链接解析真实路径，走 blob 页渲染预览截图（钉元素法不变）。出处：opengame 试截用户纠偏。
 - **2026-11-27（补充）** README 截图正方形出图配 well_ratio 1x1：钉元素高度=实测宽度，比例相等免疫留白/裁切（pitfalls #19 同源纪律）；弃用首版 900px 高+4x3 井组合（留白柱）。出处：opengame 试截用户发现比例与规范不一致。
+- **2026-11-27** xiaolvshu 素材策略定案：图像素材只做贴图+截图（两条真实通道）；AI 生图维持 2026-11-19 克制偏好不收紧；全组统一 3:4 1080x1440（封面定全组展示比例，组内永不混尺寸）；文字卡/清单/金句页保留（"只做贴图和截图"指图像素材来源，非页面类型）。出处：小红书配图尺寸干货文对照后用户拍板。
 - **2026-11-14** 小绿书/文章线文章目录一律建在 vault `E:/Obsidian/newsky/60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/`，不在 git 仓库内建 60_Workspace（仓库内目录会被仓库根 `.aws-article` 截胡 find_config_root 导致凭据找不到，且素材混入 git）。详见 dev-docs/experience/xiaolvshu-article-dir-must-be-in-vault.md。
 - **2026-11-16** xiaolvshu 大纲.md 必含发布标题候选小节：>=2 个候选、每条 len() 实测 <=20 字、标出首选；确认点 1 连标题一起定，pages.json.title 与 --title 锁同一候选。已同步入 xiaolvshu SKILL.md 确认点 1 段。
 - **2026-11-04** 工作台切过主题的文章必须走 layout-html 入箱（publish --html-file layout.html），不能落回默认固定转换。
