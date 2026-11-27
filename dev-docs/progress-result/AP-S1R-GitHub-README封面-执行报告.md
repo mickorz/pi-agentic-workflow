@@ -80,7 +80,16 @@
   ②截图偶发 captureScreenshot 超时，等 3~5s 重试即过
 - opengame 成品：1692x1692 正方形，顶部即章节标题+导语+4 张游戏卡片
   （破潮者/星辉堡垒/天际快递员/霓虹漂移），零 GitHub UI 混入
-- 落盘：SKILL.md A 节案例章节截图步骤 + workflow 提示词 cases 资产约束
+- 附带坑：blob 页首次导航报 404 Unicorn 为瞬时加载问题，reload 即好
+
+## 追补三：图片驱动信息图重制（2026-11-27 迭代四，评审定案“图片驱动优先”）
+
+- 触发：评审指出两张纯文字 SVG 架构图“像技术组织架构”，未展示 SpriteCook 最有价值的视觉产物——游戏美术资产本身
+- 重制：能力墙 = 五瓦片图片驱动（真实产物图占主体，文字仅注释）+ 生产流程 = 四阶段图片生产线（01 GENERATE/02 POLISH/03 ANIMATE/04 INTEGRATE 各配真实产物图）
+- 素材：spritecook.ai 官方展示页 9 张真实产物图（curl 直下 _cards/assets/src/，素材优先级①档），无 AI 概念图无伪装
+- 技术要点：SVG `<image href="../assets/src/...">` 相对路径 + clipPath slice 填充瓦片；页面滚动触发懒加载后再截；capture 限工作区内路径，先落沙盒再 cp
+- 规则沉淀：SKILL.md 模式 B 视觉方案第 4 条重写——图片驱动优先判定/素材四级优先/密度限制/懒加载提醒
+- 新稿入箱：DRAFTED media_id RzpZ...eLu1p8c（旧稿后台已删 40007，重走 draft_add），verify OK=22 FAIL=0
 
 ## 追补二：无中文 README 先翻译再截（2026-11-27 迭代三，spritecook-skills 篇实战）
 
