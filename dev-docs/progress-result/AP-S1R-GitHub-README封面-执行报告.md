@@ -43,12 +43,14 @@
 | `dev-examples/wx-article/scripts/sticker_cards/components.py` | `_render_screenshot`：kicker 按 role 分流（cover→"封面 · Cover"，其余→"实证 · Evidence"）；封面截图页不输出 Fig. 序号 |
 | `.pi/skills/xiaolvshu/references/pitfalls.md` | 新增 #23（选择器漂移/侧栏混入/层叠陷阱/空白图自检） |
 
-第一页 pages.json 形态（冒烟实际用例，schema v2 全过）：
-`role=cover, layout=screenshot-with-caption, well_ratio=4x3, image_fit=contain, asset=_cards/assets/github-readme-first-screen.png`。
+第一页 pages.json 形态（首版冒烟历史用例，**well_ratio=4x3 已废弃**——2026-11-27 用户纠偏后终版 1x1，见文末追补段）：
+`role=cover, layout=screenshot-with-caption, ~~well_ratio=4x3~~ → well_ratio=1x1, image_fit=contain, asset=_cards/assets/github-readme-first-screen.png`。
 
 ## 验证记录
 
-1. **全链冒烟**（临时目录，markitdown 截图 2 页：README 封面 + text-card）：
+**验收口径分层（2026-11-27 评审补充，四类勿混）**：① Chrome-use 实际截图验收 = T0 九项清单；② 中文翻译实测 = 追补二（spritecook 篇）；③ 案例章节实测 = 追补一（opengame 篇）；④ 下述 103 断言为**原有卡片系统回归**，不构成 GitHub 截图功能的自动化覆盖。
+
+1. **全链冒烟**（临时目录，markitdown 截图 2 页：README 封面 + text-card；历史用例 well_ratio=4x3，后已废改 1x1）：
    validate_pages → build_html → render.mjs --no-embed（2 页 1080x1440）→ normalize →
    verify_cards，`汇总 OK=8 FAIL=0`、`=== CARDS VERIFIED ===`；
    index.html 含"封面 · Cover"、无 "Fig.0"；01.png zai 视觉核验通过。

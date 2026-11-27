@@ -45,7 +45,7 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 
 ## A. 页面规划（唯一内容产出点）
 
-**素材策略（2026-11-27 定案）**：图像素材只走两条真实通道——**贴图**（已有图片/演示 assets）与**截图**（chrome-use 采集：README 首屏/UI 界面/网页证据）；AI 生图维持 2026-11-19 克制偏好不收紧（≤2 张/篇且 ≤30%，能真实不 AI，采集不到删图留文不用 AI 凑数）。**全组统一 3:4 1080x1440**：封面定全组展示比例（异尺寸会被后台裁剪/补底），卡内图框按素材比例配 well（正方形素材配 1x1，pitfalls #19），但发布物永远是整张 1080x1440 卡，组内永不混尺寸；文字卡/清单/金句页保留。
+**素材策略（2026-11-27 定案）**：图像素材只走两条真实通道——**贴图**（已有图片/演示 assets）与**截图**（chrome-use 采集：README 首屏/UI 界面/网页证据）；AI 生图维持 2026-11-19 克制偏好不收紧（≤2 张/篇且 ≤30%，能真实不 AI，采集不到删图留文不用 AI 凑数）。**GitHub 输入时三类真实素材优先（2026-11-27 评审定案）**：README 首屏（项目身份）→ 案例章节（真实成果）→ 仓库 UI/演示截图（运行效果），文字卡负责解释技术价值——不为凑页数上 AI 生图。**全组统一 3:4 1080x1440**：封面定全组展示比例（异尺寸会被后台裁剪/补底），卡内图框按素材比例配 well（正方形素材配 1x1，pitfalls #19），但发布物永远是整张 1080x1440 卡，组内永不混尺寸；文字卡/清单/金句页保留。
 
 **发布索引互引（2026-11-25 新增）**：规划前先跑 `python dev-examples/wx-article/scripts/publish_ledger.py list --article-dir <dir>` 查发布历史；配文与发表时对同类型历史内容互相引用话题标签（如"AI做游戏"系列互相提及）。类型标签随内容定，可自创新词（现有：AI做游戏 / 开源项目 / Claude Code / AI行业动态 / 核实）。
 
@@ -56,13 +56,17 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 
 **README 首屏截图（2026-11-27 新增，clone 后规划前的可选步骤）**：用 chrome-use（chrome_devtools 系列）打开仓库页，截 README 渲染区首屏存 `_cards/assets/github-readme-first-screen.png`；该文件存在时 workflow 规划提示词强制第一页 role=cover + screenshot-with-caption（真实项目截图作封面，对齐真实素材优先偏好）。要点：
 
-- **语言变体优先；无中文版先翻译再截（2026-11-27 二次迭代）**：①有中文变体（README.zh-CN.md 等）→ 从 README 内语言切换链接解析真实路径（如 `/blob/main/README.zh-CN.md`），走 blob 页渲染预览截图；②**无中文变体 → 先翻译出中文版再截，不截英文**（读者看不懂英文）：翻译保 markdown 结构（标题/列表/代码块/链接/表格原样，专有名词/命令/模型名保留英文），落 `<文章目录>/引用/<repo>/README.zh-CN.md`；渲染 = POST `api.github.com/markdown`（text mode，匿名 60 次/时，python urllib 标准库）得 HTML 片段 → 在英文 blob 页 evaluate 注入 `article.markdown-body.innerHTML`（样式 100% GitHub 原生，读者无感知）→ 钉元素法照旧；注入被 React 洗掉就重新注入再截；③渲染 API 失败/网络不通 → 回落英文默认版（不阻塞）
+- **语言变体优先；无中文版先翻译再截（2026-11-27 二次迭代）**：①有中文变体（README.zh-CN.md 等）→ 从 README 内语言切换链接解析真实路径（如 `/blob/main/README.zh-CN.md`），走 blob 页渲染预览截图；②**无中文变体 → 先翻译出中文版再截，不截英文**（读者看不懂英文）：翻译保 markdown 结构（标题/列表/代码块/链接/表格原样，专有名词/命令/模型名保留英文），落 `<文章目录>/引用/<repo>/README.zh-CN.md`；渲染 = POST `api.github.com/markdown`（text mode，匿名 60 次/时/IP，python urllib 标准库）得 HTML 片段 → 在英文 blob 页 evaluate 注入 `article.markdown-body.innerHTML`（样式 100% GitHub 原生，读者无感知）→ 钉元素法照旧；注入被 React 洗掉就重新注入再截
+  - **相对路径重写（注入前对 markdown 源做，比改 HTML 稳）**：API 不知道文件在仓库的位置。以 README 所在目录为基准：`base_raw=https://raw.githubusercontent.com/<owner>/<repo>/<分支>/<readme目录>/`、`base_blob=https://github.com/<owner>/<repo>/blob/<分支>/<readme目录>/`；图片 `](./a.png)`/`](a.png)`/`](../x.png)` 及 `<img src="相对">` → `base_raw`+归化路径；链接指向 `.md`/无扩展名 → `base_blob`+路径；`#锚点`与绝对 http(s) 保持原样（不重写）
+  - **缓存与限流**：翻译 md 与渲染 HTML 都落盘（HTML 落 `_cards/assets/readme-zh-<md的sha8>.html`），md SHA256 未变不重复请求；遇 403/429 按 `retry-after` 响应头退避等待，不连续重试
+  - **失败即跳过，不回落英文（2026-11-27 评审修正）**：翻译失败/渲染 API 失败/截图失败 → 直接跳过 README 截图，走原 cover-hook 文字封面流程——**宁缺毋滥，不拿读者看不懂的英文截图充当封面**
 
 - 定位 `article.markdown-body`（2026-11 实测 `#readme` / `[data-testid=readme]` 已不存在，选择器逐级回落并校验可见性与 innerText 长度）
 - **钉元素截图法**（视口直截会混入侧栏、缩窄视口又 reflow 变窄）：article 设 `position:fixed(0,0)` + 实测宽度 x 高度 + `overflow:hidden` + 白底，html/body `overflow:hidden` 关滚动条，视口 emulate 成同尺寸 @dpr2，视口截图即纯 README（PNG 宽 = CSS 宽 x2，满足 >=720px 可读线）
 - **正方形出图（2026-11-27 比例对齐，用户纠偏）**：钉元素高度 = 实测宽度（如 846x846），出正方形图配 **well_ratio 1x1**——比例相等免疫 contain 留白/cover 裁切（pitfalls #19 同源纪律）；勿用 4x3（左右留白柱）或 3x4（1205px 井高+标题必超 1440 画板，pitfalls #22）
 - 页面有 `isolation:isolate` 包裹层，任何 body 级遮罩会被整体压住（pitfalls #23），**勿用遮罩方案**；完成后还原页面样式
 - 失败（无 README/超时/DOM 变更）→ 直接跳过走原有流程（仓库 assets 截图/文字封面），不阻塞
+- **截图页标题单行纪律**：封面/案例截图页 copy.title 一行、≤7 汉字宽、禁 \n（1x1 井 904px 预算按单行标题计，pitfalls #22/#24）；详细信息全部放 caption
 
 **README 案例章节截图（2026-11-27 新增，紧随首屏截图）**：读 clone 下来的 README（语言变体与封面同一选择），发现**案例章节**且**配图+说明俱全**时，追加截一张案例区首屏存 `_cards/assets/github-readme-cases.png`：
 
@@ -113,6 +117,8 @@ pi-workflow run dev-examples/wx-article/scripts/wechat_sticker_cards.js \
 args 契约：article_dir 必需；shots_dir 截图目录（规划 agent 会复制进 _cards/assets）；count 页数上限（缺 6，硬上限 9）；title/content 可显式传（覆盖 pages.json）；publish_method draft(缺省)|none；account_slot 缺 1；skip_confirm 跳规划门——**确认点 1 已在 workflow 外经大纲.md 完成（2026-11-12 改制），常规路径一律 skip_confirm:true**；发布授权 checkpoint 仍不可 skip。
 
 checkpoint 语义：带 `--non-interactive` 时人工门进入等待态（退出码 3），批准后 `printf 'y\n' | pi-workflow resume <runId> --yes` 续跑（只余 checkpoint 一个 readline，喂一个 y；详见 pitfalls #6）。
+
+**职责边界（2026-11-27 评审补充）**：GitHub 输入的素材采集（clone/翻译/README 截图/案例截图）是 **skill agent 的前置步骤**，workflow 只消费 `_cards/assets/` 里已存在的素材文件，不会自动补截图；补做截图后必须删除 `_cards/pages.json` 重新规划（workflow 检测到既有 pages.json 会跳过规划，新素材不会被旧页表吸收）。
 
 **路径二（部分重做/断点）：手动驱动脚本族。** 全部在仓库根执行：
 
