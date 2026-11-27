@@ -64,6 +64,14 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 - 页面有 `isolation:isolate` 包裹层，任何 body 级遮罩会被整体压住（pitfalls #23），**勿用遮罩方案**；完成后还原页面样式
 - 失败（无 README/超时/DOM 变更）→ 直接跳过走原有流程（仓库 assets 截图/文字封面），不阻塞
 
+**README 案例章节截图（2026-11-27 新增，紧随首屏截图）**：读 clone 下来的 README（语言变体与封面同一选择），发现**案例章节**且**配图+说明俱全**时，追加截一张案例区首屏存 `_cards/assets/github-readme-cases.png`：
+
+- 章节识别：##/### 标题命中 `/(案例|示例|实战|作品|showcase|examples?|demos?|gallery)/i`
+- 门槛：章节内（至下一同级/更高级标题）>=1 张图片且说明文字 >=50 字，不满足跳过
+- 截图：钉元素法变体——盒子钉 top:0 盖满视口（宽 x 宽正方形），**用 el.scrollTop=章节偏移**（文章文档 top - 盒子文档 top）让章节标题对齐视口顶；overflow:hidden 盒子可编程滚动，**勿用负 top 偏移**（整个盒子会移出视口，拍到的是背景页，pitfalls #23）
+- 截图偶发 captureScreenshot 超时：等 3~5s 重试即过（滚动/加载后渲染器忙，非页面死，勿重启浏览器）
+- 落位：workflow 提示词把该图排为前部截图证据页（well_ratio 1x1）；无案例章节/门槛不满足 → 跳过，不阻塞
+
 先回答素材三问，再动 pages.json：
 
 1. 这组卡片**一句话讲什么**（中心论点，决定封面钩子与 quote 收尾）

@@ -64,3 +64,18 @@
   （高度=实测宽度）配 well_ratio 1x1，比例对齐 pitfalls #19 纪律；4x3 井会产生留白柱。
   opengame 中文版实测：846x846 -> 1692x1692 PNG，冒烟 1x1 井满铺零留白，图注距底 100px。
 - dev-examples/github-readme-shot/（T0 截图产物）已加入 .gitignore，不随仓库提交。
+
+## 追补：README 案例章节截图（2026-11-27 迭代二，opengame 中文页实测）
+
+需求：读 README，发现案例章节且配图+说明俱全时，追加截一张案例区首屏做前部证据页
+（`_cards/assets/github-readme-cases.png`，well_ratio 1x1）。
+
+- 章节识别：##/### 标题命中 案例/示例/实战/作品/showcase/examples/demo/gallery；
+  门槛：章节内 >=1 图且说明 >=50 字（opengame 实测：H2「内置可玩游戏模板与示例」，
+  章节内 18 图，达标）
+- 实测踩坑两条（已入 pitfalls #23）：①负 top 偏移把钉住盒子移出视口拍到背景页——
+  改盒子钉 top:0 + el.scrollTop=章节偏移（overflow:hidden 可编程滚动）；
+  ②截图偶发 captureScreenshot 超时，等 3~5s 重试即过
+- opengame 成品：1692x1692 正方形，顶部即章节标题+导语+4 张游戏卡片
+  （破潮者/星辉堡垒/天际快递员/霓虹漂移），零 GitHub UI 混入
+- 落盘：SKILL.md A 节案例章节截图步骤 + workflow 提示词 cases 资产约束
