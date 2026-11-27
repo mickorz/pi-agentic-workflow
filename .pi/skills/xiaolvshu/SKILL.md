@@ -56,10 +56,13 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 
 **README 首屏截图（2026-11-27 新增，clone 后规划前的可选步骤）**：用 chrome-use（chrome_devtools 系列）打开仓库页，截 README 渲染区首屏存 `_cards/assets/github-readme-first-screen.png`；该文件存在时 workflow 规划提示词强制第一页 role=cover + screenshot-with-caption（真实项目截图作封面，对齐真实素材优先偏好）。要点：
 
-- **语言变体优先；无中文版先翻译再截（2026-11-27 二次迭代）**：①有中文变体（README.zh-CN.md 等）→ 从 README 内语言切换链接解析真实路径（如 `/blob/main/README.zh-CN.md`），走 blob 页渲染预览截图；②**无中文变体 → 先翻译出中文版再截，不截英文**（读者看不懂英文）：翻译保 markdown 结构（标题/列表/代码块/链接/表格原样，专有名词/命令/模型名保留英文），落 `<文章目录>/引用/<repo>/README.zh-CN.md`；渲染 = POST `api.github.com/markdown`（text mode，匿名 60 次/时/IP，python urllib 标准库）得 HTML 片段 → 在英文 blob 页 evaluate 注入 `article.markdown-body.innerHTML`（样式 100% GitHub 原生，读者无感知）→ 钉元素法照旧；注入被 React 洗掉就重新注入再截
+- **语言变体优先；无中文版先翻译再截（2026-11-27 二次迭代）**：①有中文变体（README.zh-CN.md 等）→ 从 README 内语言切换链接解析真实路径（如 `/blob/main/README.zh-CN.md`），走 blob 页渲染预览截图；②**无中文变体 → 先翻译出中文版再截，不截英文**（读者看不懂英文）：翻译保 markdown 结构（标题/列表/代码块/链接/表格原样，专有名词/命令/模型名保留英文），落 `<文章目录>/引用/<repo>/README.zh-CN.md`；渲染 = `gh api markdown -f text="$MD" -f mode=markdown`（gh 已认证 5000/h，输出原生 HTML 非 JSON；2026-11-27 评审建议，helix 篇实测）优先，匿名 urllib（60/h/IP）回落；得 HTML 片段 → 在英文 blob 页 evaluate 注入 `article.markdown-body.innerHTML`（样式 100% GitHub 原生，读者无感知）→ 钉元素法照旧；注入被 React 洗掉就重新注入再截
+  - **首屏中文结构调优（helix 篇实测）**：若原 README 首屏被大图占据（Logo+截图占满 823px，中文全在下方），翻译版可把中文简介/特性段移到图片段之前——本地化排版本就是翻译职责，保证首屏有中文
+  - **图片徽章网络不可靠**：shields.io 徽章（camo 代理或直连）在部分网络会破图（helix 篇 5/5 破）→ 翻译版把图片徽章改成纯文字链接行（永不破图）
   - **相对路径重写（注入前对 markdown 源做，比改 HTML 稳）**：API 不知道文件在仓库的位置。以 README 所在目录为基准：`base_raw=https://raw.githubusercontent.com/<owner>/<repo>/<分支>/<readme目录>/`、`base_blob=https://github.com/<owner>/<repo>/blob/<分支>/<readme目录>/`；图片 `](./a.png)`/`](a.png)`/`](../x.png)` 及 `<img src="相对">` → `base_raw`+归化路径；链接指向 `.md`/无扩展名 → `base_blob`+路径；`#锚点`与绝对 http(s) 保持原样（不重写）
   - **缓存与限流**：翻译 md 与渲染 HTML 都落盘（HTML 落 `_cards/assets/readme-zh-<md的sha8>.html`），md SHA256 未变不重复请求；遇 403/429 按 `retry-after` 响应头退避等待，不连续重试
   - **失败即跳过，不回落英文（2026-11-27 评审修正）**：翻译失败/渲染 API 失败/截图失败 → 直接跳过 README 截图，走原 cover-hook 文字封面流程——**宁缺毋滥，不拿读者看不懂的英文截图充当封面**
+  - **blob 页瞬时 404/503**：首次导航可能报 404 Unicorn 或 503（GitHub 瞬时故障，urllib 同报），reload/退避重试即好，不是仓库或流程问题（helix 篇实测）
 
 - 定位 `article.markdown-body`（2026-11 实测 `#readme` / `[data-testid=readme]` 已不存在，选择器逐级回落并校验可见性与 innerText 长度）
 - **钉元素截图法**（视口直截会混入侧栏、缩窄视口又 reflow 变窄）：article 设 `position:fixed(0,0)` + 实测宽度 x 高度 + `overflow:hidden` + 白底，html/body `overflow:hidden` 关滚动条，视口 emulate 成同尺寸 @dpr2，视口截图即纯 README（PNG 宽 = CSS 宽 x2，满足 >=720px 可读线）
