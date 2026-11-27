@@ -45,7 +45,27 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 
 ## A. 页面规划（唯一内容产出点）
 
-**素材策略（2026-11-27 定案）**：图像素材只走两条真实通道——**贴图**（已有图片/演示 assets）与**截图**（chrome-use 采集：README 首屏/UI 界面/网页证据）；AI 生图维持 2026-11-19 克制偏好不收紧（≤2 张/篇且 ≤30%，能真实不 AI，采集不到删图留文不用 AI 凑数）。**GitHub 输入时三类真实素材优先（2026-11-27 评审定案）**：README 首屏（项目身份）→ 案例章节（真实成果）→ 仓库 UI/演示截图（运行效果），文字卡负责解释技术价值——不为凑页数上 AI 生图。**全组统一 3:4 1080x1440**：封面定全组展示比例（异尺寸会被后台裁剪/补底），卡内图框按素材比例配 well（正方形素材配 1x1，pitfalls #19），但发布物永远是整张 1080x1440 卡，组内永不混尺寸；文字卡/清单/金句页保留。
+**素材策略（2026-11-27 定案）**：图像素材只走两条真实通道——**贴图**（已有图片/演示 assets）与**截图**（chrome-use 采集：README 首屏/UI 界面/网页证据）；AI 生图维持 2026-11-19 克制偏好不收紧（≤2 张/篇且 ≤30%，能真实不 AI，采集不到删图留文不用 AI 凑数）。**GitHub 输入时三类真实素材优先（2026-11-27 评审定案，仅 tool/hybrid 类）**：README 首屏（项目身份）→ 案例章节（真实成果）→ 仓库 UI/演示截图（运行效果），文字卡负责解释技术价值——不为凑页数上 AI 生图。**全组统一 3:4 1080x1440**：封面定全组展示比例（异尺寸会被后台裁剪/补底），卡内图框按素材比例配 well（正方形素材配 1x1，pitfalls #19），但发布物永远是整张 1080x1440 卡，组内永不混尺寸；文字卡/清单/金句页保留。
+
+**项目类型识别与视觉策略分流（2026-11-27 评审定案，helix/spritecook 两类实战后提炼）**：GitHub 项目分享不应只有一种截图生产模式——规划前先判定类型：
+
+| 类型 | 判定信号 | 主要分析对象 | 主要视觉素材 |
+|---|---|---|---|
+| **tool 工具类** | 有 UI/操作/运行结果（演示 assets、截图、Web 界面） | 产品功能与操作 | 真实截图（README 首屏/案例/UI） |
+| **skill-library 能力库** | 以 skills/ 目录 + SKILL.md 为主体、无 UI 演示资产 | Agent 能力与工作流 | 架构图/流程图（diagram-design）+ 示意贴图（image-use ≤1） |
+| **hybrid 混合型** | 既有产品 UI 又有 Skill/MCP 层 | 产品与 Agent 能力并重 | 截图 + 架构图 |
+
+原则：**没有真实 UI，就不要为了完成截图任务而制造截图**——Skill 类仓库的 README 截图只 produced 一篇“仓库介绍”，价值密度极低。
+
+**Skill 库结构化分析（模式 B 流程，spritecook 篇实测）**：不能只读 README，必须读实际的 SKILL.md（README 常漏新技能）：
+
+1. 递归读全部 `skills/*/SKILL.md`，逐个提取：能力职责 / 触发条件 / 依赖的 MCP 工具 / 输入输出 / 执行流程 / 质量约束
+2. 按能力分组（如 spritecook 实测分五组：生成 / 后处理 / 动画 / 引擎集成 / 工作流支撑）
+3. 提炼文章核心观点（Skill 层与 MCP 层的分工、跨技能的 asset_id 主线等）
+4. 视觉方案：AI 主视觉封面 ≤1（image-use，中文标题 canvas 后期排版补——AI 直写中文不可靠）+ diagram-design 架构图/流程图 2 张（800×800 规范）+ 文字卡承载分工/明细/安装
+5. **内容定位五问**（面向老板+AI 负责人+开发者）：解决了什么原来需要人工完成的问题？把哪些能力固化进了 Agent？多个 Skill 怎么协作？最终交付什么成果？这种模式对其他企业工作流有什么借鉴价值？
+
+注意：ai-image 页规划时即预写确定性产物路径 `_cards/assets/ai-{no:02d}.png`（ASSET_FMT 页号确定，生成后即就位，build 阶段校验必须有）；生图后如需标题排版，用 chrome canvas 补排（pitfalls #21 同源技法，AI 直写中文不可靠）
 
 **发布索引互引（2026-11-25 新增）**：规划前先跑 `python dev-examples/wx-article/scripts/publish_ledger.py list --article-dir <dir>` 查发布历史；配文与发表时对同类型历史内容互相引用话题标签（如"AI做游戏"系列互相提及）。类型标签随内容定，可自创新词（现有：AI做游戏 / 开源项目 / Claude Code / AI行业动态 / 核实）。
 
@@ -54,7 +74,7 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 1. **本地文章目录**（现有方式）：素材已在 vault `E:/Obsidian/newsky/60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/` 下
 2. **GitHub 仓库链接**（如 `https://github.com/can4hou6joeng4/boss-agent-cli`）：agent 建文章目录（主题取 repo 名，**必须建在 vault `E:/Obsidian/newsky/60_Workspace/写作/单篇/` 下**，见上方红线）后 `git clone --depth 1 <url> "<文章目录>/引用/<repo名>/"`，从 README/docs/仓库结构提取素材三问的答案；截图素材从仓库内图片/演示 assets 取（复制进 `_cards/assets/` 走 prep_screenshots）；仓库拉取失败（私有/网络）→ 用 zread 系列 GitHub 工具读结构化内容作为回落；后续流程与本地目录完全一致
 
-**README 首屏截图（2026-11-27 新增，clone 后规划前的可选步骤）**：用 chrome-use（chrome_devtools 系列）打开仓库页，截 README 渲染区首屏存 `_cards/assets/github-readme-first-screen.png`；该文件存在时 workflow 规划提示词强制第一页 role=cover + screenshot-with-caption（真实项目截图作封面，对齐真实素材优先偏好）。要点：
+**README 首屏截图（2026-11-27 新增，仅 tool/hybrid 类；skill-library 类跳过本节，走模式 B 结构化分析）**：用 chrome-use（chrome_devtools 系列）打开仓库页，截 README 渲染区首屏存 `_cards/assets/github-readme-first-screen.png`；该文件存在时 workflow 规划提示词强制第一页 role=cover + screenshot-with-caption（真实项目截图作封面，对齐真实素材优先偏好）。要点：
 
 - **语言变体优先；无中文版先翻译再截（2026-11-27 二次迭代）**：①有中文变体（README.zh-CN.md 等）→ 从 README 内语言切换链接解析真实路径（如 `/blob/main/README.zh-CN.md`），走 blob 页渲染预览截图；②**无中文变体 → 先翻译出中文版再截，不截英文**（读者看不懂英文）：翻译保 markdown 结构（标题/列表/代码块/链接/表格原样，专有名词/命令/模型名保留英文），落 `<文章目录>/引用/<repo>/README.zh-CN.md`；渲染 = `gh api markdown -f text="$MD" -f mode=gfm -f context="<owner>/<repo>"`（gh 已认证 5000/h；**gfm 模式+仓库 context 更贴近 README 原生语义**——表格/任务列表/仓库引用，2026-11-27 评审建议，后续仓库默认用 gfm；helix 篇无表格用的 markdown 模式）优先，匿名 urllib（60/h/IP）回落；得 HTML 片段 → 在英文 blob 页 evaluate 注入 `article.markdown-body.innerHTML`（样式 100% GitHub 原生，读者无感知）→ 钉元素法照旧；注入被 React 洗掉就重新注入再截
   - **首屏中文结构调优（helix 篇实测）**：若原 README 首屏被大图占据（Logo+截图占满 823px，中文全在下方），翻译版可把中文简介/特性段移到图片段之前——本地化排版本就是翻译职责，保证首屏有中文
