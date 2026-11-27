@@ -79,3 +79,10 @@
 - opengame 成品：1692x1692 正方形，顶部即章节标题+导语+4 张游戏卡片
   （破潮者/星辉堡垒/天际快递员/霓虹漂移），零 GitHub UI 混入
 - 落盘：SKILL.md A 节案例章节截图步骤 + workflow 提示词 cases 资产约束
+
+## 追补二：无中文 README 先翻译再截（2026-11-27 迭代三，spritecook-skills 篇实战）
+
+- 触发：spritecook/skills 仅英文 README，首版按旧规范截了英文——用户纠偏：首页截图不能是读者看不懂的英文
+- 新流程：翻译保 md 结构 → POST api.github.com/markdown（text mode）→ 英文 blob 页注入 article.innerHTML（样式 100% GitHub 原生）→ 钉元素截图；已入 SKILL.md 语言变体条目 + preference.md
+- 实战结果：SpriteCook 篇封面重截为中文版（canvas 涂白修折叠半截字），draft_update 遇 40007（旧稿后台已删）自动重置后 draft_add 新建，media_id RzpZ...8w3kPJ7；发布索引已更新 media_id
+- 附带坑：blob 页首次导航报 404 Unicorn 为瞬时加载问题，reload 即好
