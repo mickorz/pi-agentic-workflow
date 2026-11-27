@@ -142,6 +142,8 @@ def _render_screenshot(page: dict, page_no: int, article_root: Path | None = Non
     copy = page["copy"]
     title = copy["title"]
     caption = copy["caption"]
+    # role=cover（GitHub README 首屏封面页，2026-11-27）：kicker 用封面标，不显示 Fig. 序号
+    role = page.get("role", "")
     crop = page.get("crop") or {}
     mode = crop.get("mode", "contain") if isinstance(crop, dict) else "contain"
     well_ratio = page.get("well_ratio", "4x3")
@@ -182,7 +184,7 @@ def _render_screenshot(page: dict, page_no: int, article_root: Path | None = Non
     return (
         poster_open(page_no)
         + '      <div class="content stack gap-4">' + NL
-        + _kicker(KICKERS["evidence"])
+        + _kicker(KICKERS["cover"] if role == "cover" else KICKERS["evidence"])
         + f'        <h1 class="h-display">{esc_multiline(title)}</h1>' + NL
         + f'        <figure class="gz-figure" data-kind="{kind}" data-ratio="{well_ratio}"{figure_style}>' + NL
         + '          <div class="gz-figure__well">' + NL
@@ -190,7 +192,7 @@ def _render_screenshot(page: dict, page_no: int, article_root: Path | None = Non
            + (f' style="{img_style}"' if img_style else "") + ">" + NL)
         + "          </div>" + NL
         + '          <figcaption class="gz-figure__cap gz-t-caption">' + NL
-        + f'            <span class="gz-figure__idx">Fig.{page_no - 1}</span>' + NL
+        + (f'            <span class="gz-figure__idx">Fig.{page_no - 1}</span>' + NL if role != "cover" else "")
         + f"            <span>{esc(caption)}</span>" + NL
         + "          </figcaption>" + NL
         + "        </figure>" + NL

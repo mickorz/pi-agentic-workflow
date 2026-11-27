@@ -58,3 +58,10 @@
 - 根因：6 行清单每行 = 标题行+note 行，叠加双行 h-display 大标题后纵向超高；notes 长度精简不解决行数问题
 - 规矩：checklist 页规划时按 **5 行**预算（6 是 schema 上限不是推荐值）；双行大标题页更紧，notes 每条 <=10 字；pages.json 改后必须 build_html -> render -> normalize 全链重跑（只重渲不重建 index.html 是无效返工，本次连踩两次）
 - 视觉工具不可用时的核验口径：PIL 像素扫描（ink<200 最后一行 y、底部 300px 墨迹行数），全组对比底部留白；触底即真缺陷
+
+## 23. GitHub README 首屏截图三坑（2026-11-27，markitdown 实测）
+
+- **选择器漂移**：`#readme` 与 `[data-testid="readme"]` 在 2026-11 的 GitHub react 版仓库页已不存在，命中的是 `article.markdown-body`。-> 选择器按优先级逐级回落，命中后用 innerText 长度（>=500 字符量级）+ 可见性确认是 README 正文，不假设 DOM 恒定
+- **视口直截混入侧栏**：宽视口（>=1012px）下 README 与 Contributors/Languages 侧栏并排，视口截图右侧混入非 README 内容；缩窄视口又触发 reflow，README 列宽塔到 423px（@800px 视口），低于 720px 可读线。-> **钉元素截图法**（SKILL.md A 节）：article fixed(0,0) + 实测宽 x 900px + overflow hidden + 白底，视口 emulate 同尺寸 @dpr2，PNG 即纯 README 且实际宽 x2 满足 >=720px
+- **遮罩方案必失败**：body 级白遮罩 z-index 再高也会被 GitHub 页面的 `isolation:isolate` 包裹层（div.logged-out.env-production）整体压住——隔离上下文内部 z-index 再大对外也只是 auto，表现为整屏白图。-> 不用遮罩；article 自身白底 + 满视口覆盖即可，html/body overflow:hidden 关滚动条残影
+- **空白图自检**：截图后必须用 zai 读图确认顶部是 README 标题而非空白/侧栏；全白 = 钉元素被遮罩盖住（上一条），删除遮罩重截即可

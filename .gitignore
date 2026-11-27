@@ -17,6 +17,7 @@ thirdparties/pi-dynamic-workflows/
 
 # dev-examples 运行产物（评测报告/微信测试数据）
 dev-examples/router-eval/reports/
+dev-examples/github-readme-shot/
 dev-examples/*/.pi-wechat/
 
 # 仓库根运行数据（AM agent 模式产物，不入库）

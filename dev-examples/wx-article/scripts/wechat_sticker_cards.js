@@ -92,6 +92,7 @@ if (pagesExists) {
     (args.source_text ? '- 文本素材：' + args.source_text + '\n' : '') +
     (args.shots_dir ? '- 截图目录：' + args.shots_dir + '（列出其中图片，作为截图证据页素材，并把图片复制到 ' + CARD + '/assets/ 下）\n' : '') +
     '- 文章目录：' + args.article_dir + '（可读其中 md/笔记文件）\n' +
+    '- GitHub README 首屏截图：若 ' + CARD + '/assets/github-readme-first-screen.png 存在（2026-11-27 新增，规划前由 chrome-use 截好），必须作为第一页素材：role=cover、layout=screenshot-with-caption、well_ratio 4x3、image_fit contain、asset 指向该截图、copy.title=项目名、copy.caption=项目一句话定位；不允许放到第二页或后续页，不允许 AI 重绘/替换；文件不存在则按原有 cover-hook 文字封面规划\n' +
     '- 页数上限：' + (args.count || 6) + '（硬上限 9，含封面）\n' +
     '- 风格：' + (args.style_mode || 'editorial') + '\n\n' +
     '必读规范（相对仓库根）：\n' +

@@ -52,6 +52,13 @@ python3 "$S" report --vault-root "<vault>/60_Workspace/写作/单篇"
 1. **本地文章目录**（现有方式）：素材已在 vault `E:/Obsidian/newsky/60_Workspace/写作/单篇/<YYYYMMDD>/<主题>/` 下
 2. **GitHub 仓库链接**（如 `https://github.com/can4hou6joeng4/boss-agent-cli`）：agent 建文章目录（主题取 repo 名，**必须建在 vault `E:/Obsidian/newsky/60_Workspace/写作/单篇/` 下**，见上方红线）后 `git clone --depth 1 <url> "<文章目录>/引用/<repo名>/"`，从 README/docs/仓库结构提取素材三问的答案；截图素材从仓库内图片/演示 assets 取（复制进 `_cards/assets/` 走 prep_screenshots）；仓库拉取失败（私有/网络）→ 用 zread 系列 GitHub 工具读结构化内容作为回落；后续流程与本地目录完全一致
 
+**README 首屏截图（2026-11-27 新增，clone 后规划前的可选步骤）**：用 chrome-use（chrome_devtools 系列）打开仓库页，截 README 渲染区首屏存 `_cards/assets/github-readme-first-screen.png`；该文件存在时 workflow 规划提示词强制第一页 role=cover + screenshot-with-caption（真实项目截图作封面，对齐真实素材优先偏好）。要点：
+
+- 定位 `article.markdown-body`（2026-11 实测 `#readme` / `[data-testid=readme]` 已不存在，选择器逐级回落并校验可见性与 innerText 长度）
+- **钉元素截图法**（视口直截会混入侧栏、缩窄视口又 reflow 变窄）：article 设 `position:fixed(0,0)` + 实测宽度 x 900px + `overflow:hidden` + 白底，html/body `overflow:hidden` 关滚动条，视口 emulate 成同尺寸 @dpr2，视口截图即纯 README（PNG 宽 = CSS 宽 x2，满足 >=720px 可读线）
+- 页面有 `isolation:isolate` 包裹层，任何 body 级遮罩会被整体压住（pitfalls #23），**勿用遮罩方案**；完成后还原页面样式
+- 失败（无 README/超时/DOM 变更）→ 直接跳过走原有流程（仓库 assets 截图/文字封面），不阻塞
+
 先回答素材三问，再动 pages.json：
 
 1. 这组卡片**一句话讲什么**（中心论点，决定封面钩子与 quote 收尾）
