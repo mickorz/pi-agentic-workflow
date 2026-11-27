@@ -64,3 +64,10 @@ thirdparties/space-image/
 # 抓取的第三方素材（公众号文章/图片），仅本地参照不进仓库
 templates/
 dev-examples/content-intelligence/collectors/out/
+# 历史会话遗留截图/审图产物（2026-11-27 清理，不入库）
+.tmp-shots/
+dev-examples/dsh-ee-shots/
+dev-examples/zenstory-shots/
+dev-examples/home-repo-sticker/
+dev-examples/xiaolvshu-review/
+dev-examples/xiaolvshu-review-vision/review-result.txt
