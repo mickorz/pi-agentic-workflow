@@ -73,3 +73,9 @@
 - **遮罩方案必失败**：body 级白遮罩 z-index 再高也会被 GitHub 页面的 `isolation:isolate` 包裹层（div.logged-out.env-production）整体压住——隔离上下文内部 z-index 再大对外也只是 auto，表现为整屏白图。-> 不用遮罩；article 自身白底 + 满视口覆盖即可，html/body overflow:hidden 关滚动条残影
 - **空白图自检**：截图后必须用 zai 读图确认顶部是 README 标题而非空白/侧栏；全白 = 钉元素被遮罩盖住（上一条），删除遮罩重截即可
 - **章节偏移截图两坑（2026-11-27 opengame 案例章节实测）**：①负 top 偏移（top:-offset）会把整个钉住盒子移出视口，拍到的是背景页（文件头/面包屑）而非章节——正确做法是盒子钉 top:0 盖满视口 + el.scrollTop=章节偏移（overflow:hidden 盒子可编程滚动）；②操作后立即截图偶发 Page.captureScreenshot 超时（滚动/图片加载后渲染器忙），等 3~5s 重试即过，不要调 protocolTimeout 或重启浏览器
+
+## 25. text-card 正文自然折行产生行尾歧义词（2026-11-28，wechat-minigame-publisher-skill 篇）
+
+- 症状：正文 lead 是自然流排，折行点渲染器决定——"出名称头像简介"行尾断出"出名"、"备发布资料"行尾断出"备发"，快速扫读歧义（审图 zai 逐行转录暴露）
+- 解法：text-card body 走 esc_multiline，**支持 \n 手工断行**——发现歧义直接在 pages.json body 里写 \n 按语义断行（断行行宽须 ≤ 自然行宽，否则混入自动折行前功尽弃），build -> render --only 该页 -> normalize -> 重审
+- 规矩：规划阶段对 8 项并列长句预判折行点；改断行一次到位（本篇两轮才定稿，第一轮只换词没控断行点，白重渲一次）
